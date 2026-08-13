@@ -158,7 +158,7 @@ function Dashboard({ state, summary, setState, setPage, setModal }) {
 function CharacterBubble({ shortage }) {
   return <div className="character-wrap" aria-label="灯明ひかりからのメッセージ">
     <div className="speech"><span>灯明ひかり</span><b>{shortage ? `あと${shortage}つ整えたら、もっと安心だよ。` : '準備ばっちり！今日も安心だね。'}</b><small>一緒に、ゆっくり続けよう。</small></div>
-    <div className="character-portrait"><img src="/characters/tomyo-hikari.png" alt="ランタンを手にほほえむ防災ナビゲーター、灯明ひかり" /></div>
+    <div className="character-portrait"><img src={`${import.meta.env.BASE_URL}characters/tomyo-hikari.png`} alt="ランタンを手にほほえむ防災ナビゲーター、灯明ひかり" /></div>
   </div>;
 }
 
@@ -294,7 +294,7 @@ function useDialogClose(onClose, dialogRef) {
 
 function ShareQrPanel({ onClose, setToast }) {
   const dialogRef = useRef(null);
-  const [url, setUrl] = useState(() => window.location.origin);
+  const [url, setUrl] = useState(() => new URL(import.meta.env.BASE_URL, window.location.origin).href);
   const [suggestions, setSuggestions] = useState([]);
   const [qrImage, setQrImage] = useState('');
   const [error, setError] = useState('');
