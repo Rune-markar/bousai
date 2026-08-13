@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { handleProductApi } from './server/productLookup.mjs';
 
+const APP_BASE = '/bousai/';
+
 function productApiPlugin() {
   return {
     name: 'sonae-product-api',
@@ -17,10 +19,12 @@ function productApiPlugin() {
 }
 
 export default defineConfig({
+  base: APP_BASE,
   plugins: [
     react(),
     productApiPlugin(),
     VitePWA({
+      scope: APP_BASE,
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'characters/tomyo-hikari.png'],
       manifest: {
@@ -31,12 +35,14 @@ export default defineConfig({
         background_color: '#f7f4ec',
         display: 'standalone',
         lang: 'ja',
-        icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
+        start_url: './',
+        scope: './',
+        icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,webp}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-        navigateFallback: '/index.html',
+        navigateFallback: 'index.html',
         runtimeCaching: [
           { urlPattern: /^https:\/\/images\.openfoodfacts\.org\//, handler: 'CacheFirst', options: { cacheName: 'product-images', expiration: { maxEntries: 100, maxAgeSeconds: 30 * 24 * 60 * 60 }, cacheableResponse: { statuses: [0, 200] } } },
           { urlPattern: /\/api\/products\//, handler: 'NetworkFirst', options: { cacheName: 'product-lookups', networkTimeoutSeconds: 5, expiration: { maxEntries: 300, maxAgeSeconds: 7 * 24 * 60 * 60 }, cacheableResponse: { statuses: [200] } } },
