@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
-import { handleProductApi } from './server/productLookup.mjs';
+import { handleProductApi, handleProductImageApi } from './server/productLookup.mjs';
+import { getAccessInfo } from './server/accessInfo.mjs';
 
-const APP_BASE = '/bousai/';
+const APP_BASE = process.env.APP_BASE || '/';
 
 function productApiPlugin() {
   return {
@@ -11,8 +12,19 @@ function productApiPlugin() {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const match = req.url?.match(/^\/api\/products\/([^/?]+)/);
-        if (!match || req.method !== 'GET') return next();
-        await handleProductApi(req, res, decodeURIComponent(match[1]));
+        if (match && req.method === 'GET') return handleProductApi(req, res, decodeURIComponent(match[1]));
+        const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+        if (requestUrl.pathname === '/api/product-image' && req.method === 'GET') {
+          return handleProductImageApi(req, res, requestUrl.searchParams.get('url') || '');
+        }
+        if (requestUrl.pathname === '/api/access-info' && req.method === 'GET') {
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify(getAccessInfo(req)));
+          return;
+        }
+        return next();
       });
     },
   };
@@ -26,7 +38,7 @@ export default defineConfig({
     VitePWA({
       scope: APP_BASE,
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'characters/tomyo-hikari.png'],
+      includeAssets: ['favicon.svg', 'characters/*.webp'],
       manifest: {
         name: 'そなえメモ',
         short_name: 'そなえメモ',
@@ -40,7 +52,7 @@ export default defineConfig({
         icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webp}'],
+        globPatterns: ['**/*.{js,css,html,svg,webp}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallback: 'index.html',
         runtimeCaching: [

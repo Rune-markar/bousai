@@ -1,7 +1,7 @@
 import { createInitialInventory, daysFromNow, uid } from './domain.js';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 5;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -32,6 +32,9 @@ export function normalizeInventoryItem(item = {}, index = 0) {
     nextCheck: item.nextCheck || daysFromNow(30),
     rotationEnabled: item.rotationEnabled !== false,
     rotationLeadDays: Math.max(0, Number(item.rotationLeadDays) || 30),
+    replenishmentPriority: ['high', 'medium', 'low'].includes(item.replenishmentPriority) ? item.replenishmentPriority : ((Number(item.tier) || 2) === 1 ? 'high' : (Number(item.tier) || 2) === 2 ? 'medium' : 'low'),
+    replenishBy: item.replenishBy || '',
+    purchaseFrom: String(item.purchaseFrom || ''),
   };
 }
 
@@ -42,7 +45,12 @@ export function createDefaultState() {
     household: 2,
     contact: { name: '家族の集合場所', phone: '', shelter: '〇〇小学校 体育館', note: '災害用伝言ダイヤル 171' },
     completedTips: [],
+    preparedness: { completed: [], updatedAt: '' },
     transactions: [],
+    lastVisitAt: '',
+    selectedCharacter: 'hikari',
+    characterAffinity: { akane: 0, yui: 0, riko: 0, hikari: 0, noa: 0 },
+    dialogueLog: [],
   };
 }
 
@@ -62,7 +70,15 @@ export function normalizeState(input) {
       note: String(contact.note || ''),
     },
     completedTips: Array.isArray(input.completedTips) ? input.completedTips.filter((value) => typeof value === 'string') : [],
+    preparedness: {
+      completed: Array.isArray(input.preparedness?.completed) ? input.preparedness.completed.filter((value) => typeof value === 'string') : [],
+      updatedAt: String(input.preparedness?.updatedAt || ''),
+    },
     transactions: Array.isArray(input.transactions) ? input.transactions.filter(Boolean).slice(0, 500) : [],
+    lastVisitAt: String(input.lastVisitAt || ''),
+    selectedCharacter: ['akane', 'yui', 'riko', 'hikari', 'noa'].includes(input.selectedCharacter) ? input.selectedCharacter : 'hikari',
+    characterAffinity: Object.fromEntries(['akane', 'yui', 'riko', 'hikari', 'noa'].map((id) => [id, Math.min(100, Math.max(0, Number(input.characterAffinity?.[id]) || 0))])),
+    dialogueLog: Array.isArray(input.dialogueLog) ? input.dialogueLog.filter(Boolean).slice(0, 100) : [],
   };
 }
 
@@ -75,7 +91,7 @@ export function loadState(storage = localStorage) {
   }
 }
 
-export function createTransaction(type, item, quantityDelta = 0, note = '') {
+export function createTransaction(type, item, quantityDelta = 0, note = '', metadata = {}) {
   return {
     id: uid(),
     type,
@@ -85,6 +101,7 @@ export function createTransaction(type, item, quantityDelta = 0, note = '') {
     quantityDelta: Number(quantityDelta) || 0,
     unit: item.unit,
     note,
+    ...metadata,
     at: new Date().toISOString(),
   };
 }

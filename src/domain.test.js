@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRotationQueue, consumeByRotation, inventorySummary, itemStats } from './domain.js';
+import { buildRotationQueue, consumeByRotation, inventorySummary, itemStats, transactionInsights } from './domain.js';
 
 describe('itemStats', () => {
   it('不足数と補充費用を計算する', () => {
@@ -14,6 +14,19 @@ describe('itemStats', () => {
     expect(stats.daysToExpiry).toBe(16);
     expect(stats.isExpiring).toBe(true);
     expect(stats.isExpired).toBe(false);
+  });
+});
+
+describe('transactionInsights', () => {
+  it('直近30日の消費と廃棄を理由付きで集計する', () => {
+    const insights = transactionInsights([
+      { type: 'consume', name: '水', quantityDelta: -2, at: '2026-08-10T00:00:00Z', reason: '日常消費' },
+      { type: 'discard', name: '保存食', quantityDelta: -1, at: '2026-08-11T00:00:00Z', reason: '期限切れ・廃棄' },
+      { type: 'consume', name: '古い品', quantityDelta: -9, at: '2026-05-01T00:00:00Z' },
+    ], new Date('2026-08-14T12:00:00Z'));
+    expect(insights.consumed30Days).toBe(3);
+    expect(insights.discarded30Days).toBe(1);
+    expect(insights.topConsumed).toEqual({ name: '水', quantity: 2 });
   });
 });
 
@@ -43,7 +56,7 @@ describe('inventorySummary', () => {
       { category: 'food', tier: 1, quantity: 20, target: 10, price: 100, expiry: '' },
       { category: 'water', tier: 1, quantity: 5, target: 10, price: 50, expiry: '' },
     ]);
-    expect(summary.score).toBe(75);
+    expect(summary.score).toBe(35);
     expect(summary.shortageCount).toBe(1);
     expect(summary.replenishmentCost).toBe(250);
   });
@@ -61,5 +74,15 @@ describe('inventorySummary', () => {
     expect(summary.expiringCount).toBe(1);
     expect(summary.checkDueCount).toBe(1);
     expect(summary.notificationCount).toBe(1);
+  });
+
+  it('重要カテゴリを削除しても備蓄力が上がらない', () => {
+    const items = [
+      { category: 'water', tier: 1, quantity: 10, target: 10, price: 0, expiry: '' },
+      { category: 'food', tier: 1, quantity: 10, target: 10, price: 0, expiry: '' },
+      { category: 'hygiene', tier: 1, quantity: 2, target: 10, price: 0, expiry: '' },
+    ];
+    expect(inventorySummary(items.filter((item) => item.category !== 'hygiene')).score)
+      .toBeLessThanOrEqual(inventorySummary(items).score);
   });
 });

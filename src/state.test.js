@@ -7,7 +7,9 @@ describe('state migration', () => {
     expect(state.schemaVersion).toBe(SCHEMA_VERSION);
     expect(state.inventory[0]).toMatchObject({ id: 'old', name: '水', quantity: 2 });
     expect(state.inventory[0].productId).toBe('legacy:old');
+    expect(state.preparedness).toEqual({ completed: [], updatedAt: '' });
     expect(state.transactions).toEqual([]);
+    expect(state.inventory[0].replenishmentPriority).toBe('medium');
   });
 
   it('recovers from corrupt JSON', () => {

@@ -112,9 +112,8 @@ export function inventorySummary(items, household = 2) {
     return { key, score: Math.round((sum / weights) * 100) };
   });
   const categoryWeight = { water: 3, food: 3, hygiene: 2.5, heat: 2, light: 2, comfort: 0.5 };
-  const presentScores = categoryScores.filter(({ key }) => rows.some((item) => item.category === key));
-  const totalCategoryWeight = presentScores.reduce((sum, item) => sum + categoryWeight[item.key], 0);
-  const score = totalCategoryWeight ? Math.round(presentScores.reduce((sum, item) => sum + item.score * categoryWeight[item.key], 0) / totalCategoryWeight) : 0;
+  const totalCategoryWeight = categoryScores.reduce((sum, item) => sum + categoryWeight[item.key], 0);
+  const score = totalCategoryWeight ? Math.round(categoryScores.reduce((sum, item) => sum + item.score * categoryWeight[item.key], 0) / totalCategoryWeight) : 0;
   const waterMl = rows.filter((item) => item.category === 'water').reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.volumeMl) || 0), 0);
   const waterDays = household ? Math.floor(waterMl / (household * 3000)) : 0;
   const rotationQueue = buildRotationQueue(items);
@@ -129,10 +128,30 @@ export function inventorySummary(items, household = 2) {
     checkDueCount: rows.filter((item) => item.isCheckDue).length,
     notificationCount: notificationRows.length,
     replenishmentCost: rows.reduce((sum, item) => sum + item.replenishmentCost, 0),
-    replenishmentPlan: rows.filter((item) => item.shortage > 0).sort((a, b) => a.tier - b.tier || a.ratio - b.ratio),
+    replenishmentPlan: rows.filter((item) => item.shortage > 0).sort((a, b) => {
+      const priority = { high: 0, medium: 1, low: 2 };
+      return (priority[a.replenishmentPriority] ?? a.tier) - (priority[b.replenishmentPriority] ?? b.tier)
+        || String(a.replenishBy || '9999-12-31').localeCompare(String(b.replenishBy || '9999-12-31'))
+        || a.ratio - b.ratio;
+    }),
     rotationQueue,
     rotationDueCount: rotationQueue.filter((item) => item.daysToRotate <= 0).length,
   };
 }
 
 export const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+export function transactionInsights(transactions = [], now = new Date()) {
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - 30);
+  const recent = transactions.filter((entry) => ['consume', 'rotate', 'discard'].includes(entry.type) && new Date(entry.at) >= cutoff);
+  const totals = new Map();
+  for (const entry of recent) totals.set(entry.name, (totals.get(entry.name) || 0) + Math.abs(Number(entry.quantityDelta) || 0));
+  const top = [...totals.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+  return {
+    consumed30Days: recent.reduce((sum, entry) => sum + Math.abs(Number(entry.quantityDelta) || 0), 0),
+    discarded30Days: recent.filter((entry) => entry.type === 'discard' || entry.reason === '期限切れ・廃棄').reduce((sum, entry) => sum + Math.abs(Number(entry.quantityDelta) || 0), 0),
+    topConsumed: top ? { name: top[0], quantity: top[1] } : null,
+    entries30Days: recent.length,
+  };
+}

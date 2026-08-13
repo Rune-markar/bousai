@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, ArrowRight, BadgeCheck, Bell, BookOpen, Box, CalendarDays,
+  AlertTriangle, ArrowRight, Award, Backpack, BadgeCheck, Bell, BookOpen, Box, CalendarDays,
   Check, ChevronRight, CircleHelp, ClipboardList, Copy, Droplets, Flame, Heart,
-  Download, History, Home, Lightbulb, MapPin, Minus, PackagePlus, Pencil, Phone,
-  Plus, QrCode, RefreshCw, Search, ShieldCheck, ShoppingBasket, Sparkles, Trash2, Upload, Users, WifiOff, X, Zap,
+  Download, History, Home, Lightbulb, LockKeyhole, MapPin, Minus, PackagePlus, Pencil, Phone,
+  Plus, QrCode, Radio, RefreshCw, Route, Search, ShieldCheck, ShoppingBasket, Sparkles, Sun, Trash2, Trophy, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
-import { CATEGORY_META, consumeByRotation, inventorySummary, uid } from './domain.js';
+import { CATEGORY_META, consumeByRotation, inventorySummary, transactionInsights, uid } from './domain.js';
 import BarcodeScanner from './BarcodeScanner.jsx';
 import { createTransaction, loadState, normalizeState, STORAGE_KEY } from './state.js';
+import { preparednessProgress, togglePreparednessTask } from './preparedness.js';
+import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, respondToCharacter } from './characters.js';
+import { DISASTER_SCENARIOS, generateEmergencyPlan, simulateDisaster } from './emergency.js';
 
 const nav = [
   { id: 'home', label: 'ホーム', icon: Home },
   { id: 'inventory', label: '備蓄', icon: Box },
+  { id: 'roadmap', label: '防災力', icon: Route },
   { id: 'plan', label: '緊急メモ', icon: ClipboardList },
   { id: 'learn', label: '知る', icon: BookOpen },
 ];
 
-const emptyForm = { name: '', category: 'food', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30 };
+const emptyForm = { name: '', category: 'food', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30, replenishmentPriority: 'high', replenishBy: '', purchaseFrom: '' };
 
 function Brand() {
   return <div className="brand"><span className="brand-mark"><ShieldCheck size={22} /></span><span><b>そなえメモ</b><small>暮らしに、ちいさな安心を。</small></span></div>;
@@ -31,6 +35,7 @@ function App() {
   const [shareOpen, setShareOpen] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
   const summary = useMemo(() => inventorySummary(state.inventory, state.household), [state.inventory, state.household]);
+  const visitChecked = useRef(false);
 
   useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), [state]);
   useEffect(() => {
@@ -52,6 +57,17 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [page]);
+  useEffect(() => {
+    if (visitChecked.current) return;
+    visitChecked.current = true;
+    const last = state.lastVisitAt ? new Date(state.lastVisitAt).getTime() : 0;
+    const hours = last ? (Date.now() - last) / 3600000 : 0;
+    if (hours >= 12 && summary.notificationCount && 'Notification' in window && Notification.permission === 'granted') {
+      const advice = buildCharacterAdvice(state, summary);
+      new Notification(`${getCharacter(state.selectedCharacter).name}からのお知らせ`, { body: advice.text, icon: `${import.meta.env.BASE_URL}favicon.svg` });
+    }
+    setState((old) => ({ ...old, lastVisitAt: new Date().toISOString() }));
+  }, []);
 
   const updateInventory = (inventory, message, transaction = null) => {
     setState((old) => ({ ...old, inventory, transactions: transaction ? [transaction, ...old.transactions].slice(0, 500) : old.transactions }));
@@ -71,7 +87,8 @@ function App() {
       <main>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} />}
         {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} />}
-        {page === 'plan' && <EmergencyPlan contact={state.contact} setState={setState} setToast={setToast} />}
+        {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} />}
+        {page === 'plan' && <EmergencyPlan state={state} summary={summary} setState={setState} setToast={setToast} />}
         {page === 'learn' && <Learn completed={state.completedTips} setState={setState} />}
       </main>
 
@@ -98,7 +115,7 @@ function App() {
         updateInventory(inventory, modal === 'new' ? '備蓄品を追加しました' : '変更を保存しました', transaction);
         setModal(null);
       }} />}
-      {notificationsOpen && <NotificationPanel summary={summary} onClose={() => setNotificationsOpen(false)} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} />}
+      {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} />}
       {shareOpen && <ShareQrPanel onClose={() => setShareOpen(false)} setToast={setToast} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={18} />{toast}</div>}
     </div>
@@ -116,7 +133,7 @@ function Dashboard({ state, summary, setState, setPage, setModal }) {
         <h1>おかえりなさい。<br /><em>安心の輪</em>が育っています。</h1>
         <p>完璧じゃなくて大丈夫。足りないものを、ひとつずつ整えていきましょう。</p>
       </div>
-      <CharacterBubble shortage={summary.shortageCount} />
+      <CharacterBubble state={state} summary={summary} setState={setState} setPage={setPage} />
     </section>
 
     <section className="score-grid wrap">
@@ -155,10 +172,22 @@ function Dashboard({ state, summary, setState, setPage, setModal }) {
   </>;
 }
 
-function CharacterBubble({ shortage }) {
-  return <div className="character-wrap" aria-label="灯明ひかりからのメッセージ">
-    <div className="speech"><span>灯明ひかり</span><b>{shortage ? `あと${shortage}つ整えたら、もっと安心だよ。` : '準備ばっちり！今日も安心だね。'}</b><small>一緒に、ゆっくり続けよう。</small></div>
-    <div className="character-portrait"><img src={`${import.meta.env.BASE_URL}characters/tomyo-hikari.png`} alt="ランタンを手にほほえむ防災ナビゲーター、灯明ひかり" /></div>
+function CharacterBubble({ state, summary, setState, setPage }) {
+  const character = getCharacter(state.selectedCharacter);
+  const advice = buildCharacterAdvice(state, summary);
+  const [reply, setReply] = useState('');
+  const affinity = state.characterAffinity?.[character.id] || 0;
+  const choose = (choiceId) => {
+    const result = respondToCharacter(state, choiceId);
+    setState(result.state);
+    setReply(result.reply);
+  };
+  return <div className="character-station" aria-label={`${character.name}からの提案`} style={{ '--character': character.color }}>
+    <div className="character-select" aria-label="ナビゲーターを選択">{CHARACTERS.map((entry) => <button type="button" aria-label={`${entry.name}を選ぶ`} title={`${entry.name}・${entry.disaster}`} className={entry.id === character.id ? 'active' : ''} key={entry.id} onClick={() => { setReply(''); setState((old) => ({ ...old, selectedCharacter: entry.id })); }}><span>{entry.mark}</span></button>)}</div>
+    <div className="character-wrap">
+      <div className="speech"><span>{character.name}<small>{character.disaster}担当・絆 {affinity}</small></span><b>{reply || advice.text}</b>{!reply && <button type="button" onClick={() => setPage(advice.page)}>{advice.action}<ArrowRight /></button>}<div className="dialogue-choices">{CONVERSATION_CHOICES.map((choice) => <button type="button" key={choice.id} onClick={() => choose(choice.id)}>{choice.label}</button>)}</div></div>
+      <div className="character-portrait"><img src={`${import.meta.env.BASE_URL}${character.image}`} alt={character.imageAlt} /></div>
+    </div>
   </div>;
 }
 
@@ -177,10 +206,102 @@ function RadarChart({ values }) {
   return <div className="radar"><svg viewBox="0 0 180 170">{rings.map((p, i) => <polygon points={p} key={i} className="radar-ring" />)}{values.map((_, i) => { const a = -Math.PI / 2 + i * Math.PI * 2 / values.length; return <line key={i} x1="90" y1="83" x2={90 + Math.cos(a) * 60} y2={83 + Math.sin(a) * 60} />; })}<polygon points={points} className="radar-value" />{values.map((value, i) => { const a = -Math.PI / 2 + i * Math.PI * 2 / values.length; return <text key={value.key} x={90 + Math.cos(a) * 76} y={87 + Math.sin(a) * 72} textAnchor="middle">{CATEGORY_META[value.key].label}</text>; })}</svg></div>;
 }
 
+const pillarLabels = {
+  risk: '危険把握', home: '住環境', information: '情報', health: '健康', water: '水', food: '食料',
+  sanitation: '衛生', power: '電力', evacuation: '避難', family: '家族', recovery: '復旧', skills: '訓練', community: '共助',
+};
+
+function StageIcon({ name }) {
+  return name === 'backpack' ? <Backpack /> : name === 'route' ? <Route /> : name === 'calendar' ? <CalendarDays /> : name === 'solar' ? <Sun /> : name === 'community' ? <Users /> : <ShieldCheck />;
+}
+
+function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
+  const progress = useMemo(() => preparednessProgress(state, summary), [state, summary]);
+  const [selectedStageId, setSelectedStageId] = useState(() => progress.currentStage.id);
+  const selectedStage = progress.stages.find((stage) => stage.id === selectedStageId) || progress.currentStage;
+  const focusedTask = progress.nextTask;
+  const focusedStage = progress.currentStage;
+  const weakestLabel = progress.weakest ? pillarLabels[progress.weakest.pillar] : '総合';
+  const completedStages = progress.stages.filter((stage) => stage.gateClear).length;
+
+  const toggle = (task) => {
+    if (task.auto) {
+      setPage(task.id === 'family-route' ? 'plan' : 'inventory');
+      setToast(task.id === 'family-route' ? '緊急メモを整えると自動達成します' : '備蓄を目標まで登録すると自動達成します');
+      return;
+    }
+    const taskStage = progress.stages.find((stage) => stage.tasks.some((entry) => entry.id === task.id));
+    if (!taskStage?.unlocked) return;
+    const wasDone = progress.completed.has(task.id);
+    const beforeGate = taskStage.gateClear;
+    const nextState = togglePreparednessTask(state, task.id, summary);
+    const after = preparednessProgress(nextState, summary);
+    const afterStage = after.stages.find((stage) => stage.id === taskStage.id);
+    setState(nextState);
+    if (!beforeGate && afterStage?.gateClear) {
+      setToast(`${taskStage.title} クリア！ 次の段階が解放されました`);
+    } else {
+      setToast(wasDone ? '達成を取り消しました' : `+${task.xp} XP　備えが一つ増えました`);
+    }
+  };
+
+  const missionCard = (task, compact = false) => {
+    const done = progress.completed.has(task.id);
+    const automatic = progress.automatic.has(task.id);
+    const taskStage = progress.stages.find((stage) => stage.tasks.some((entry) => entry.id === task.id));
+    return <article className={`mission ${compact ? 'mission-focus' : ''} ${done ? 'done' : ''}`} key={task.id}>
+      <button className="mission-check" type="button" disabled={!taskStage?.unlocked && !done} aria-label={task.auto ? `${task.title}の連動データを確認` : `${task.title}を${done ? '未達成に戻す' : '達成にする'}`} onClick={() => toggle(task)}>{done ? <Check /> : task.auto ? <RefreshCw /> : null}</button>
+      <div className="mission-copy"><div><span className="mission-pillar">{pillarLabels[task.pillar]}</span>{task.gate && <span className="mission-gate">次段階の条件</span>}{automatic && <span className="mission-auto">自動達成</span>}</div><h3>{task.title}</h3><p>{task.detail}</p><small><Lightbulb /> 次の行動：{task.action}</small></div>
+      <span className="mission-xp">+{task.xp} XP</span>
+    </article>;
+  };
+
+  return <section className="wrap page-section roadmap-page">
+    <div className="page-title roadmap-title"><div><span className="kicker">RESILIENCE JOURNEY</span><h1>防災力ロードマップ</h1><p>備蓄だけに偏らず、命・避難・生活・電力・復旧を段階的に多重化します。</p></div><span className="roadmap-level"><Award />LEVEL {progress.level}<b>{progress.title}</b></span></div>
+
+    <section className="roadmap-command" aria-label="現在の防災力">
+      <div className="xp-orbit"><svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="51" /><circle className="xp-progress" cx="60" cy="60" r="51" style={{ strokeDasharray: 320.44, strokeDashoffset: 320.44 * (1 - progress.xp / progress.maxXp) }} /></svg><div><b>{progress.xp}</b><small>/ {progress.maxXp} XP</small></div></div>
+      <div className="command-copy"><span className="command-label">CURRENT STAGE</span><h2>STAGE {focusedStage.number}・{focusedStage.title}</h2><p>{focusedStage.subtitle}。一度に考えるのは、次の一項目だけで大丈夫です。</p></div>
+      <div className="command-stats"><div><span>総合達成</span><b>{progress.totalDone}<small> / {progress.totalTasks}</small></b></div><div><span>クリア段階</span><b>{completedStages}<small> / 6</small></b></div><div><span>要補強領域</span><b>{weakestLabel}</b></div></div>
+    </section>
+
+    <section className="next-mission" aria-labelledby="next-mission-title">
+      <div className="next-mission-heading"><div><span className="kicker">NEXT MISSION</span><h2 id="next-mission-title">いまは、これだけ</h2></div><span>{focusedStage.done} / {focusedStage.total}</span></div>
+      {focusedTask ? missionCard(focusedTask, true) : <div className="journey-complete"><Trophy /><div><b>全段階を踏破しました</b><span>季節の変わり目に点検と実地訓練を続けましょう。</span></div></div>}
+      {focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).length > 0 && <details className="stage-more"><summary>この段階の全項目を見る <span>{focusedStage.total}項目</span></summary><div className="mission-list">{focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).map((task) => missionCard(task))}</div></details>}
+    </section>
+
+    <details className="roadmap-overview">
+      <summary><span><Route /><b>6段階の全体像を見る</b><small>先の備えや獲得済みの防災章を確認</small></span><ChevronRight /></summary>
+      <div className="roadmap-overview-body">
+        <div className="stage-flow" role="list" aria-label="防災力の段階">
+          {progress.stages.map((stage, index) => <div className="stage-flow-unit" key={stage.id}>
+            <button type="button" role="listitem" className={`stage-node ${selectedStage.id === stage.id ? 'selected' : ''} ${stage.gateClear ? 'cleared' : ''} ${!stage.unlocked ? 'locked' : ''}`} onClick={() => setSelectedStageId(stage.id)} aria-current={selectedStage.id === stage.id ? 'step' : undefined}>
+              <span className="stage-number">{stage.gateClear ? <Check /> : !stage.unlocked ? <LockKeyhole /> : stage.number}</span>
+              <span className="stage-node-icon"><StageIcon name={stage.icon} /></span>
+              <span className="stage-node-copy"><small>STAGE {stage.number}</small><b>{stage.title}</b><span>{stage.subtitle}</span></span>
+              <span className="stage-node-score">{stage.done}/{stage.total}</span>
+            </button>
+            {index < progress.stages.length - 1 && <span className={`flow-connector ${stage.gateClear ? 'active' : ''}`} aria-hidden="true"><ChevronRight /></span>}
+          </div>)}
+        </div>
+        <section className={`stage-detail ${!selectedStage.unlocked ? 'is-locked' : ''}`}>
+          <div className="stage-detail-head"><div><span className="stage-detail-number">STAGE {selectedStage.number}</span><h2>{selectedStage.title}</h2><p>{selectedStage.subtitle}</p></div><div className="stage-percent"><b>{selectedStage.percent}%</b><span>{selectedStage.gateClear ? '次段階 解放済み' : selectedStage.unlocked ? '進行中' : '未解放'}</span></div></div>
+          {!selectedStage.unlocked && <div className="locked-guidance"><LockKeyhole /><div><b>前段階の必須ミッションを先に達成しよう</b><span>全体像の確認はできますが、実行は順番に進めます。</span></div></div>}
+          <div className="mission-list">{selectedStage.tasks.map((task) => missionCard(task))}</div>
+        </section>
+        <section className="achievement-section"><div className="section-heading compact"><div><span className="kicker">ACHIEVEMENTS</span><h2>獲得した防災章</h2></div><Trophy /></div><div className="achievement-row">{progress.stages.map((stage) => <div className={`achievement ${stage.gateClear ? 'earned' : ''}`} key={stage.id}><span><StageIcon name={stage.icon} /></span><b>{stage.title}</b><small>{stage.gateClear ? '獲得済み' : '未獲得'}</small></div>)}</div></section>
+      </div>
+    </details>
+  </section>;
+}
+
 function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const [consumeItem, setConsumeItem] = useState(null);
   const importRef = useRef(null);
+  const insights = useMemo(() => transactionInsights(transactions), [transactions]);
   const rows = summary.rows.filter((item) => (filter === 'all' || item.category === filter) && item.name.toLowerCase().includes(query.toLowerCase()));
   const rawRows = () => summary.rows.map(({ shortage, ratio, replenishmentCost, daysToExpiry, isExpiring, isExpired, daysToCheck, isCheckDue, priority, ...item }) => item);
   const adjust = (id, delta) => {
@@ -189,6 +310,15 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     const nextQuantity = Math.max(0, Number(item.quantity) + delta);
     const inventory = rawRows().map((entry) => entry.id === id ? { ...entry, quantity: nextQuantity, lastChecked: new Date().toISOString().slice(0, 10) } : entry);
     updateInventory(inventory, delta > 0 ? '1つ補充しました' : '1つ消費しました', createTransaction(delta > 0 ? 'add' : 'consume', item, delta, delta > 0 ? 'クイック補充' : 'クイック消費'));
+  };
+  const consume = ({ amount, reason, note }) => {
+    const item = summary.rows.find((entry) => entry.id === consumeItem.id);
+    const used = Math.min(Number(amount) || 1, Number(item.quantity) || 0);
+    if (!used) return setConsumeItem(null);
+    const inventory = rawRows().map((entry) => entry.id === item.id ? { ...entry, quantity: Number(entry.quantity) - used, lastChecked: new Date().toISOString().slice(0, 10) } : entry);
+    const type = reason === '期限切れ・廃棄' ? 'discard' : 'consume';
+    updateInventory(inventory, `${used}${item.unit}を記録しました`, createTransaction(type, item, -used, note, { reason }));
+    setConsumeItem(null);
   };
   const remove = (id) => {
     const item = summary.rows.find((entry) => entry.id === id);
@@ -231,15 +361,16 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
       {rows.map((item) => <article className="inventory-item" key={item.id}>
         {item.imageUrl ? <div className="product-thumb"><img src={item.imageUrl} alt="" /></div> : <div className="category-badge" style={{ '--category': CATEGORY_META[item.category]?.color }}><CategoryIcon category={item.category} /></div>}
         <div className="item-main"><div className="item-title"><span className={`tier tier-${item.tier}`}>TIER {item.tier}</span><h3>{item.name}</h3>{item.brand && <span className="brand-tag">{item.brand}</span>}{item.isExpiring && <span className="expiry-tag">{item.isExpired ? '期限切れ' : `あと${item.daysToExpiry}日`}</span>}</div><div className="stock-progress"><span style={{ width: `${Math.min(item.ratio * 100, 100)}%` }} /><i style={{ left: `${Math.min(item.ratio * 100, 100)}%` }} /></div><div className="item-meta"><span>在庫 <b>{item.quantity}{item.unit}</b> / 目標 {item.target}{item.unit}{item.barcode && <small>・JAN {item.barcode}</small>}</span>{item.shortage > 0 ? <span className="shortage">あと {item.shortage}{item.unit}</span> : <span className="enough"><Check /> 目標達成</span>}</div></div>
-        <div className="quick-actions"><button aria-label={`${item.name}を1つ消費`} onClick={() => adjust(item.id, -1)}><Minus /></button><button aria-label={`${item.name}を1つ補充`} onClick={() => adjust(item.id, 1)}><Plus /></button><button aria-label={`${item.name}を編集`} onClick={() => setModal(item)}><Pencil /></button><button aria-label={`${item.name}を削除`} className="danger" onClick={() => remove(item.id)}><Trash2 /></button></div>
+        <div className="quick-actions"><button aria-label={`${item.name}を消費・廃棄`} onClick={() => setConsumeItem(item)}><Minus /></button><button aria-label={`${item.name}を1つ補充`} onClick={() => adjust(item.id, 1)}><Plus /></button><button aria-label={`${item.name}を編集`} onClick={() => setModal(item)}><Pencil /></button><button aria-label={`${item.name}を削除`} className="danger" onClick={() => remove(item.id)}><Trash2 /></button></div>
       </article>)}
       {!rows.length && <div className="empty-state"><Search /><h3>該当する備蓄品がありません</h3><p>検索条件を変えてみてください。</p></div>}
     </div>
     <article className="card rolling-panel"><div className="section-heading compact"><div><span className="kicker">ROLLING STOCK</span><h2>ローリングストック</h2><p>期限の近いロットから消費し、不足分を補充計画へ自動反映します。</p></div><RefreshCw /></div><div className="rolling-summary"><span><small>循環待ち</small><b>{summary.rotationDueCount}品</b></span><span><small>期限付き在庫</small><b>{summary.rotationQueue.length}品</b></span><span><small>補充候補</small><b>{summary.shortageCount}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list">{summary.rotationQueue.slice(0, 6).map((entry) => <div className={`rolling-row ${entry.status}`} key={entry.key}><span className="rolling-order">{entry.status === 'expired' ? '期限切れ' : entry.daysToRotate <= 0 ? '今すぐ循環' : `${entry.daysToRotate}日後`}</span><span><b>{entry.nextLot.name}</b><small>期限 {entry.nextLot.expiry}・対象ロット {entry.nextLot.quantity}{entry.nextLot.unit}・合計 {entry.totalQuantity}{entry.nextLot.unit}</small></span><button type="button" onClick={() => rotateOne(entry)}><RefreshCw />1{entry.nextLot.unit}消費して買い足す</button></div>)}</div> : <div className="empty-small"><Check />期限を登録すると循環予定を自動作成します</div>}</article>
     <div className="operations-grid">
-      <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">REPLENISHMENT</span><h2>補充計画</h2></div><ShoppingBasket /></div>{summary.replenishmentPlan.length ? summary.replenishmentPlan.map((item) => <button key={item.id} className="plan-row" onClick={() => setModal(item)}><span className={`tier tier-${item.tier}`}>TIER {item.tier}</span><span><b>{item.name}</b><small>{item.shortage}{item.unit}補充・目安 ¥{item.replenishmentCost.toLocaleString()}</small></span><ChevronRight /></button>) : <div className="empty-small"><Check />補充予定はありません</div>}</article>
-      <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>入出庫履歴</h2></div><History /></div>{transactions.length ? transactions.slice(0, 8).map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '循環' : entry.type === 'consume' ? '消費' : entry.type === 'delete' ? '削除' : entry.type === 'edit' ? '編集' : '入庫'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</article>
+      <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">REPLENISHMENT</span><h2>補充計画</h2></div><ShoppingBasket /></div>{summary.replenishmentPlan.length ? summary.replenishmentPlan.map((item) => <button key={item.id} className="plan-row" onClick={() => setModal(item)}><span className={`priority priority-${item.replenishmentPriority}`}>{item.replenishmentPriority === 'high' ? '高' : item.replenishmentPriority === 'medium' ? '中' : '低'}</span><span><b>{item.name}</b><small>{item.shortage}{item.unit}・¥{item.replenishmentCost.toLocaleString()}{item.replenishBy ? `・${item.replenishBy}まで` : ''}{item.purchaseFrom ? `・${item.purchaseFrom}` : ''}</small></span><ChevronRight /></button>) : <div className="empty-small"><Check />補充予定はありません</div>}</article>
+      <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴と傾向</h2></div><History /></div><div className="insight-strip"><span>30日消費<b>{insights.consumed30Days}</b></span><span>うち廃棄<b>{insights.discarded30Days}</b></span><span>最多<b>{insights.topConsumed?.name || '—'}</b></span></div>{transactions.length ? transactions.slice(0, 10).map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '循環' : entry.type === 'consume' ? '消費' : entry.type === 'discard' ? '廃棄' : entry.type === 'delete' ? '削除' : entry.type === 'edit' ? '編集' : '入庫'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{entry.reason || entry.note || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</article>
     </div>
+    {consumeItem && <ConsumptionModal item={consumeItem} onClose={() => setConsumeItem(null)} onSave={consume} />}
   </section>;
 }
 
@@ -247,9 +378,27 @@ function CategoryIcon({ category }) {
   return category === 'water' ? <Droplets /> : category === 'heat' ? <Flame /> : category === 'light' ? <Zap /> : category === 'comfort' ? <Heart /> : category === 'hygiene' ? <Sparkles /> : <ShoppingBasket />;
 }
 
-function EmergencyPlan({ contact, setState, setToast }) {
-  const [draft, setDraft] = useState(contact);
-  useEffect(() => setDraft(contact), [contact]);
+function ConsumptionModal({ item, onClose, onSave }) {
+  const dialogRef = useRef(null);
+  useDialogClose(onClose, dialogRef);
+  const [amount, setAmount] = useState(1);
+  const [reason, setReason] = useState('日常消費');
+  const [note, setNote] = useState('');
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="consumption-title" onSubmit={(event) => { event.preventDefault(); onSave({ amount, reason, note }); }}>
+    <div className="modal-title"><div><span className="kicker">CONSUMPTION LOG</span><h2 id="consumption-title">{item.name}を記録</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div>
+    <div className="form-grid"><label><span>数量（最大 {item.quantity}{item.unit}）</span><input autoFocus required type="number" min="1" max={item.quantity} value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label><span>理由</span><select value={reason} onChange={(event) => setReason(event.target.value)}><option>日常消費</option><option>ローリングストック</option><option>非常時使用</option><option>期限切れ・廃棄</option><option>その他</option></select></label></div>
+    <label className="full"><span>備考</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例：朝食で使用、袋が破損" /></label>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button"><Check />記録して在庫を減らす</button></div>
+  </form></div>;
+}
+
+function EmergencyPlan({ state, summary, setState, setToast }) {
+  const [draft, setDraft] = useState(state.contact);
+  const [scenarioId, setScenarioId] = useState('earthquake');
+  const [days, setDays] = useState(3);
+  const plan = useMemo(() => generateEmergencyPlan(state, summary), [state, summary]);
+  const simulation = useMemo(() => simulateDisaster(state, summary, scenarioId, days), [state, summary, scenarioId, days]);
+  useEffect(() => setDraft(state.contact), [state.contact]);
   const set = (key, value) => setDraft((old) => ({ ...old, [key]: value }));
   return <section className="wrap page-section narrow-page"><div className="page-title"><div><span className="kicker">EMERGENCY NOTE</span><h1>もしもの時のメモ</h1><p>通信が不安定でも、この端末から確認できます。</p></div></div>
     <div className="emergency-banner"><ShieldCheck /><div><b>家族で一度、声に出して確認しよう</b><span>集合場所と連絡方法が決まっているだけで、もしもの不安は小さくできます。</span></div></div>
@@ -260,6 +409,8 @@ function EmergencyPlan({ contact, setState, setToast }) {
       <label><span><ClipboardList />家族への伝言・連絡ルール</span><textarea value={draft.note} onChange={(e) => set('note', e.target.value)} rows="5" /></label>
       <button className="primary-button" type="submit"><Check />この端末に保存</button>
     </form>
+    <section className="generated-plan"><div className="section-heading compact"><div><span className="kicker">AUTO PLAN</span><h2>わが家の72時間行動計画</h2></div><ShieldCheck /></div><div className="plan-columns"><article><h3>発災直後</h3>{plan.immediate.map((item) => <p key={item}><Check />{item}</p>)}</article><article><h3>最初の72時間</h3>{plan.first72Hours.map((item) => <p key={item}><Check />{item}</p>)}</article></div>{plan.gaps.length ? <div className="plan-gaps"><b>先に埋めたい弱点</b>{plan.gaps.map((gap) => <span key={gap}><AlertTriangle />{gap}</span>)}</div> : <div className="stage-clear-message"><Check /><div><b>基礎条件は整っています</b><span>半年ごとに実物を使って見直してください。</span></div></div>}</section>
+    <section className="simulator"><div className="section-heading compact"><div><span className="kicker">DISASTER SIMULATOR</span><h2>もし今、災害が起きたら</h2></div><Radio /></div><div className="simulator-controls"><label><span>想定</span><select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>{DISASTER_SCENARIOS.map((scenario) => <option value={scenario.id} key={scenario.id}>{scenario.name}</option>)}</select></label><label><span>継続日数</span><input type="number" min="1" max="14" value={days} onChange={(event) => setDays(event.target.value)} /></label></div><div className={`simulation-result status-${simulation.status}`}><div><span>対応力</span><b>{simulation.score}<small>%</small></b><em>{simulation.status}</em></div><section><h3>{simulation.scenario.name}・{simulation.days}日間</h3><p>{simulation.scenario.opening}</p><strong>{simulation.advice}</strong><div className="gap-chips">{simulation.criticalGaps.map((gap) => <span key={gap.key}>{CATEGORY_META[gap.key]?.label || gap.key} {gap.score}%</span>)}</div></section></div></section>
     <div className="offline-note"><Zap /><div><b>初回表示後はオフラインでも確認できます</b><span>アプリ本体と入力済みデータをこの端末に保存します。商品情報の新規照会には通信が必要です。</span></div></div>
   </section>;
 }
@@ -372,7 +523,7 @@ function ShareQrPanel({ onClose, setToast }) {
   </section></div>;
 }
 
-function NotificationPanel({ summary, onClose, onOpenItem }) {
+function NotificationPanel({ state, summary, setToast, onClose, onOpenItem }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
   const notifications = summary.rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue).sort((a, b) => a.tier - b.tier || a.ratio - b.ratio);
@@ -381,7 +532,16 @@ function NotificationPanel({ summary, onClose, onOpenItem }) {
     item.isCheckDue ? '棚卸し確認日を超過' : '',
     item.shortage > 0 ? `${item.shortage}${item.unit}不足` : '',
   ].filter(Boolean).join('・');
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title"><div className="modal-title"><div><span className="kicker">NOTIFICATIONS</span><h2 id="notification-title">備蓄のお知らせ</h2><small className="notification-count">{notifications.length}品目</small></div><button type="button" aria-label="通知一覧を閉じる" onClick={onClose}><X /></button></div>{notifications.length ? notifications.map((item) => <button className="notification-row" key={item.id} onClick={() => onOpenItem(item)}><span className={`status-dot ${item.isExpiring || item.isCheckDue ? 'amber' : 'red'}`} /><span><b>{item.name}</b><small>{message(item)}</small></span><ChevronRight /></button>) : <div className="empty-small"><Check />現在のお知らせはありません</div>}</section></div>;
+  const enableNotifications = async () => {
+    if (!('Notification' in window)) return setToast('この端末はシステム通知に対応していません');
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      const advice = buildCharacterAdvice(state, summary);
+      new Notification(`${getCharacter(state.selectedCharacter).name}からのお知らせ`, { body: advice.text, icon: `${import.meta.env.BASE_URL}favicon.svg` });
+      setToast('次回からキャラクターがお知らせします');
+    } else setToast('通知は許可されませんでした');
+  };
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title"><div className="modal-title"><div><span className="kicker">NOTIFICATIONS</span><h2 id="notification-title">備蓄のお知らせ</h2><small className="notification-count">{notifications.length}品目</small></div><button type="button" aria-label="通知一覧を閉じる" onClick={onClose}><X /></button></div><button type="button" className="notification-enable" onClick={enableNotifications}><Bell />次回起動時のキャラクター通知を許可</button>{notifications.length ? notifications.map((item) => <button className="notification-row" key={item.id} onClick={() => onOpenItem(item)}><span className={`status-dot ${item.isExpiring || item.isCheckDue ? 'amber' : 'red'}`} /><span><b>{item.name}</b><small>{message(item)}</small></span><ChevronRight /></button>) : <div className="empty-small"><Check />現在のお知らせはありません</div>}</section></div>;
 }
 
 const tips = [
@@ -400,7 +560,7 @@ function Learn({ completed, setState }) {
 function ItemModal({ item, inventory, onClose, onSave }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
-  const [form, setForm] = useState(item ? { name: item.name, category: item.category, tier: item.tier, unit: item.unit, quantity: item.quantity, target: item.target, price: item.price, expiry: item.expiry, note: item.note || '', barcode: item.barcode || '', brand: item.brand || '', packageSize: item.packageSize || '', volumeMl: item.volumeMl || 0, imageUrl: item.imageUrl || '', source: item.source || '', sourceUrl: item.sourceUrl || '', location: item.location || '', lastChecked: item.lastChecked || '', nextCheck: item.nextCheck || '', rotationEnabled: item.rotationEnabled !== false, rotationLeadDays: item.rotationLeadDays || 30, registrationMode: 'new-lot' } : { ...emptyForm, lastChecked: new Date().toISOString().slice(0, 10), nextCheck: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), registrationMode: 'new-lot' });
+  const [form, setForm] = useState(item ? { name: item.name, category: item.category, tier: item.tier, unit: item.unit, quantity: item.quantity, target: item.target, price: item.price, expiry: item.expiry, note: item.note || '', barcode: item.barcode || '', brand: item.brand || '', packageSize: item.packageSize || '', volumeMl: item.volumeMl || 0, imageUrl: item.imageUrl || '', source: item.source || '', sourceUrl: item.sourceUrl || '', location: item.location || '', lastChecked: item.lastChecked || '', nextCheck: item.nextCheck || '', rotationEnabled: item.rotationEnabled !== false, rotationLeadDays: item.rotationLeadDays || 30, replenishmentPriority: item.replenishmentPriority || 'medium', replenishBy: item.replenishBy || '', purchaseFrom: item.purchaseFrom || '', registrationMode: 'new-lot' } : { ...emptyForm, lastChecked: new Date().toISOString().slice(0, 10), nextCheck: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), registrationMode: 'new-lot' });
   const [scannerOpen, setScannerOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(Boolean(item));
   const set = (key, value) => setForm((old) => ({ ...old, [key]: value }));
@@ -418,6 +578,7 @@ function ItemModal({ item, inventory, onClose, onSave }) {
     {detailsOpen && <div className="optional-section details-section"><div className="form-grid"><label><span>期限（任意）</span><input type="date" value={form.expiry} onChange={(e) => set('expiry', e.target.value)} /></label><label><span>単価（円）</span><input min="0" type="number" value={form.price} onChange={(e) => set('price', e.target.value)} /></label></div>
       {form.category === 'water' && <label className="full"><span>1単位あたりの水量（ml）</span><input min="0" type="number" value={form.volumeMl} onChange={(e) => set('volumeMl', e.target.value)} /></label>}
       <div className="form-grid"><label><span>保管場所</span><input value={form.location} onChange={(e) => set('location', e.target.value)} placeholder="例：玄関収納" /></label><label><span>次回確認日</span><input type="date" value={form.nextCheck} onChange={(e) => set('nextCheck', e.target.value)} /></label></div>
+      <fieldset className="replenishment-settings"><legend>補充計画</legend><div className="form-grid three"><label><span>優先度</span><select value={form.replenishmentPriority} onChange={(e) => set('replenishmentPriority', e.target.value)}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label><label><span>補充期限</span><input type="date" value={form.replenishBy} onChange={(e) => set('replenishBy', e.target.value)} /></label><label><span>購入先候補</span><input value={form.purchaseFrom} onChange={(e) => set('purchaseFrom', e.target.value)} placeholder="例：近所のスーパー" /></label></div></fieldset>
       <fieldset className="rotation-settings"><legend>ローリングストック設定</legend><label className="rotation-toggle"><input type="checkbox" checked={form.rotationEnabled} onChange={(e) => set('rotationEnabled', e.target.checked)} />期限順の消費候補に含める</label><label><span>期限の何日前から消費候補にするか</span><input type="number" min="0" max="365" value={form.rotationLeadDays} onChange={(e) => set('rotationLeadDays', e.target.value)} /></label></fieldset>
       <label className="full"><span>メモ</span><input value={form.note} onChange={(e) => set('note', e.target.value)} placeholder="保管場所や使い方など" /></label>
     </div>}
