@@ -52,4 +52,14 @@ describe('inventorySummary', () => {
     const summary = inventorySummary([{ name: '大容量ボトル', category: 'water', tier: 1, quantity: 3, target: 3, volumeMl: 2000, price: 0, expiry: '' }], 2);
     expect(summary.waterDays).toBe(1);
   });
+
+  it('counts one notification per item even when multiple alerts overlap', () => {
+    const summary = inventorySummary([
+      { name: '乾電池', category: 'light', tier: 2, unit: '本', quantity: 1, target: 3, expiry: '2026-08-20', nextCheck: '2026-08-01' },
+    ]);
+    expect(summary.shortageCount).toBe(1);
+    expect(summary.expiringCount).toBe(1);
+    expect(summary.checkDueCount).toBe(1);
+    expect(summary.notificationCount).toBe(1);
+  });
 });

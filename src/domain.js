@@ -102,6 +102,7 @@ export function consumeByRotation(items, key, amount = 1, today = new Date()) {
 
 export function inventorySummary(items, household = 2) {
   const rows = items.map((item) => ({ ...item, ...itemStats(item) }));
+  const notificationRows = rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue);
   const tierWeight = (tier) => ({ 1: 3, 2: 2, 3: 1 }[tier] || 1);
   const categoryScores = Object.keys(CATEGORY_META).map((key) => {
     const categoryRows = rows.filter((item) => item.category === key);
@@ -126,6 +127,7 @@ export function inventorySummary(items, household = 2) {
     shortageCount: rows.filter((item) => item.shortage > 0).length,
     expiringCount: rows.filter((item) => item.isExpiring).length,
     checkDueCount: rows.filter((item) => item.isCheckDue).length,
+    notificationCount: notificationRows.length,
     replenishmentCost: rows.reduce((sum, item) => sum + item.replenishmentCost, 0),
     replenishmentPlan: rows.filter((item) => item.shortage > 0).sort((a, b) => a.tier - b.tier || a.ratio - b.ratio),
     rotationQueue,
