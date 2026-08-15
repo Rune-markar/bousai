@@ -2,7 +2,7 @@ import { createInitialInventory, daysFromNow, uid } from './domain.js';
 import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -25,6 +25,7 @@ export function normalizeInventoryItem(item = {}, index = 0) {
     brand: String(item.brand || ''),
     packageSize: String(item.packageSize || ''),
     volumeMl: Math.max(0, Number(item.volumeMl) || 0),
+    packingVolumeMl: Math.max(0, Number(item.packingVolumeMl) || 0),
     imageUrl: String(item.imageUrl || ''),
     source: String(item.source || ''),
     sourceUrl: String(item.sourceUrl || ''),
@@ -46,7 +47,7 @@ export function createDefaultState() {
     household: 2,
     contact: { name: '家族の集合場所', phone: '', shelter: '〇〇小学校 体育館', note: '災害用伝言ダイヤル 171' },
     completedTips: [],
-    preparedness: { completed: [], loadouts: {}, updatedAt: '' },
+    preparedness: { completed: [], loadouts: {}, bagSettings: {}, updatedAt: '' },
     transactions: [],
     lastVisitAt: '',
     selectedCharacter: 'hikari',
@@ -75,6 +76,7 @@ export function normalizeState(input) {
     preparedness: {
       completed: Array.isArray(input.preparedness?.completed) ? input.preparedness.completed.filter((value) => typeof value === 'string') : [],
       loadouts: Object.fromEntries(Object.entries(input.preparedness?.loadouts || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
+      bagSettings: Object.fromEntries(Object.entries(input.preparedness?.bagSettings || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, { mode: value.mode === 'custom' ? 'custom' : 'standard', customCapacityL: Math.min(100, Math.max(1, Number(value.customCapacityL) || 20)) }])),
       updatedAt: String(input.preparedness?.updatedAt || ''),
     },
     transactions: Array.isArray(input.transactions) ? input.transactions.filter(Boolean).slice(0, 500) : [],

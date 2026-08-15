@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, PackageCheck, RotateCcw, ShieldCheck, X } from 'lucide-react';
 import { getLoadout, loadoutStatus, requiredLoadoutItemIds } from './loadouts.js';
+import { autoPackInventory, bagSettings } from './packing.js';
 
-export default function PracticalLoadout({ taskId, state, onChange, onComplete, onClose }) {
+export default function PracticalLoadout({ taskId, state, onChange, onBagSettings, onComplete, onClose }) {
   const loadout = state && taskId ? getLoadout(taskId) : null;
   const status = loadoutStatus(state, taskId);
   const completed = Boolean(state.preparedness?.completed?.includes(taskId));
   const [selectedId, setSelectedId] = useState(() => loadout?.items[0]?.id || '');
+  const settings = bagSettings(state, taskId);
+  const packing = useMemo(() => settings ? autoPackInventory(state.inventory, taskId, settings.capacityL, state.household) : null, [settings, state.inventory, state.household, taskId]);
 
   useEffect(() => setSelectedId(loadout?.items[0]?.id || ''), [taskId, loadout]);
   const selected = useMemo(() => loadout?.items.find((item) => item.id === selectedId) || loadout?.items[0], [loadout, selectedId]);
@@ -34,6 +37,19 @@ export default function PracticalLoadout({ taskId, state, onChange, onComplete, 
         <div><i style={{ width: `${percent}%` }} /><small>{percent}% VERIFIED</small></div>
         <span className={status.ready ? 'ready' : ''}><ShieldCheck /><b>{status.ready ? 'READY' : 'CHECKING'}</b></span>
       </div>
+
+      {settings && <section className="inventory-packer" aria-labelledby="auto-pack-title">
+        <header className="packer-head"><div><span>AUTO PACK</span><h3 id="auto-pack-title">保有備蓄から自動選定</h3><p>優先度・在庫数・容量を照合し、入る数量を提案します。</p></div><b>{packing.items.length}<small>品目を選定</small></b></header>
+        <div className="bag-capacity-control">
+          <div className="capacity-mode" aria-label="バッグ容量の設定方法"><button type="button" className={settings.mode === 'standard' ? 'active' : ''} onClick={() => onBagSettings({ ...settings, mode: 'standard' })}>標準 {settings.preset.capacityL}L</button><button type="button" className={settings.mode === 'custom' ? 'active' : ''} onClick={() => onBagSettings({ ...settings, mode: 'custom' })}>自分のバッグ</button></div>
+          {settings.mode === 'custom' ? <label><span>実容量</span><input type="number" min="1" max="100" step="0.5" value={settings.customCapacityL} onChange={(event) => onBagSettings({ mode: 'custom', customCapacityL: event.target.value })} /><i>L</i></label> : <p><b>{settings.preset.label}</b><span>{settings.preset.source}</span></p>}
+          <div className="capacity-meter"><span><i style={{ width: `${Math.min(100, packing.utilization)}%` }} /></span><p><b>{(packing.usedMl / 1000).toFixed(1)}L</b><small> / 実用域 {(packing.usableCapacityMl / 1000).toFixed(1)}L</small></p></div>
+        </div>
+        <div className="auto-pack-list">
+          {packing.items.length ? packing.items.map((entry) => <article key={entry.id}><span className="pack-item-icon">{entry.category === 'water' ? '💧' : entry.category === 'food' ? '🍚' : entry.category === 'hygiene' ? '🧼' : entry.category === 'light' ? '🔋' : '📦'}</span><div><b>{entry.name}</b><small>{entry.quantity}{entry.unit}・{(entry.totalMl / 1000).toFixed(2)}L</small></div><em className={entry.volumeSource === 'user' ? 'measured' : ''}>{entry.volumeLabel}</em></article>) : <p className="auto-pack-empty">容量内に選定できる登録済み備蓄がありません。</p>}
+        </div>
+        <footer><p>形状差と未登録の必需品に備え、バッグ容量の85%までを使用します。残り <b>{(packing.remainingMl / 1000).toFixed(1)}L</b></p><button type="button" disabled={!packing.matchedSlotIds.length} onClick={() => onChange([...new Set([...status.packed, ...packing.matchedSlotIds])])}><PackageCheck />該当品をケースへ反映</button></footer>
+      </section>}
 
       <div className="loadout-workbench">
         <div className="loadout-case" role="list" aria-label={`${loadout.title}の装備品`}>

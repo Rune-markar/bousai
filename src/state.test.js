@@ -7,7 +7,8 @@ describe('state migration', () => {
     expect(state.schemaVersion).toBe(SCHEMA_VERSION);
     expect(state.inventory[0]).toMatchObject({ id: 'old', name: '水', quantity: 2 });
     expect(state.inventory[0].productId).toBe('legacy:old');
-    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, updatedAt: '' });
+    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, updatedAt: '' });
+    expect(state.inventory[0].packingVolumeMl).toBe(0);
     expect(state.transactions).toEqual([]);
     expect(state.inventory[0].replenishmentPriority).toBe('medium');
     expect(state.powerPlan.devices.phone.quantity).toBe(2);
