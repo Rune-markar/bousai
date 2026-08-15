@@ -16,9 +16,14 @@ const tabs = [
   { id: 'solar', label: '太陽光' },
 ];
 
-export default function PowerEcosystem({ plan, onChange, onBack }) {
+export default function PowerEcosystem({ plan, onChange, onBack, activeTab: controlledActiveTab, onActiveTabChange }) {
   const result = useMemo(() => calculatePowerSystem(plan), [plan]);
-  const [activeTab, setActiveTab] = useState('devices');
+  const [localActiveTab, setLocalActiveTab] = useState('devices');
+  const activeTab = controlledActiveTab ?? localActiveTab;
+  const setActiveTab = (nextTab) => {
+    if (controlledActiveTab === undefined) setLocalActiveTab(nextTab);
+    onActiveTabChange?.(nextTab);
+  };
   const [help, setHelp] = useState(null);
   const headingRef = useRef(null);
   const helpTriggerRef = useRef(null);

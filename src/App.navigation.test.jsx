@@ -35,10 +35,31 @@ describe('電力設計ページの導線', () => {
     expect(heading).toBeInTheDocument();
     expect(heading).toHaveFocus();
     expect(container.querySelector('.app-shell')).toHaveClass('power-active');
+    expect(document.documentElement).toHaveClass('power-document-active');
+    expect(document.body).toHaveClass('power-document-active');
+
+    fireEvent.click(screen.getByRole('tab', { name: '太陽光' }));
     fireEvent.click(screen.getByRole('button', { name: 'ホームへ戻る' }));
     expect(screen.getByText('今日のそなえ状況')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停電時の電力を設計' })).toHaveFocus();
     expect(container.querySelector('.app-shell')).not.toHaveClass('power-active');
+    expect(document.documentElement).not.toHaveClass('power-document-active');
+    expect(document.body).not.toHaveClass('power-document-active');
+
+    fireEvent.click(screen.getByRole('button', { name: '停電時の電力を設計' }));
+    expect(screen.getByRole('tab', { name: '太陽光' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('アプリをアンマウントするとドキュメント固定を解除する', () => {
+    const { unmount } = render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '停電時の電力を設計' }));
+    expect(document.documentElement).toHaveClass('power-document-active');
+    expect(document.body).toHaveClass('power-document-active');
+
+    unmount();
+    expect(document.documentElement).not.toHaveClass('power-document-active');
+    expect(document.body).not.toHaveClass('power-document-active');
   });
 
   it('防災力ページに旧電力プランナーを埋め込まない', () => {
