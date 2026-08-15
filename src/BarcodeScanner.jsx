@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertCircle, Camera, Check, ImageUp, Keyboard, LoaderCircle, ScanBarcode, Square } from 'lucide-react';
+import { lookupProductFromBrowser } from './productLookup.js';
 
 const digitsOnly = (value) => String(value || '').replace(/[^0-9]/g, '');
 const createReader = async (options) => {
@@ -57,9 +58,7 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
     const controller = new AbortController();
     requestRef.current = controller;
     try {
-      const response = await fetch(`/api/products/${encodeURIComponent(code)}`, { headers: { Accept: 'application/json' }, signal: controller.signal });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || '商品情報を取得できませんでした。');
+      const result = await lookupProductFromBrowser(code, { signal: controller.signal });
       if (!result.found) {
         setStatus('not-found');
         setMessage(result.message || '商品が見つかりませんでした。');

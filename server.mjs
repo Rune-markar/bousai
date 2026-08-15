@@ -14,7 +14,7 @@ if (!existsSync(join(root, 'index.html'))) {
 }
 
 createServer(async (req, res) => {
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: https://images.openfoodfacts.org; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://world.openfoodfacts.org; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');

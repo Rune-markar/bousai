@@ -57,7 +57,7 @@ export default defineConfig({
         navigateFallback: 'index.html',
         runtimeCaching: [
           { urlPattern: /^https:\/\/images\.openfoodfacts\.org\//, handler: 'CacheFirst', options: { cacheName: 'product-images', expiration: { maxEntries: 100, maxAgeSeconds: 30 * 24 * 60 * 60 }, cacheableResponse: { statuses: [0, 200] } } },
-          { urlPattern: /\/api\/products\//, handler: 'NetworkFirst', options: { cacheName: 'product-lookups', networkTimeoutSeconds: 5, expiration: { maxEntries: 300, maxAgeSeconds: 7 * 24 * 60 * 60 }, cacheableResponse: { statuses: [200] } } },
+          { urlPattern: ({ url }) => url.pathname.includes('/api/products/') || (url.origin === 'https://world.openfoodfacts.org' && url.pathname.includes('/api/v3/product/')), handler: 'NetworkFirst', options: { cacheName: 'product-lookups', networkTimeoutSeconds: 5, expiration: { maxEntries: 300, maxAgeSeconds: 7 * 24 * 60 * 60 }, cacheableResponse: { statuses: [0, 200] } } },
         ],
       },
     }),
