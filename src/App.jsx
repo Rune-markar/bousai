@@ -94,6 +94,7 @@ function App() {
         {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} />}
         {page === 'plan' && <EmergencyPlan state={state} summary={summary} setState={setState} setToast={setToast} />}
         {page === 'learn' && <Learn completed={state.completedTips} setState={setState} />}
+        {page === 'power' && <PowerEcosystem plan={state.powerPlan} onChange={(powerPlan) => setState((old) => ({ ...old, powerPlan }))} onBack={() => setPage('home')} />}
       </main>
 
       <nav className="mobile-nav" aria-label="モバイルナビゲーション">
@@ -160,6 +161,7 @@ function Dashboard({ state, summary, setState, setPage, setModal }) {
         <article className="action-card primary"><div className="action-icon"><ShoppingBasket /></div><div><span className="pill warm">要補充 {summary.shortageCount}件</span><h3>不足しているものを補充</h3><p>合計の目安は <b>¥{summary.replenishmentCost.toLocaleString()}</b> です</p></div><button aria-label="備蓄を開く" onClick={() => setPage('inventory')}><ArrowRight /></button></article>
         <article className="action-card"><div className="action-icon amber"><CalendarDays /></div><div><span className="pill">期限チェック</span><h3>{summary.expiringCount ? `${summary.expiringCount}品目が期限間近です` : '期限は問題ありません'}</h3><p>ローリングストックでおいしく消費</p></div><button aria-label="期限を確認" onClick={() => setPage('inventory')}><ArrowRight /></button></article>
         <article className="action-card"><div className="action-icon green"><PackagePlus /></div><div><span className="pill green-pill">かんたん登録</span><h3>買ったものを追加</h3><p>数量と期限をメモしておきましょう</p></div><button aria-label="備蓄を追加" onClick={() => setModal('new')}><Plus /></button></article>
+        <article className="action-card"><div className="action-icon amber"><Zap /></div><div><span className="pill">停電への備え</span><h3>停電時の電力を設計</h3><p>機器から蓄電池・太陽光の必要量を計算します</p></div><button type="button" aria-label="停電時の電力を設計" onClick={() => setPage('power')}><ArrowRight /></button></article>
       </div>
     </section>
 
@@ -295,8 +297,6 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
       {focusedTask ? missionCard(focusedTask, true) : <div className="journey-complete"><Trophy /><div><b>全段階を踏破しました</b><span>季節の変わり目に点検と実地訓練を続けましょう。</span></div></div>}
       {focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).length > 0 && <details className="stage-more"><summary>この段階の全項目を見る <span>{focusedStage.total}項目</span></summary><div className="mission-list">{focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).map((task) => missionCard(task))}</div></details>}
     </section>
-
-    <PowerEcosystem plan={state.powerPlan} onChange={(powerPlan) => setState((old) => ({ ...old, powerPlan }))} />
 
     <details className="roadmap-overview">
       <summary><span><Route /><b>6段階の全体像を見る</b><small>先の備えや獲得済みの防災章を確認</small></span><ChevronRight /></summary>
