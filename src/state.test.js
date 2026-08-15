@@ -7,11 +7,16 @@ describe('state migration', () => {
     expect(state.schemaVersion).toBe(SCHEMA_VERSION);
     expect(state.inventory[0]).toMatchObject({ id: 'old', name: '水', quantity: 2 });
     expect(state.inventory[0].productId).toBe('legacy:old');
-    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, updatedAt: '' });
+    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, targetDays: 7, updatedAt: '' });
     expect(state.inventory[0].packingVolumeMl).toBe(0);
     expect(state.transactions).toEqual([]);
     expect(state.inventory[0].replenishmentPriority).toBe('medium');
     expect(state.powerPlan.devices.phone.quantity).toBe(2);
+  });
+
+  it('normalizes the preparedness target duration', () => {
+    expect(normalizeState({ preparedness: { targetDays: 14 } }).preparedness.targetDays).toBe(14);
+    expect(normalizeState({ preparedness: { targetDays: 999 } }).preparedness.targetDays).toBe(30);
   });
 
   it('recovers from corrupt JSON', () => {

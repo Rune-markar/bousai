@@ -10,7 +10,7 @@ import BarcodeScanner from './BarcodeScanner.jsx';
 import PowerEcosystem from './PowerEcosystem.jsx';
 import PracticalLoadout from './PracticalLoadout.jsx';
 import { createTransaction, loadState, normalizeState, STORAGE_KEY } from './state.js';
-import { preparednessProgress, togglePreparednessTask } from './preparedness.js';
+import { defensePower, preparednessProgress, togglePreparednessTask } from './preparedness.js';
 import { completeLoadout, getLoadout, loadoutStatus, updateLoadout } from './loadouts.js';
 import { updateBagSettings } from './packing.js';
 import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, respondToCharacter } from './characters.js';
@@ -24,7 +24,7 @@ const nav = [
   { id: 'learn', label: '知る', icon: BookOpen },
 ];
 
-const emptyForm = { name: '', category: 'food', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', volumeMl: 0, packingVolumeMl: 0, imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30, replenishmentPriority: 'high', replenishBy: '', purchaseFrom: '' };
+const emptyForm = { name: '', category: 'food', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', volumeMl: 0, foodWeightG: 150, packingVolumeMl: 0, imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30, replenishmentPriority: 'high', replenishBy: '', purchaseFrom: '' };
 
 function Brand() {
   return <div className="brand"><span className="brand-mark"><ShieldCheck size={22} /></span><span><b>そなえメモ</b><small>暮らしに、ちいさな安心を。</small></span></div>;
@@ -79,7 +79,7 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${page === 'home' ? 'home-active' : ''}`}>
       <header className="topbar">
         <Brand />
         <nav className="desktop-nav" aria-label="メインナビゲーション">
@@ -106,7 +106,7 @@ function App() {
         let transaction;
         if (modal === 'new' && registrationMode === 'merge' && values.barcode && state.inventory.some((entry) => entry.barcode === values.barcode)) {
           const existing = state.inventory.find((entry) => entry.barcode === values.barcode);
-          inventory = state.inventory.map((entry) => entry.id === existing.id ? { ...entry, quantity: entry.quantity + values.quantity, packingVolumeMl: values.packingVolumeMl || entry.packingVolumeMl || 0, lastChecked: values.lastChecked || entry.lastChecked } : entry);
+          inventory = state.inventory.map((entry) => entry.id === existing.id ? { ...entry, quantity: entry.quantity + values.quantity, foodWeightG: values.foodWeightG || entry.foodWeightG || 0, packingVolumeMl: values.packingVolumeMl || entry.packingVolumeMl || 0, lastChecked: values.lastChecked || entry.lastChecked } : entry);
           transaction = createTransaction('add', existing, values.quantity, '同一バーコードの商品へ補充');
         } else if (modal === 'new') {
           const created = { ...values, id: uid(), productId: values.barcode ? `gtin:${values.barcode}` : `manual:${uid()}` };
@@ -127,53 +127,50 @@ function App() {
 }
 
 function Dashboard({ state, summary, setState, setPage, setModal }) {
-  const priorityOrder = { high: 0, medium: 1, low: 2, ok: 3 };
-  const alerts = summary.rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue).sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]).slice(0, 3);
-  const scoreLabel = summary.score >= 90 ? '安心マスター' : summary.score >= 70 ? 'そなえ上手' : summary.score >= 45 ? '準備中' : 'はじめの一歩';
-  return <>
-    <section className="hero wrap">
-      <div>
-        <div className="eyebrow"><span />今日のそなえ状況</div>
-        <h1>おかえりなさい。<br /><em>安心の輪</em>が育っています。</h1>
-        <p>完璧じゃなくて大丈夫。足りないものを、ひとつずつ整えていきましょう。</p>
-      </div>
-      <CharacterBubble state={state} summary={summary} setState={setState} setPage={setPage} />
-    </section>
+  const defense = useMemo(() => defensePower(state, summary), [state, summary]);
+  const shortcuts = [
+    { id: 'inventory', label: '備蓄', text: `不足 ${summary.shortageCount}件`, icon: Box },
+    { id: 'roadmap', label: '防災力', text: defense.requiredStage.label, icon: Route },
+    { id: 'plan', label: '緊急メモ', text: state.contact?.shelter ? '集合場所 登録済み' : '集合場所 未登録', icon: ClipboardList },
+    { id: 'learn', label: '防災知識', text: `${state.completedTips.length}件 読了`, icon: BookOpen },
+  ];
+  const setTargetDays = (targetDays) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, targetDays } }));
+  const targetGap = Math.max(0, defense.targetDays - summary.survivalDays);
+  return <section className="home-dashboard wrap" aria-label="防災ホーム">
+    <header className="home-heading">
+      <div><span className="kicker">TODAY'S READINESS</span><h1>わが家の防災状況</h1></div>
+      <div className="household-control" aria-label="家族人数"><Users /><button aria-label="家族人数を減らす" onClick={() => setState((old) => ({ ...old, household: Math.max(1, old.household - 1) }))}><Minus /></button><b>{state.household}<small>人</small></b><button aria-label="家族人数を増やす" onClick={() => setState((old) => ({ ...old, household: Math.min(12, old.household + 1) }))}><Plus /></button></div>
+    </header>
 
-    <section className="score-grid wrap">
-      <article className="card readiness-card">
-        <div className="card-heading"><div><span className="kicker">TOTAL READINESS</span><h2>わが家の備蓄力</h2></div><span className="rank"><BadgeCheck size={16} />{scoreLabel}</span></div>
-        <div className="readiness-body">
-          <ScoreRing score={summary.score} />
-          <div className="readiness-copy"><strong>{summary.score >= 70 ? 'かなり整ってきました！' : 'あと少し、育てていこう。'}</strong><p>今は家族{state.household}人で、水が約<b>{summary.waterDays}日分</b>。目標に近づくほど輪が完成します。</p><button className="text-button" onClick={() => setPage('inventory')}>不足を確認する <ArrowRight size={16} /></button></div>
+    <div className="target-day-control">
+      <span><CalendarDays />目標備蓄日数</span>
+      <div>{[3, 7, 14, 30].map((days) => <button className={defense.targetDays === days ? 'active' : ''} key={days} onClick={() => setTargetDays(days)}>{days}<small>日</small></button>)}</div>
+      <p>{defense.requiredStage.label}が必要</p>
+    </div>
+
+    <div className="home-metrics">
+      <article className="survival-card">
+        <div className="metric-title"><span><Droplets />水と食料</span><button onClick={() => setPage('inventory')}>備蓄を確認 <ArrowRight /></button></div>
+        <div className="survival-main"><div><small>生存可能日数</small><strong>{summary.survivalDays}<em>日</em></strong><p>{targetGap ? `目標まで あと${targetGap}日` : `${defense.targetDays}日目標を達成`}</p></div><ShieldCheck /></div>
+        <div className="supply-days">
+          <div><span><Droplets />水</span><b>{summary.waterDays}<small>日分</small></b><i><u style={{ width: `${defense.waterCoverage * 100}%` }} /></i></div>
+          <div><span><ShoppingBasket />食料</span><b>{summary.foodDays}<small>日分</small></b><i><u style={{ width: `${defense.foodCoverage * 100}%` }} /></i></div>
         </div>
+        {!summary.foodDays && <button className="food-weight-notice" onClick={() => setPage('inventory')}>食料の「1単位あたり重量」を登録してください <ChevronRight /></button>}
       </article>
-      <article className="card radar-card">
-        <div className="card-heading"><div><span className="kicker">BALANCE</span><h2>備えのバランス</h2></div><CircleHelp size={18} className="muted" /></div>
-        <RadarChart values={summary.categoryScores} />
-      </article>
-    </section>
 
-    <section className="wrap section-block">
-      <div className="section-heading"><div><span className="kicker">NEXT ACTION</span><h2>今週、やっておきたいこと</h2></div><button className="text-button" onClick={() => setPage('inventory')}>すべて見る <ChevronRight size={16} /></button></div>
-      <div className="action-grid">
-        <article className="action-card primary"><div className="action-icon"><ShoppingBasket /></div><div><span className="pill warm">要補充 {summary.shortageCount}件</span><h3>不足しているものを補充</h3><p>合計の目安は <b>¥{summary.replenishmentCost.toLocaleString()}</b> です</p></div><button aria-label="備蓄を開く" onClick={() => setPage('inventory')}><ArrowRight /></button></article>
-        <article className="action-card"><div className="action-icon amber"><CalendarDays /></div><div><span className="pill">期限チェック</span><h3>{summary.expiringCount ? `${summary.expiringCount}品目が期限間近です` : '期限は問題ありません'}</h3><p>ローリングストックでおいしく消費</p></div><button aria-label="期限を確認" onClick={() => setPage('inventory')}><ArrowRight /></button></article>
-        <article className="action-card"><div className="action-icon green"><PackagePlus /></div><div><span className="pill green-pill">かんたん登録</span><h3>買ったものを追加</h3><p>数量と期限をメモしておきましょう</p></div><button aria-label="備蓄を追加" onClick={() => setModal('new')}><Plus /></button></article>
-      </div>
-    </section>
+      <article className="defense-card">
+        <div className="metric-title"><span><BadgeCheck />総合防災力</span><button onClick={() => setPage('roadmap')}>詳細 <ArrowRight /></button></div>
+        <div className="defense-score"><div className="compact-score-ring" style={{ '--score': `${defense.score * 3.6}deg` }}><strong>{defense.score}<small>%</small></strong></div><div><span>目標 {defense.targetDays}日基準</span><h2>{defense.requiredStage.label}</h2><p>{defense.fulfilled} / {defense.requirementCount} 要件達成</p></div></div>
+        <div className="defense-next"><span>次の要件</span><b>{defense.nextTask?.title || (targetGap ? '水・食料を目標日数まで確保' : 'すべて達成')}</b></div>
+      </article>
+    </div>
 
-    <section className="wrap section-block two-column">
-      <article className="card alert-panel">
-        <div className="section-heading compact"><div><span className="kicker">ALERTS</span><h2>気になる備蓄</h2></div><AlertTriangle size={20} /></div>
-        {alerts.length ? alerts.map((item) => <button className="alert-row" key={item.id} onClick={() => setModal(item)}><span className={`status-dot ${item.isExpiring || item.isCheckDue ? 'amber' : 'red'}`} /><span><b>{item.name}</b><small>{item.isExpired ? '期限が切れています' : item.isExpiring ? `期限まで${item.daysToExpiry}日` : item.isCheckDue ? '棚卸し確認日を過ぎています' : `${item.shortage}${item.unit}不足しています`}</small></span><ChevronRight /></button>) : <div className="empty-small"><Check />気になる備蓄はありません</div>}
-      </article>
-      <article className="card family-card">
-        <div className="family-visual"><Users /><span>{state.household}</span></div>
-        <div><span className="kicker">HOUSEHOLD</span><h2>家族に合わせた目標</h2><p>人数を変えると、水の備蓄日数を再計算します。</p><div className="stepper"><button onClick={() => setState((s) => ({ ...s, household: Math.max(1, s.household - 1) }))}><Minus /></button><b>{state.household} 人</b><button onClick={() => setState((s) => ({ ...s, household: Math.min(12, s.household + 1) }))}><Plus /></button></div></div>
-      </article>
-    </section>
-  </>;
+    <nav className="home-shortcuts" aria-label="各ページへのショートカット">
+      {shortcuts.map(({ id, label, text, icon: Icon }) => <button key={id} onClick={() => setPage(id)}><Icon /><span><b>{label}</b><small>{text}</small></span><ChevronRight /></button>)}
+      <button className="quick-add" onClick={() => setModal('new')}><PackagePlus /><span><b>備蓄を追加</b><small>すぐに登録</small></span><Plus /></button>
+    </nav>
+  </section>;
 }
 
 function CharacterBubble({ state, summary, setState, setPage }) {
@@ -588,12 +585,12 @@ function Learn({ completed, setState }) {
 function ItemModal({ item, inventory, onClose, onSave }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
-  const [form, setForm] = useState(item ? { name: item.name, category: item.category, tier: item.tier, unit: item.unit, quantity: item.quantity, target: item.target, price: item.price, expiry: item.expiry, note: item.note || '', barcode: item.barcode || '', brand: item.brand || '', packageSize: item.packageSize || '', volumeMl: item.volumeMl || 0, packingVolumeMl: item.packingVolumeMl || 0, imageUrl: item.imageUrl || '', source: item.source || '', sourceUrl: item.sourceUrl || '', location: item.location || '', lastChecked: item.lastChecked || '', nextCheck: item.nextCheck || '', rotationEnabled: item.rotationEnabled !== false, rotationLeadDays: item.rotationLeadDays || 30, replenishmentPriority: item.replenishmentPriority || 'medium', replenishBy: item.replenishBy || '', purchaseFrom: item.purchaseFrom || '', registrationMode: 'new-lot' } : { ...emptyForm, lastChecked: new Date().toISOString().slice(0, 10), nextCheck: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), registrationMode: 'new-lot' });
+  const [form, setForm] = useState(item ? { name: item.name, category: item.category, tier: item.tier, unit: item.unit, quantity: item.quantity, target: item.target, price: item.price, expiry: item.expiry, note: item.note || '', barcode: item.barcode || '', brand: item.brand || '', packageSize: item.packageSize || '', volumeMl: item.volumeMl || 0, foodWeightG: item.foodWeightG || 0, packingVolumeMl: item.packingVolumeMl || 0, imageUrl: item.imageUrl || '', source: item.source || '', sourceUrl: item.sourceUrl || '', location: item.location || '', lastChecked: item.lastChecked || '', nextCheck: item.nextCheck || '', rotationEnabled: item.rotationEnabled !== false, rotationLeadDays: item.rotationLeadDays || 30, replenishmentPriority: item.replenishmentPriority || 'medium', replenishBy: item.replenishBy || '', purchaseFrom: item.purchaseFrom || '', registrationMode: 'new-lot' } : { ...emptyForm, lastChecked: new Date().toISOString().slice(0, 10), nextCheck: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), registrationMode: 'new-lot' });
   const [scannerOpen, setScannerOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(Boolean(item));
   const set = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   const duplicate = !item && form.barcode ? inventory.find((entry) => entry.barcode === form.barcode) : null;
-  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><form className="modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" onSubmit={(e) => { e.preventDefault(); onSave({ ...form, tier: Number(form.tier), quantity: Number(form.quantity), target: Number(form.target), price: Number(form.price), volumeMl: Number(form.volumeMl) || 0, packingVolumeMl: Number(form.packingVolumeMl) || 0, rotationLeadDays: Number(form.rotationLeadDays) || 30 }); }}>
+  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><form className="modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" onSubmit={(e) => { e.preventDefault(); onSave({ ...form, tier: Number(form.tier), quantity: Number(form.quantity), target: Number(form.target), price: Number(form.price), volumeMl: Number(form.volumeMl) || 0, foodWeightG: Number(form.foodWeightG) || 0, packingVolumeMl: Number(form.packingVolumeMl) || 0, rotationLeadDays: Number(form.rotationLeadDays) || 30 }); }}>
     <div className="modal-title"><div><span className="kicker">STOCK ITEM</span><h2 id="item-modal-title">{item ? '備蓄品を編集' : '備蓄品を追加'}</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div>
     {!item && <button className="optional-section-toggle" type="button" aria-expanded={scannerOpen} onClick={() => setScannerOpen((open) => !open)}><QrCode />バーコードから入力<span>{scannerOpen ? '閉じる' : 'カメラ・画像・番号'}</span><ChevronRight /></button>}
     {scannerOpen && <div className="optional-section"><BarcodeScanner initialProduct={form.barcode && form.name ? form : null} localProducts={inventory} onBarcode={(barcode) => set('barcode', barcode)} onProduct={(product) => setForm((old) => ({ ...old, ...product, registrationMode: !item && inventory.some((entry) => entry.barcode === product.barcode) ? 'merge' : old.registrationMode, note: old.note || [product.brand, product.packageSize].filter(Boolean).join(' / ') }))} />
@@ -605,6 +602,7 @@ function ItemModal({ item, inventory, onClose, onSave }) {
     <button className="optional-section-toggle details-toggle" type="button" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><ClipboardList />詳細設定<span>期限・価格・保管場所など</span><ChevronRight /></button>
     {detailsOpen && <div className="optional-section details-section"><div className="form-grid"><label><span>期限（任意）</span><input type="date" value={form.expiry} onChange={(e) => set('expiry', e.target.value)} /></label><label><span>単価（円）</span><input min="0" type="number" value={form.price} onChange={(e) => set('price', e.target.value)} /></label></div>
       {form.category === 'water' && <label className="full"><span>1単位あたりの水量（ml）</span><input min="0" type="number" value={form.volumeMl} onChange={(e) => set('volumeMl', e.target.value)} /></label>}
+      {form.category === 'food' && <label className="full"><span>1単位あたりの食料重量（g）</span><input min="0" type="number" value={form.foodWeightG} onChange={(e) => set('foodWeightG', e.target.value)} /><small>1食150g、1人1日3食を基準に生存可能日数を計算します。</small></label>}
       <label className="full"><span>1単位あたりの収納容量（ml・任意）</span><input min="0" type="number" value={form.packingVolumeMl} onChange={(e) => set('packingVolumeMl', e.target.value)} placeholder="未入力ならアプリの内部推定値を使用" /><small>外箱を含む実際の大きさを入力すると、バッグへの自動選定が正確になります。</small></label>
       <div className="form-grid"><label><span>保管場所</span><input value={form.location} onChange={(e) => set('location', e.target.value)} placeholder="例：玄関収納" /></label><label><span>次回確認日</span><input type="date" value={form.nextCheck} onChange={(e) => set('nextCheck', e.target.value)} /></label></div>
       <fieldset className="replenishment-settings"><legend>補充計画</legend><div className="form-grid three"><label><span>優先度</span><select value={form.replenishmentPriority} onChange={(e) => set('replenishmentPriority', e.target.value)}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label><label><span>補充期限</span><input type="date" value={form.replenishBy} onChange={(e) => set('replenishBy', e.target.value)} /></label><label><span>購入先候補</span><input value={form.purchaseFrom} onChange={(e) => set('purchaseFrom', e.target.value)} placeholder="例：近所のスーパー" /></label></div></fieldset>
