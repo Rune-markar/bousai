@@ -38,7 +38,7 @@ describe('電力設計ページの導線', () => {
     expect(document.documentElement).toHaveClass('power-document-active');
     expect(document.body).toHaveClass('power-document-active');
 
-    fireEvent.click(screen.getByRole('tab', { name: '太陽光' }));
+    expect(screen.getByLabelText('太陽光から蓄電池を経由して負荷へ流れる電力')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'ホームへ戻る' }));
     expect(screen.getByRole('heading', { name: 'わが家の防災状況' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停電時の電力を設計' })).toHaveFocus();
@@ -47,7 +47,7 @@ describe('電力設計ページの導線', () => {
     expect(document.body).not.toHaveClass('power-document-active');
 
     fireEvent.click(screen.getByRole('button', { name: '停電時の電力を設計' }));
-    expect(screen.getByRole('tab', { name: '太陽光' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: /負荷を調整/ })).toBeInTheDocument();
   }, 15000);
 
   it('アプリをアンマウントするとドキュメント固定を解除する', () => {

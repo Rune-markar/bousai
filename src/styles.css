@@ -190,4 +190,108 @@ body.power-document-active{height:100dvh;min-height:0}
 }
 
 /* The redesigned home keeps the new power entry and quick-add action on one row. */
+.power-page{grid-template-rows:auto auto minmax(0,1fr) auto}
+.power-flow-viewport{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:2px 1px}
+.power-flow-stage{position:relative;isolation:isolate;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:44px;align-items:stretch;padding:30px 12px 12px;border:1px solid #dce4db;border-radius:22px;background:radial-gradient(circle at 15% 10%,rgba(251,210,99,.2),transparent 25%),linear-gradient(155deg,#fdfdf8,#eff5f0);overflow:hidden}
+.power-flow-line{position:absolute;z-index:-1;inset:18px 5% auto;height:126px;pointer-events:none}
+.power-flow-line svg{width:100%;height:100%;overflow:visible}
+.power-wire-base,.power-wire-pulse{fill:none;stroke-linecap:round;stroke-width:16;vector-effect:non-scaling-stroke}
+.power-wire-base{stroke:#c7d4ce}
+.power-wire-pulse{stroke:#4bc29a;stroke-dasharray:3 22;animation:power-current 1.15s linear infinite}
+.power-wire-pulse.pulse-two{animation-delay:-.35s}
+.power-flow-direction{position:absolute;left:50%;top:-10px;transform:translateX(-50%);display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:999px;background:#1f594d;color:#fff;font-size:8px;font-weight:800;white-space:nowrap;box-shadow:0 5px 14px rgba(24,73,63,.18)}
+.power-flow-direction svg{width:12px;height:12px;color:#ffe08a}
+@keyframes power-current{to{stroke-dashoffset:-25}}
+@media(prefers-reduced-motion:reduce){.power-wire-pulse{animation:none;stroke-dashoffset:0}}
+.power-flow-node{min-width:0;display:flex;flex-direction:column;padding:15px;border:1px solid rgba(189,207,199,.9);border-radius:18px;background:rgba(255,255,255,.94);box-shadow:0 12px 28px rgba(30,72,63,.09)}
+.power-node-visual{display:flex;align-items:center;gap:10px;min-height:55px}
+.power-node-visual>span,.power-load-icon{width:50px;height:50px;flex:0 0 50px;border-radius:16px;display:grid;place-items:center}
+.power-node-visual svg,.power-load-icon svg{width:28px;height:28px}
+.power-solar-node .power-node-visual>span{background:#fff0bc;color:#a66e0e}
+.power-battery-node .power-node-visual>span{background:#dff1e8;color:#206858}
+.power-node-visual small,.power-load-button small{display:block;font-size:8px;font-weight:800;letter-spacing:.12em;color:#73857f}
+.power-node-visual h2{margin:2px 0 0;font-family:var(--display-font);font-size:17px;color:#1f4d44}
+.power-node-value{display:flex;flex-direction:column;margin-top:13px;padding-top:12px;border-top:1px solid #e5e9e3}
+.power-node-value>span{display:flex;align-items:center;gap:4px;min-height:28px;font-size:8px;color:#71827c;font-weight:700}
+.power-node-value>b{font-family:var(--display-font);font-size:25px;color:#18594c;line-height:1.15}
+.power-node-value>small{margin-top:4px;font-size:7px;color:#7c8a86}
+.power-node-link,.power-node-actions button{border:0;background:transparent;color:#377466;font-size:8px;font-weight:800;cursor:pointer}
+.power-node-link{margin-top:auto;padding:11px 0 0;display:flex;align-items:center;gap:4px}
+.power-node-link svg{width:12px}
+.power-node-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:auto;padding-top:9px}
+.power-node-actions button{min-height:30px;border-radius:8px;background:#edf4f0}
+.power-load-button{width:100%;min-height:58px;padding:4px 0;border:0;background:transparent;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;text-align:left;color:inherit;cursor:pointer}
+.power-load-button:focus-visible{outline:3px solid #4f9e8b;outline-offset:4px;border-radius:12px}
+.power-load-icon{background:#e4edf6;color:#335f87}
+.power-load-button strong{display:block;margin-top:2px;font-family:var(--display-font);font-size:20px;color:#1f4d44}
+.power-load-button em{display:block;margin-top:2px;font-size:8px;font-style:normal;color:#48786c;font-weight:800}
+.power-load-button>svg{width:18px;color:#6f817b}
+.power-breakdown{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;margin-top:9px;border:1px solid #dce3dc;border-radius:14px;overflow:hidden;background:#dce3dc}
+.power-breakdown>div{min-width:0;padding:9px 10px;background:#fff;display:flex;flex-direction:column;gap:3px}
+.power-breakdown span{font-size:7px;color:#72827d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.power-breakdown b{font-family:var(--display-font);font-size:13px;color:#285c51;white-space:nowrap}
+.power-breakdown .power-loss{background:#fff5df}
+.power-breakdown .power-loss b{color:#a06122}
+.power-breakdown .power-capacity,.power-breakdown .power-solar-total{background:#e8f2ed}
+.power-load-summary{display:grid;grid-template-columns:1fr auto;gap:3px 12px;align-items:end;margin-bottom:12px;padding:12px 15px;border-radius:13px;background:#183f38;color:#fff}
+.power-load-summary span{font-size:9px;color:#bed0cb}
+.power-load-summary b{font-family:var(--display-font);font-size:18px}
+.power-load-summary small{grid-column:1/-1;font-size:8px;color:#adc2bc}
+.power-load-grid{max-height:min(57dvh,520px);overflow-y:auto;padding-right:3px}
+.power-load-sheet{width:min(760px,100%)}
+
+@media(max-width:850px){
+  .power-page{grid-template-rows:auto auto minmax(0,1fr) auto}
+  .power-flow-stage{gap:8px;padding:26px 7px 8px;border-radius:16px}
+  .power-flow-line{inset:18px 4% auto;height:91px}
+  .power-wire-base,.power-wire-pulse{stroke-width:10}
+  .power-flow-node{padding:9px 7px;border-radius:14px}
+  .power-node-visual{flex-direction:column;gap:3px;min-height:75px;text-align:center}
+  .power-node-visual>span,.power-load-icon{width:42px;height:42px;flex-basis:42px;border-radius:13px}
+  .power-node-visual svg,.power-load-icon svg{width:23px;height:23px}
+  .power-node-visual h2{font-size:13px;white-space:nowrap}
+  .power-node-value{margin-top:7px;padding-top:6px;text-align:center}
+  .power-node-value>span{justify-content:center;min-height:44px;font-size:8px;line-height:1.25}
+  .power-node-value>b{font-size:18px;white-space:nowrap}
+  .power-node-value>small{min-height:20px;font-size:7px;line-height:1.25}
+  .power-node-link{justify-content:center;min-height:32px;padding-top:5px}
+  .power-node-actions{grid-template-columns:1fr;gap:3px;padding-top:5px}
+  .power-node-actions button{min-height:32px}
+  .power-load-button{display:flex;flex-direction:column;gap:3px;min-height:75px;padding:0;text-align:center}
+  .power-load-button>svg{display:none}
+  .power-load-button strong{font-size:16px}
+  .power-load-button em{font-size:7px}
+  .power-breakdown{grid-template-columns:repeat(4,minmax(0,1fr));border-radius:11px}
+  .power-breakdown>div{padding:6px 5px}
+  .power-breakdown span{font-size:8px}
+  .power-breakdown b{font-size:12px}
+  .power-breakdown .power-capacity{grid-column:span 2}
+  .power-breakdown .power-solar-total{grid-column:span 1}
+  .power-flow-viewport>.power-caution{font-size:8px!important;line-height:1.45!important}
+  .power-load-sheet{max-height:min(86dvh,700px)}
+  .power-load-grid{grid-template-columns:1fr 1fr;max-height:60dvh}
+  .power-load-grid .device-card{padding:9px}
+  .power-load-grid .device-title small{display:none}
+  .power-load-grid .device-stepper{grid-template-columns:44px 1fr 44px}
+  .power-load-grid .device-stepper button{height:44px}
+}
+
+@media(max-width:430px){
+  .power-flow-direction{font-size:7px;padding:4px 8px}
+  .power-flow-stage{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .power-flow-node{padding-inline:5px}
+  .power-node-value>b{font-size:16px}
+  .power-node-value .power-help-button{width:32px;height:32px}
+  .power-load-grid{grid-template-columns:1fr}
+}
+
+@media(max-width:850px) and (max-height:720px){
+  .power-flow-stage{padding-top:22px}
+  .power-node-visual,.power-load-button{min-height:66px}
+  .power-node-value>span{min-height:35px}
+  .power-node-value>small{display:none}
+  .power-node-actions{display:none}
+  .power-flow-viewport>.power-caution{margin-bottom:0!important}
+}
+
 .home-shortcuts{grid-template-columns:repeat(6,minmax(0,1fr))}

@@ -33,7 +33,6 @@ function Brand() {
 function App() {
   const [state, setState] = useState(loadState);
   const [page, setPage] = useState('home');
-  const [powerTab, setPowerTab] = useState('devices');
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -112,7 +111,7 @@ function App() {
         {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} />}
         {page === 'plan' && <EmergencyPlan state={state} summary={summary} setState={setState} setToast={setToast} />}
         {page === 'learn' && <Learn completed={state.completedTips} setState={setState} />}
-        {page === 'power' && <PowerEcosystem plan={state.powerPlan} onChange={(powerPlan) => setState((old) => ({ ...old, powerPlan }))} onBack={() => setPage('home')} activeTab={powerTab} onActiveTabChange={setPowerTab} />}
+        {page === 'power' && <PowerEcosystem plan={state.powerPlan} onChange={(powerPlan) => setState((old) => ({ ...old, powerPlan }))} onBack={() => setPage('home')} />}
       </main>
 
       <footer className="app-footer">

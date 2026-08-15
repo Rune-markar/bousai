@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, CircleHelp, Minus, Plus, X } from 'lucide-react';
+import { BatteryCharging, ChevronRight, CircleHelp, Minus, PlugZap, Plus, Sun, X, Zap } from 'lucide-react';
 import {
   BATTERY_BENCHMARKS,
   calculatePowerSystem,
@@ -10,24 +10,12 @@ import {
 
 const yen = (value) => `¥${Math.round(value).toLocaleString('ja-JP')}`;
 const energy = (value) => value >= 1000 ? `${(value / 1000).toFixed(2)} kWh` : `${value.toLocaleString('ja-JP')} Wh`;
-const tabs = [
-  { id: 'devices', label: '機器' },
-  { id: 'battery', label: '蓄電池' },
-  { id: 'solar', label: '太陽光' },
-];
 
-export default function PowerEcosystem({ plan, onChange, onBack, activeTab: controlledActiveTab, onActiveTabChange }) {
+export default function PowerEcosystem({ plan, onChange, onBack }) {
   const result = useMemo(() => calculatePowerSystem(plan), [plan]);
-  const [localActiveTab, setLocalActiveTab] = useState('devices');
-  const activeTab = controlledActiveTab ?? localActiveTab;
-  const setActiveTab = (nextTab) => {
-    if (controlledActiveTab === undefined) setLocalActiveTab(nextTab);
-    onActiveTabChange?.(nextTab);
-  };
   const [help, setHelp] = useState(null);
   const headingRef = useRef(null);
   const helpTriggerRef = useRef(null);
-  const tabRefs = useRef({});
   const updatePlan = (patch) => onChange(normalizePowerPlan({ ...result.plan, ...patch }));
   const updateDevice = (id, patch) => updatePlan({ devices: { ...result.plan.devices, [id]: { ...result.plan.devices[id], ...patch } } });
   const setQuantity = (row, delta) => updateDevice(row.id, { quantity: Math.min(20, Math.max(0, row.quantity + delta)) });
@@ -53,19 +41,6 @@ export default function PowerEcosystem({ plan, onChange, onBack, activeTab: cont
     setHelp(null);
     queueMicrotask(() => helpTriggerRef.current?.focus());
   };
-  const handleTabKeyDown = (event, id) => {
-    const currentIndex = tabs.findIndex((tab) => tab.id === id);
-    let nextIndex;
-    if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
-    else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-    else if (event.key === 'Home') nextIndex = 0;
-    else if (event.key === 'End') nextIndex = tabs.length - 1;
-    else return;
-    event.preventDefault();
-    const nextId = tabs[nextIndex].id;
-    setActiveTab(nextId);
-    tabRefs.current[nextId]?.focus();
-  };
 
   return <section className="power-page power-ecosystem" aria-labelledby="power-page-title">
     <div className="page-title power-page-title"><div><span className="kicker">POWER PLANNER</span><h1 id="power-page-title" ref={headingRef} tabIndex="-1">停電時の電力設計</h1></div><button type="button" className="secondary-button" onClick={onBack}>ホームへ戻る</button></div>
@@ -76,37 +51,48 @@ export default function PowerEcosystem({ plan, onChange, onBack, activeTab: cont
       <div><span>計算モード</span><div className="power-mode"><button type="button" className={result.plan.mode === 'simple' ? 'active' : ''} aria-pressed={result.plan.mode === 'simple'} onClick={() => updatePlan({ mode: 'simple' })}>簡易</button><button type="button" className={result.plan.mode === 'detail' ? 'active' : ''} aria-pressed={result.plan.mode === 'detail'} onClick={() => updatePlan({ mode: 'detail' })}>詳細</button></div></div>
     </div>
 
-    <div className="power-tabs" role="tablist" aria-label="電力設計の項目">
-      {tabs.map((tab) => <button ref={(node) => { tabRefs.current[tab.id] = node; }} key={tab.id} id={`power-tab-${tab.id}`} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`power-panel-${tab.id}`} tabIndex={activeTab === tab.id ? 0 : -1} onClick={() => setActiveTab(tab.id)} onKeyDown={(event) => handleTabKeyDown(event, tab.id)}>{tab.label}</button>)}
-    </div>
-
-    <div className="power-tab-viewport">
-      <section id="power-panel-devices" role="tabpanel" aria-labelledby="power-tab-devices" aria-label="機器" hidden={activeTab !== 'devices'}>
-        <div className="power-device-summary" aria-label="選択中の機器の集計"><span>{result.selected.length}種類</span><b>{energy(result.dailyLoadWh)} / 日</b><span>同時最大 {result.peakLoadW} W</span></div>
-        <div className="power-device-rail">
-          {result.rows.map((row) => <article className={`device-card ${row.quantity ? 'selected' : ''}`} key={row.id}>
-            <div className="device-title"><span aria-hidden="true">{row.symbol}</span><div><b>{row.name}</b><small>{row.note}</small></div><HelpButton label={`${row.name}の詳細`} helpId="device-detail" onClick={(event) => openHelp('device-detail', event, row.id)} /></div>
-            <div className="device-stepper"><button type="button" aria-label={`${row.name}を減らす`} onClick={() => setQuantity(row, -1)} disabled={!row.quantity}><Minus /></button><b>{row.quantity}<small>台</small></b><button type="button" aria-label={`${row.name}を増やす`} onClick={() => setQuantity(row, 1)}><Plus /></button></div>
-          </article>)}
+    <div className="power-flow-viewport">
+      <section className="power-flow-stage" aria-label="太陽光から蓄電池を経由して負荷へ流れる電力">
+        <div className="power-flow-line" aria-hidden="true">
+          <svg viewBox="0 0 1000 210" preserveAspectRatio="none">
+            <path className="power-wire-base" d="M177 105 H500 H823" />
+            <path className="power-wire-pulse pulse-one" d="M177 105 H500" />
+            <path className="power-wire-pulse pulse-two" d="M500 105 H823" />
+          </svg>
+          <span className="power-flow-direction"><Zap />発電した電気を充電して使う</span>
         </div>
-        {result.selected.length === 0 && <p className="power-empty">使いたい機器を追加すると必要量を計算します。</p>}
-        <p className="power-caution">医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。冷蔵庫などモーター機器は定格より大きい起動電力も確認します。この結果は購入確定ではなく、見積もり前の容量判断です。</p>
+
+        <article className="power-flow-node power-solar-node">
+          <div className="power-node-visual"><span><Sun /></span><div><small>つくる</small><h2>太陽光パネル</h2></div></div>
+          <div className="power-node-value"><span>必要な定格出力 <HelpButton label="太陽光発電条件の補足" helpId="solar-generation" onClick={(event) => openHelp('solar-generation', event)} /></span><b>{result.requiredSolarW} W</b><small>日照{result.plan.sunHours}時間・効率75%</small></div>
+          <button className="power-node-link" type="button" aria-label="太陽光価格の補足" onClick={(event) => openHelp('solar-price', event)}>価格の目安を見る <ChevronRight /></button>
+        </article>
+
+        <article className="power-flow-node power-battery-node">
+          <div className="power-node-visual"><span><BatteryCharging /></span><div><small>ためる</small><h2>蓄電池</h2></div></div>
+          <div className="power-node-value"><span>必要な表示容量 <HelpButton label="蓄電池容量の補足" helpId="battery-capacity" onClick={(event) => openHelp('battery-capacity', event)} /></span><b>{energy(result.requiredBatteryWh)}</b><small>{result.plan.autonomyDays}日分・損失と予備を含む</small></div>
+          <div className="power-node-actions"><button type="button" aria-label="蓄電池出力の補足" onClick={(event) => openHelp('battery-output', event)}>出力の確認</button><button type="button" aria-label="蓄電池価格の補足" onClick={(event) => openHelp('battery-price', event)}>価格の目安</button></div>
+        </article>
+
+        <article className="power-flow-node power-load-node">
+          <button type="button" className="power-load-button" aria-label={`負荷を調整、現在${result.selected.length}種類`} onClick={(event) => openHelp('load-devices', event)}>
+            <span className="power-load-icon"><PlugZap /></span><span><small>つかう</small><strong>負荷</strong><em>{result.selected.length}種類</em></span><ChevronRight />
+          </button>
+          <div className="power-node-value"><span>1日の使用電力量</span><b>{energy(result.dailyLoadWh)}</b><small>同時最大 {result.peakLoadW} W</small></div>
+        </article>
       </section>
 
-      <section id="power-panel-battery" role="tabpanel" aria-labelledby="power-tab-battery" aria-label="蓄電池" hidden={activeTab !== 'battery'}>
-        <div className="power-summary-cards">
-          <div className="guide-answer"><span>必要な表示容量 <HelpButton label="蓄電池容量の補足" helpId="battery-capacity" onClick={(event) => openHelp('battery-capacity', event)} /></span><b>{energy(result.requiredBatteryWh)}</b><small>{result.plan.autonomyDays}日分・損失と予備を含む</small></div>
-          <div className="power-summary-card"><span>推奨AC出力 <HelpButton label="蓄電池出力の補足" helpId="battery-output" onClick={(event) => openHelp('battery-output', event)} /></span><b>{result.recommendedOutputW} W以上</b><small>同時使用と起動電力を別途確認</small></div>
-          <div className="power-summary-card"><span>蓄電池概算 <HelpButton label="蓄電池価格の補足" helpId="battery-price" onClick={(event) => openHelp('battery-price', event)} /></span><b>{yen(result.batteryEstimateYen)}</b><small>公式価格ベンチマークから概算</small></div>
-        </div>
+      <section className="power-breakdown" aria-label="電力計算の内訳">
+        <div><span>1日負荷</span><b>{energy(result.dailyLoadWh)}</b></div>
+        <div><span>同時最大</span><b>{result.peakLoadW} W</b></div>
+        <div className="power-loss"><span>変換損失</span><b>{energy(result.conversionLossWh)} / 日</b></div>
+        <div><span>蓄電池入力</span><b>{energy(result.batteryInputWhPerDay)} / 日</b></div>
+        <div><span>予備・使用可能域</span><b>{energy(result.protectedMarginWh)}</b></div>
+        <div className="power-capacity"><span>必要蓄電池容量</span><b>{energy(result.requiredBatteryWh)}</b></div>
+        <div className="power-solar-total"><span>必要太陽光出力</span><b>{result.requiredSolarW} W</b></div>
       </section>
 
-      <section id="power-panel-solar" role="tabpanel" aria-labelledby="power-tab-solar" aria-label="太陽光" hidden={activeTab !== 'solar'}>
-        <div className="power-summary-cards">
-          <div className="guide-answer"><span>必要な定格出力 <HelpButton label="太陽光発電条件の補足" helpId="solar-generation" onClick={(event) => openHelp('solar-generation', event)} /></span><b>{result.requiredSolarW} W</b><small>有効日照{result.plan.sunHours}時間・システム効率75%</small></div>
-          <div className="power-summary-card"><span>太陽光パネル概算 <HelpButton label="太陽光価格の補足" helpId="solar-price" onClick={(event) => openHelp('solar-price', event)} /></span><b>{yen(result.solarEstimateYen)}</b><small>市販パネルの定格へ切り上げて比較</small></div>
-        </div>
-      </section>
+      <p className="power-caution">医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。冷蔵庫などモーター機器は定格より大きい起動電力も確認します。この結果は購入確定ではなく、見積もり前の容量判断です。</p>
     </div>
 
     <div className="power-results-dock" aria-label="電力設計の計算結果">
@@ -115,7 +101,7 @@ export default function PowerEcosystem({ plan, onChange, onBack, activeTab: cont
       <div><span>電源とパネルの概算費用</span><b>{yen(result.totalEstimateYen)}</b></div>
     </div>
 
-    {help && <HelpSheet help={help} result={result} updateDevice={updateDevice} onClose={closeHelp} />}
+    {help && <HelpSheet help={help} result={result} updateDevice={updateDevice} setQuantity={setQuantity} onClose={closeHelp} openHelp={openHelp} />}
   </section>;
 }
 
@@ -123,11 +109,12 @@ function HelpButton({ label, helpId, onClick }) {
   return <button className="power-help-button" type="button" aria-label={label} data-help-id={helpId} onClick={onClick}><CircleHelp aria-hidden="true" /></button>;
 }
 
-function HelpSheet({ help, result, updateDevice, onClose }) {
+function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp }) {
   const closeRef = useRef(null);
   const dialogRef = useRef(null);
   const row = help.id === 'device-detail' ? result.rows.find((item) => item.id === help.deviceId) : null;
   const titles = {
+    'load-devices': '使用する機器を調整',
     'battery-capacity': '必要容量の考え方',
     'battery-output': '必要出力と安全確認',
     'battery-price': '蓄電池の価格比較',
@@ -135,6 +122,7 @@ function HelpSheet({ help, result, updateDevice, onClose }) {
     'solar-price': '太陽光パネルの価格比較',
     'device-detail': row ? `${row.name}の使用条件` : '機器の使用条件',
   };
+  const isLoad = help.id === 'load-devices';
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -159,8 +147,9 @@ function HelpSheet({ help, result, updateDevice, onClose }) {
   };
 
   return <div className="modal-backdrop power-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section ref={dialogRef} className="power-modal power-help-sheet" role="dialog" aria-modal="true" aria-labelledby="power-help-title" data-help-id={help.id} onKeyDown={trapFocus}>
-      <div className="power-modal-head"><h2 id="power-help-title">{titles[help.id]}</h2><button ref={closeRef} type="button" aria-label="補足を閉じる" onClick={onClose}><X /></button></div>
+    <section ref={dialogRef} className={`power-modal power-help-sheet ${isLoad ? 'power-load-sheet' : ''}`} role="dialog" aria-modal="true" aria-labelledby="power-help-title" data-help-id={help.id} onKeyDown={trapFocus}>
+      <div className="power-modal-head"><div>{isLoad && <span className="kicker">LOAD SETTINGS</span>}<h2 id="power-help-title">{titles[help.id]}</h2></div><button ref={closeRef} type="button" aria-label={isLoad ? '負荷の調整を閉じる' : '補足を閉じる'} onClick={onClose}><X /></button></div>
+      {isLoad && <LoadEditor result={result} setQuantity={setQuantity} openHelp={openHelp} />}
       {help.id === 'battery-capacity' && <div className="power-help-copy"><p><b>変換損失</b> 蓄電池の直流を家庭用ACやUSBへ変える際、熱や回路動作として一部が失われます。本計算はインバーター効率88%を採用しています。</p><p><b>使用可能容量と予備</b> 電池を空まで使わないため使用可能率90%、天候や機器差に備えて20%を残します。表示容量と実際に取り出せる量が同じとは限りません。</p></div>}
       {help.id === 'battery-output' && <div className="power-help-copy"><p>同時最大負荷に25%を加えた {result.recommendedOutputW}W以上を目安にします。冷蔵庫などモーター機器は定格より大きい起動電力も確認してください。</p><p>医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。この結果は購入確定ではなく、見積もり前の容量判断です。</p></div>}
       {help.id === 'battery-price' && <PriceHelp result={result} kind="battery" />}
@@ -169,6 +158,18 @@ function HelpSheet({ help, result, updateDevice, onClose }) {
       {help.id === 'device-detail' && row && <DeviceDetail row={row} detailMode={result.plan.mode === 'detail'} updateDevice={updateDevice} />}
     </section>
   </div>;
+}
+
+function LoadEditor({ result, setQuantity, openHelp }) {
+  return <>
+    <div className="power-load-summary"><span>{result.selected.length}種類を選択</span><b>{energy(result.dailyLoadWh)} / 日</b><small>同時最大 {result.peakLoadW} W</small></div>
+    <div className="device-grid power-load-grid">
+      {result.rows.map((row) => <article className={`device-card ${row.quantity ? 'selected' : ''}`} key={row.id}>
+        <div className="device-title"><span aria-hidden="true">{row.symbol}</span><div><b>{row.name}</b><small>{row.note}</small></div><HelpButton label={`${row.name}の詳細`} helpId="device-detail" onClick={(event) => openHelp('device-detail', event, row.id)} /></div>
+        <div className="device-stepper"><button type="button" aria-label={`${row.name}を減らす`} onClick={() => setQuantity(row, -1)} disabled={!row.quantity}><Minus /></button><b>{row.quantity}<small>台</small></b><button type="button" aria-label={`${row.name}を増やす`} onClick={() => setQuantity(row, 1)}><Plus /></button></div>
+      </article>)}
+    </div>
+  </>;
 }
 
 function DeviceDetail({ row, detailMode, updateDevice }) {
