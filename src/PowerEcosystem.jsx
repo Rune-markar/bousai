@@ -16,6 +16,7 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
   const [help, setHelp] = useState(null);
   const headingRef = useRef(null);
   const helpTriggerRef = useRef(null);
+  const deviceDetailRefs = useRef({});
   const updatePlan = (patch) => onChange(normalizePowerPlan({ ...result.plan, ...patch }));
   const updateDevice = (id, patch) => updatePlan({ devices: { ...result.plan.devices, [id]: { ...result.plan.devices[id], ...patch } } });
   const setQuantity = (row, delta) => updateDevice(row.id, { quantity: Math.min(20, Math.max(0, row.quantity + delta)) });
@@ -34,10 +35,18 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
   }, [help]);
 
   const openHelp = (id, event, deviceId = null) => {
+    if (id === 'device-detail' && help?.id === 'load-devices') {
+      setHelp({ id, deviceId, returnTo: 'load-devices' });
+      return;
+    }
     helpTriggerRef.current = event.currentTarget;
     setHelp({ id, deviceId });
   };
   const closeHelp = () => {
+    if (help?.returnTo === 'load-devices') {
+      setHelp({ id: 'load-devices', focusDeviceId: help.deviceId });
+      return;
+    }
     setHelp(null);
     queueMicrotask(() => helpTriggerRef.current?.focus());
   };
@@ -101,15 +110,15 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
       <div><span>電源とパネルの概算費用</span><b>{yen(result.totalEstimateYen)}</b></div>
     </div>
 
-    {help && <HelpSheet help={help} result={result} updateDevice={updateDevice} setQuantity={setQuantity} onClose={closeHelp} openHelp={openHelp} />}
+    {help && <HelpSheet help={help} result={result} updateDevice={updateDevice} setQuantity={setQuantity} onClose={closeHelp} openHelp={openHelp} deviceDetailRefs={deviceDetailRefs} />}
   </section>;
 }
 
-function HelpButton({ label, helpId, onClick }) {
-  return <button className="power-help-button" type="button" aria-label={label} data-help-id={helpId} onClick={onClick}><CircleHelp aria-hidden="true" /></button>;
+function HelpButton({ label, helpId, onClick, buttonRef }) {
+  return <button ref={buttonRef} className="power-help-button" type="button" aria-label={label} data-help-id={helpId} onClick={onClick}><CircleHelp aria-hidden="true" /></button>;
 }
 
-function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp }) {
+function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp, deviceDetailRefs }) {
   const closeRef = useRef(null);
   const dialogRef = useRef(null);
   const row = help.id === 'device-detail' ? result.rows.find((item) => item.id === help.deviceId) : null;
@@ -125,8 +134,12 @@ function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp 
   const isLoad = help.id === 'load-devices';
 
   useEffect(() => {
-    closeRef.current?.focus();
-  }, []);
+    if (help.id === 'load-devices' && help.focusDeviceId) {
+      deviceDetailRefs.current[help.focusDeviceId]?.focus();
+    } else {
+      closeRef.current?.focus();
+    }
+  }, [deviceDetailRefs, help.focusDeviceId, help.id]);
 
   const trapFocus = (event) => {
     if (event.key !== 'Tab') return;
@@ -149,7 +162,7 @@ function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp 
   return <div className="modal-backdrop power-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section ref={dialogRef} className={`power-modal power-help-sheet ${isLoad ? 'power-load-sheet' : ''}`} role="dialog" aria-modal="true" aria-labelledby="power-help-title" data-help-id={help.id} onKeyDown={trapFocus}>
       <div className="power-modal-head"><div>{isLoad && <span className="kicker">LOAD SETTINGS</span>}<h2 id="power-help-title">{titles[help.id]}</h2></div><button ref={closeRef} type="button" aria-label={isLoad ? '負荷の調整を閉じる' : '補足を閉じる'} onClick={onClose}><X /></button></div>
-      {isLoad && <LoadEditor result={result} setQuantity={setQuantity} openHelp={openHelp} />}
+      {isLoad && <LoadEditor result={result} setQuantity={setQuantity} openHelp={openHelp} deviceDetailRefs={deviceDetailRefs} />}
       {help.id === 'battery-capacity' && <div className="power-help-copy"><p><b>変換損失</b> 蓄電池の直流を家庭用ACやUSBへ変える際、熱や回路動作として一部が失われます。本計算はインバーター効率88%を採用しています。</p><p><b>使用可能容量と予備</b> 電池を空まで使わないため使用可能率90%、天候や機器差に備えて20%を残します。表示容量と実際に取り出せる量が同じとは限りません。</p></div>}
       {help.id === 'battery-output' && <div className="power-help-copy"><p>同時最大負荷に25%を加えた {result.recommendedOutputW}W以上を目安にします。冷蔵庫などモーター機器は定格より大きい起動電力も確認してください。</p><p>医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。この結果は購入確定ではなく、見積もり前の容量判断です。</p></div>}
       {help.id === 'battery-price' && <PriceHelp result={result} kind="battery" />}
@@ -160,12 +173,12 @@ function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp 
   </div>;
 }
 
-function LoadEditor({ result, setQuantity, openHelp }) {
+function LoadEditor({ result, setQuantity, openHelp, deviceDetailRefs }) {
   return <>
     <div className="power-load-summary"><span>{result.selected.length}種類を選択</span><b>{energy(result.dailyLoadWh)} / 日</b><small>同時最大 {result.peakLoadW} W</small></div>
     <div className="device-grid power-load-grid">
       {result.rows.map((row) => <article className={`device-card ${row.quantity ? 'selected' : ''}`} key={row.id}>
-        <div className="device-title"><span aria-hidden="true">{row.symbol}</span><div><b>{row.name}</b><small>{row.note}</small></div><HelpButton label={`${row.name}の詳細`} helpId="device-detail" onClick={(event) => openHelp('device-detail', event, row.id)} /></div>
+        <div className="device-title"><span aria-hidden="true">{row.symbol}</span><div><b>{row.name}</b><small>{row.note}</small></div><HelpButton buttonRef={(node) => { deviceDetailRefs.current[row.id] = node; }} label={`${row.name}の詳細`} helpId="device-detail" onClick={(event) => openHelp('device-detail', event, row.id)} /></div>
         <div className="device-stepper"><button type="button" aria-label={`${row.name}を減らす`} onClick={() => setQuantity(row, -1)} disabled={!row.quantity}><Minus /></button><b>{row.quantity}<small>台</small></b><button type="button" aria-label={`${row.name}を増やす`} onClick={() => setQuantity(row, 1)}><Plus /></button></div>
       </article>)}
     </div>

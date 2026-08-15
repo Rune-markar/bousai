@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
+import { readFileSync } from 'node:fs';
 import PowerEcosystem from './PowerEcosystem.jsx';
 import { createDefaultPowerPlan } from './power.js';
 
@@ -127,5 +128,33 @@ describe('停電時の電力設計', () => {
     fireEvent.click(loadTrigger);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('機器詳細を閉じると負荷一覧の起点へ戻り、その後は主画面の負荷ボタンへ戻す', async () => {
+    render(<Planner />);
+
+    const loadTrigger = screen.getByRole('button', { name: /負荷を調整/ });
+    fireEvent.click(loadTrigger);
+    let dialog = screen.getByRole('dialog', { name: '使用する機器を調整' });
+    const detailTrigger = within(dialog).getByRole('button', { name: 'スマートフォンの詳細' });
+    fireEvent.click(detailTrigger);
+
+    dialog = screen.getByRole('dialog', { name: 'スマートフォンの使用条件' });
+    expect(within(dialog).getByRole('button', { name: '補足を閉じる' })).toHaveFocus();
+    fireEvent.click(within(dialog).getByRole('button', { name: '補足を閉じる' }));
+
+    dialog = await screen.findByRole('dialog', { name: '使用する機器を調整' });
+    const restoredDetailTrigger = within(dialog).getByRole('button', { name: 'スマートフォンの詳細' });
+    await waitFor(() => expect(restoredDetailTrigger).toHaveFocus());
+    fireEvent.click(within(dialog).getByRole('button', { name: '負荷の調整を閉じる' }));
+    await waitFor(() => expect(loadTrigger).toHaveFocus());
+  });
+
+  it('低いスマートフォンでもノード操作を隠さず44pxのタッチ領域を保つ', () => {
+    const stylesheet = readFileSync('src/styles.css', 'utf8');
+
+    expect(stylesheet).not.toMatch(/\.power-node-actions\s*\{[^}]*display\s*:\s*none/s);
+    expect(stylesheet).toMatch(/\.power-node-actions button\s*\{[^}]*min-height\s*:\s*44px/s);
+    expect(stylesheet).toMatch(/\.power-node-value \.power-help-button\s*\{[^}]*width\s*:\s*44px[^}]*height\s*:\s*44px/s);
   });
 });
