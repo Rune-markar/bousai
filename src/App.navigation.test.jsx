@@ -27,16 +27,18 @@ describe('電力設計ページの導線', () => {
   });
 
   it('ホームから専用ページを開き、戻るとホームへ戻る', () => {
-    render(<App />);
+    const { container } = render(<App />);
 
     fireEvent.click(screen.getByRole('button', { name: '停電時の電力を設計' }));
 
     const heading = screen.getByRole('heading', { name: '停電時の電力設計' });
     expect(heading).toBeInTheDocument();
     expect(heading).toHaveFocus();
+    expect(container.querySelector('.app-shell')).toHaveClass('power-active');
     fireEvent.click(screen.getByRole('button', { name: 'ホームへ戻る' }));
     expect(screen.getByText('今日のそなえ状況')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停電時の電力を設計' })).toHaveFocus();
+    expect(container.querySelector('.app-shell')).not.toHaveClass('power-active');
   });
 
   it('防災力ページに旧電力プランナーを埋め込まない', () => {

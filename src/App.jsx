@@ -86,7 +86,7 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${page === 'power' ? ' power-active' : ''}`}>
       <header className="topbar">
         <Brand />
         <nav className="desktop-nav" aria-label="メインナビゲーション">
