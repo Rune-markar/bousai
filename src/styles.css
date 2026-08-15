@@ -252,7 +252,7 @@ body.power-document-active{height:100dvh;min-height:0}
   .power-flow-stage{grid-template-columns:repeat(3,minmax(0,1fr))}
   .power-flow-node{padding-inline:5px}
   .power-node-value>b{font-size:16px}
-  .power-node-value .power-help-button{width:44px;height:44px}
+  .power-node-value .power-help-button{width:44px;height:44px;flex:0 0 44px}
   .power-load-grid{grid-template-columns:1fr}
 }
 
