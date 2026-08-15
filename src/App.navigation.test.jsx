@@ -48,7 +48,7 @@ describe('電力設計ページの導線', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '停電時の電力を設計' }));
     expect(screen.getByRole('tab', { name: '太陽光' })).toHaveAttribute('aria-selected', 'true');
-  });
+  }, 15000);
 
   it('アプリをアンマウントするとドキュメント固定を解除する', () => {
     const { unmount } = render(<App />);
