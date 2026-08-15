@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import PowerEcosystem from './PowerEcosystem.jsx';
@@ -46,6 +46,40 @@ describe('停電時の電力設計', () => {
     fireEvent.click(screen.getByRole('tab', { name: '太陽光' }));
     expect(screen.getByRole('tab', { name: '太陽光' })).toHaveAttribute('aria-selected', 'true');
     expect(within(screen.getByRole('tabpanel', { name: '太陽光' })).getByText('必要な定格出力')).toBeVisible();
+  });
+
+  it('矢印とHome・Endでタブを巡回し、参照先パネルを常に保持する', () => {
+    render(<Planner />);
+    const deviceTab = screen.getByRole('tab', { name: '機器' });
+    const batteryTab = screen.getByRole('tab', { name: '蓄電池' });
+    const solarTab = screen.getByRole('tab', { name: '太陽光' });
+
+    for (const tab of [deviceTab, batteryTab, solarTab]) {
+      expect(document.getElementById(tab.getAttribute('aria-controls'))).toBeInTheDocument();
+    }
+
+    deviceTab.focus();
+    fireEvent.keyDown(deviceTab, { key: 'ArrowRight' });
+    expect(batteryTab).toHaveFocus();
+    expect(batteryTab).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(batteryTab, { key: 'ArrowLeft' });
+    expect(deviceTab).toHaveFocus();
+    fireEvent.keyDown(deviceTab, { key: 'ArrowLeft' });
+    expect(solarTab).toHaveFocus();
+    expect(solarTab).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(solarTab, { key: 'Home' });
+    expect(deviceTab).toHaveFocus();
+    fireEvent.keyDown(deviceTab, { key: 'End' });
+    expect(solarTab).toHaveFocus();
+  });
+
+  it('機器タブに選択数・1日使用量・同時最大出力を表示する', () => {
+    render(<Planner />);
+    const summary = screen.getByLabelText('選択中の機器の集計');
+
+    expect(within(summary).getByText('4種類')).toBeInTheDocument();
+    expect(within(summary).getByText('384 Wh / 日')).toBeInTheDocument();
+    expect(within(summary).getByText('同時最大 70 W')).toBeInTheDocument();
   });
 
   it('内容別の補足シートを開き、閉じる操作を選べる', () => {
@@ -96,5 +130,32 @@ describe('停電時の電力設計', () => {
       expect(link).toHaveAttribute('target', '_blank');
       expect(link).toHaveAttribute('rel', 'noreferrer');
     }
+  });
+
+  it('補足シート内にフォーカスを閉じ込め、閉じた後は起点へ戻す', async () => {
+    render(<Planner />);
+
+    fireEvent.click(screen.getByRole('tab', { name: '蓄電池' }));
+    const capacityTrigger = screen.getByRole('button', { name: '蓄電池容量の補足' });
+    fireEvent.click(capacityTrigger);
+    let dialog = screen.getByRole('dialog', { name: '必要容量の考え方' });
+    const onlyClose = within(dialog).getByRole('button', { name: '補足を閉じる' });
+    expect(onlyClose).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(onlyClose).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(onlyClose).toHaveFocus();
+    fireEvent.click(onlyClose);
+    await waitFor(() => expect(capacityTrigger).toHaveFocus());
+
+    const priceTrigger = screen.getByRole('button', { name: '蓄電池価格の補足' });
+    fireEvent.click(priceTrigger);
+    dialog = screen.getByRole('dialog', { name: '蓄電池の価格比較' });
+    const close = within(dialog).getByRole('button', { name: '補足を閉じる' });
+    const links = within(dialog).getAllByRole('link');
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+    expect(links.at(-1)).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Tab' });
+    expect(close).toHaveFocus();
   });
 });
