@@ -136,29 +136,33 @@ body.power-document-active{height:100dvh;min-height:0}
   .power-page-title{min-height:42px;flex-direction:row;align-items:center;gap:8px}
   .power-page-title h1{font-size:20px;margin:0}
   .power-page-title .kicker{font-size:7px}
-  .power-page-title .secondary-button{padding:8px 10px;font-size:10px;white-space:nowrap}
+  .power-page-title .secondary-button{min-height:44px;padding:8px 12px;font-size:11px;white-space:nowrap}
   .power-page .power-settings{grid-template-columns:1fr 1fr 1.2fr;gap:6px;padding:7px}
   .power-page .power-settings>div{grid-column:auto}
-  .power-page .power-settings span{font-size:7px}
-  .power-page .power-settings select{padding:6px 5px;font-size:9px}
-  .power-page .power-mode button{padding:5px 2px;font-size:8px}
+  .power-page .power-settings span{font-size:9px}
+  .power-page .power-settings select{min-height:44px;padding:8px 7px;font-size:11px}
+  .power-page .power-mode button{min-height:44px;padding:7px 3px;font-size:10px}
   .power-tabs{padding:3px}
-  .power-tabs button{min-height:32px}
+  .power-tabs button{min-height:44px;font-size:12px}
   .power-tab-viewport{scrollbar-gutter:auto}
   .power-device-summary{margin-bottom:7px;padding:6px 9px}
   .power-device-summary b{font-size:13px}
   .power-device-rail{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;padding:0 1px 7px}
   .power-device-rail .device-card{flex:0 0 min(72vw,240px);padding:10px}
+  .power-page .device-stepper{grid-template-columns:44px 1fr 44px}
+  .power-page .device-stepper button{height:44px;min-width:44px}
+  .power-page .power-help-button{width:44px;height:44px}
   .power-caution{margin-top:3px!important;padding:7px 9px}
   .power-summary-cards{grid-template-columns:1fr;align-content:start;height:auto}
   .power-summary-cards .guide-answer,.power-summary-card{min-height:104px;padding:15px}
   .power-summary-cards .guide-answer b{font-size:28px}
   .power-summary-card>b{font-size:21px}
   .power-results-dock>div{padding:8px 7px}
-  .power-results-dock span{font-size:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .power-results-dock b{font-size:12px}
+  .power-results-dock span{font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .power-results-dock b{font-size:14px}
   .power-backdrop{place-items:end center;padding:0}
   .power-help-sheet{width:100%;max-height:min(78dvh,620px);border-radius:22px 22px 0 0;padding:20px 18px calc(20px + env(safe-area-inset-bottom))}
+  .power-help-sheet .power-modal-head>button{width:44px;height:44px;flex:0 0 44px}
 }
 
 @media(max-width:430px){
@@ -173,7 +177,7 @@ body.power-document-active{height:100dvh;min-height:0}
   .power-page-title h1{font-size:18px}
   .power-page-title .kicker{display:none}
   .power-page .power-settings{padding:5px}
-  .power-tabs button{min-height:28px}
+  .power-tabs button{min-height:44px}
   .power-tab-viewport{overflow-y:auto}
   .power-results-dock>div{padding-block:6px}
 }
