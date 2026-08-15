@@ -40,6 +40,8 @@ function App() {
   const [online, setOnline] = useState(() => navigator.onLine);
   const summary = useMemo(() => inventorySummary(state.inventory, state.household), [state.inventory, state.household]);
   const visitChecked = useRef(false);
+  const powerEntryRef = useRef(null);
+  const previousPageRef = useRef(page);
 
   useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), [state]);
   useEffect(() => {
@@ -60,6 +62,11 @@ function App() {
   }, [toast]);
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [page]);
+  useEffect(() => {
+    const previousPage = previousPageRef.current;
+    previousPageRef.current = page;
+    if (page === 'home' && previousPage === 'power') powerEntryRef.current?.focus();
   }, [page]);
   useEffect(() => {
     if (visitChecked.current) return;
@@ -89,7 +96,7 @@ function App() {
       </header>
 
       <main>
-        {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} />}
+        {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
         {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} />}
         {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} />}
         {page === 'plan' && <EmergencyPlan state={state} summary={summary} setState={setState} setToast={setToast} />}
@@ -127,7 +134,7 @@ function App() {
   );
 }
 
-function Dashboard({ state, summary, setState, setPage, setModal }) {
+function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef }) {
   const priorityOrder = { high: 0, medium: 1, low: 2, ok: 3 };
   const alerts = summary.rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue).sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]).slice(0, 3);
   const scoreLabel = summary.score >= 90 ? '安心マスター' : summary.score >= 70 ? 'そなえ上手' : summary.score >= 45 ? '準備中' : 'はじめの一歩';
@@ -161,7 +168,7 @@ function Dashboard({ state, summary, setState, setPage, setModal }) {
         <article className="action-card primary"><div className="action-icon"><ShoppingBasket /></div><div><span className="pill warm">要補充 {summary.shortageCount}件</span><h3>不足しているものを補充</h3><p>合計の目安は <b>¥{summary.replenishmentCost.toLocaleString()}</b> です</p></div><button aria-label="備蓄を開く" onClick={() => setPage('inventory')}><ArrowRight /></button></article>
         <article className="action-card"><div className="action-icon amber"><CalendarDays /></div><div><span className="pill">期限チェック</span><h3>{summary.expiringCount ? `${summary.expiringCount}品目が期限間近です` : '期限は問題ありません'}</h3><p>ローリングストックでおいしく消費</p></div><button aria-label="期限を確認" onClick={() => setPage('inventory')}><ArrowRight /></button></article>
         <article className="action-card"><div className="action-icon green"><PackagePlus /></div><div><span className="pill green-pill">かんたん登録</span><h3>買ったものを追加</h3><p>数量と期限をメモしておきましょう</p></div><button aria-label="備蓄を追加" onClick={() => setModal('new')}><Plus /></button></article>
-        <button type="button" className="action-card" aria-label="停電時の電力を設計" onClick={() => setPage('power')}><div className="action-icon amber"><Zap /></div><div><span className="pill">停電への備え</span><h3>停電時の電力を設計</h3><p>機器から蓄電池・太陽光の必要量を計算します</p></div><ArrowRight /></button>
+        <article className="action-card power-entry-card"><div className="action-icon amber"><Zap /></div><div><span className="pill">停電への備え</span><h3>停電時の電力を設計</h3><p>機器から蓄電池・太陽光の必要量を計算します</p></div><button ref={powerEntryRef} type="button" className="power-entry-button" aria-label="停電時の電力を設計" onClick={() => setPage('power')}><ArrowRight /></button></article>
       </div>
     </section>
 

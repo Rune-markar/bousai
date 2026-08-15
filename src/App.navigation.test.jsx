@@ -36,6 +36,7 @@ describe('電力設計ページの導線', () => {
     expect(heading).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: 'ホームへ戻る' }));
     expect(screen.getByText('今日のそなえ状況')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '停電時の電力を設計' })).toHaveFocus();
   });
 
   it('防災力ページに旧電力プランナーを埋め込まない', () => {
