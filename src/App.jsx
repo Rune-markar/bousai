@@ -96,6 +96,10 @@ function App() {
         {page === 'learn' && <Learn completed={state.completedTips} setState={setState} />}
       </main>
 
+      <footer className="app-footer">
+        <small>© {new Date().getFullYear()} そなえメモ</small>
+      </footer>
+
       <nav className="mobile-nav" aria-label="モバイルナビゲーション">
         {nav.map(({ id, label, icon: Icon }) => <button className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>

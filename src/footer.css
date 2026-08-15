@@ -1,0 +1,21 @@
+.app-footer {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid rgba(24, 55, 51, 0.08);
+  color: #778984;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+/* Keep the footer visible inside the fixed-height home dashboard. */
+.home-active main {
+  height: calc(100dvh - 106px);
+}
+
+@media (max-width: 850px) {
+  .home-active main {
+    height: calc(100dvh - 163px);
+  }
+}
