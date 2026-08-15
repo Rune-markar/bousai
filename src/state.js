@@ -2,7 +2,7 @@ import { createInitialInventory, daysFromNow, uid } from './domain.js';
 import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -46,7 +46,7 @@ export function createDefaultState() {
     household: 2,
     contact: { name: '家族の集合場所', phone: '', shelter: '〇〇小学校 体育館', note: '災害用伝言ダイヤル 171' },
     completedTips: [],
-    preparedness: { completed: [], updatedAt: '' },
+    preparedness: { completed: [], loadouts: {}, updatedAt: '' },
     transactions: [],
     lastVisitAt: '',
     selectedCharacter: 'hikari',
@@ -74,6 +74,7 @@ export function normalizeState(input) {
     completedTips: Array.isArray(input.completedTips) ? input.completedTips.filter((value) => typeof value === 'string') : [],
     preparedness: {
       completed: Array.isArray(input.preparedness?.completed) ? input.preparedness.completed.filter((value) => typeof value === 'string') : [],
+      loadouts: Object.fromEntries(Object.entries(input.preparedness?.loadouts || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
       updatedAt: String(input.preparedness?.updatedAt || ''),
     },
     transactions: Array.isArray(input.transactions) ? input.transactions.filter(Boolean).slice(0, 500) : [],

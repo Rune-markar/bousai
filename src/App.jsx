@@ -8,8 +8,10 @@ import {
 import { CATEGORY_META, consumeByRotation, inventorySummary, transactionInsights, uid } from './domain.js';
 import BarcodeScanner from './BarcodeScanner.jsx';
 import PowerEcosystem from './PowerEcosystem.jsx';
+import PracticalLoadout from './PracticalLoadout.jsx';
 import { createTransaction, loadState, normalizeState, STORAGE_KEY } from './state.js';
 import { preparednessProgress, togglePreparednessTask } from './preparedness.js';
+import { completeLoadout, getLoadout, loadoutStatus, updateLoadout } from './loadouts.js';
 import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, respondToCharacter } from './characters.js';
 import { DISASTER_SCENARIOS, generateEmergencyPlan, simulateDisaster } from './emergency.js';
 
@@ -219,6 +221,7 @@ function StageIcon({ name }) {
 function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
   const progress = useMemo(() => preparednessProgress(state, summary), [state, summary]);
   const [selectedStageId, setSelectedStageId] = useState(() => progress.currentStage.id);
+  const [activeLoadout, setActiveLoadout] = useState(null);
   const selectedStage = progress.stages.find((stage) => stage.id === selectedStageId) || progress.currentStage;
   const focusedTask = progress.nextTask;
   const focusedStage = progress.currentStage;
@@ -226,6 +229,11 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
   const completedStages = progress.stages.filter((stage) => stage.gateClear).length;
 
   const toggle = (task) => {
+    if (getLoadout(task.id)) {
+      const taskStage = progress.stages.find((stage) => stage.tasks.some((entry) => entry.id === task.id));
+      if (taskStage?.unlocked || progress.completed.has(task.id)) setActiveLoadout(task.id);
+      return;
+    }
     if (task.auto) {
       setPage(task.id === 'family-route' ? 'plan' : 'inventory');
       setToast(task.id === 'family-route' ? '緊急メモを整えると自動達成します' : '備蓄を目標まで登録すると自動達成します');
@@ -246,13 +254,28 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
     }
   };
 
+  const finishLoadout = () => {
+    const task = progress.stages.flatMap((stage) => stage.tasks).find((entry) => entry.id === activeLoadout);
+    const taskStage = progress.stages.find((stage) => stage.tasks.some((entry) => entry.id === activeLoadout));
+    if (!task || !taskStage) return;
+    const beforeGate = taskStage.gateClear;
+    const nextState = completeLoadout(state, activeLoadout);
+    const afterStage = preparednessProgress(nextState, summary).stages.find((stage) => stage.id === taskStage.id);
+    if (nextState === state) return;
+    setState(nextState);
+    setActiveLoadout(null);
+    setToast(!beforeGate && afterStage?.gateClear ? `${taskStage.title} クリア！ 次の段階が解放されました` : `装備確認完了　+${task.xp} XP`);
+  };
+
   const missionCard = (task, compact = false) => {
     const done = progress.completed.has(task.id);
     const automatic = progress.automatic.has(task.id);
+    const loadout = getLoadout(task.id);
+    const kitStatus = loadoutStatus(state, task.id);
     const taskStage = progress.stages.find((stage) => stage.tasks.some((entry) => entry.id === task.id));
     return <article className={`mission ${compact ? 'mission-focus' : ''} ${done ? 'done' : ''}`} key={task.id}>
-      <button className="mission-check" type="button" disabled={!taskStage?.unlocked && !done} aria-label={task.auto ? `${task.title}の連動データを確認` : `${task.title}を${done ? '未達成に戻す' : '達成にする'}`} onClick={() => toggle(task)}>{done ? <Check /> : task.auto ? <RefreshCw /> : null}</button>
-      <div className="mission-copy"><div><span className="mission-pillar">{pillarLabels[task.pillar]}</span>{task.gate && <span className="mission-gate">次段階の条件</span>}{automatic && <span className="mission-auto">自動達成</span>}</div><h3>{task.title}</h3><p>{task.detail}</p><small><Lightbulb /> 次の行動：{task.action}</small></div>
+      <button className="mission-check" type="button" disabled={!taskStage?.unlocked && !done} aria-label={loadout ? `${task.title}の装備ケースを開く` : task.auto ? `${task.title}の連動データを確認` : `${task.title}を${done ? '未達成に戻す' : '達成にする'}`} onClick={() => toggle(task)}>{done ? <Check /> : task.auto ? <RefreshCw /> : loadout ? <Backpack /> : null}</button>
+      <div className="mission-copy"><div><span className="mission-pillar">{pillarLabels[task.pillar]}</span>{task.gate && <span className="mission-gate">次段階の条件</span>}{automatic && <span className="mission-auto">自動達成</span>}{loadout && <span className="mission-loadout-tag">装備ケース</span>}</div><h3>{task.title}</h3><p>{task.detail}</p><small><Lightbulb /> 次の行動：{task.action}</small>{loadout && <button className="mission-loadout" type="button" onClick={() => toggle(task)} disabled={!taskStage?.unlocked && !done}><span className="mission-loadout-items">{loadout.items.slice(0, 5).map((item) => <i key={item.id} className={kitStatus.packed.has(item.id) ? 'packed' : ''}>{item.symbol}</i>)}</span><b>{loadout.label}</b><em>{kitStatus.done} / {kitStatus.total} 必須品</em><ChevronRight /></button>}</div>
       <span className="mission-xp">+{task.xp} XP</span>
     </article>;
   };
@@ -296,6 +319,7 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
         <section className="achievement-section"><div className="section-heading compact"><div><span className="kicker">ACHIEVEMENTS</span><h2>獲得した防災章</h2></div><Trophy /></div><div className="achievement-row">{progress.stages.map((stage) => <div className={`achievement ${stage.gateClear ? 'earned' : ''}`} key={stage.id}><span><StageIcon name={stage.icon} /></span><b>{stage.title}</b><small>{stage.gateClear ? '獲得済み' : '未獲得'}</small></div>)}</div></section>
       </div>
     </details>
+    {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} />}
   </section>;
 }
 
