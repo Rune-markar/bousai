@@ -22,17 +22,21 @@ export function generateEmergencyPlan(state, summary) {
   const toiletUnits = summary.rows.filter((item) => item.category === 'hygiene').reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const toiletDays = Math.floor(toiletUnits / (people * 5));
   const contactReady = Boolean(String(state.contact?.shelter || '').trim() && String(state.contact?.note || '').trim());
+  const formatDays = (value) => (Math.floor(Math.max(0, Number(value) || 0) * 10) / 10).toFixed(1);
+  const foodDays = Math.max(0, Number(summary.foodDays) || 0);
   const gaps = [];
-  if (summary.waterDays < 3) gaps.push(`飲料水は約${summary.waterDays}日分。まず3日分まで増やす`);
+  if (foodDays < 3) gaps.push(`食料は約${formatDays(foodDays)}日分。1人1日450gで3日分まで増やす`);
+  if (summary.waterDays < 3) gaps.push(`飲料水は約${formatDays(summary.waterDays)}日分。まず3日分まで増やす`);
   if (toiletDays < 3) gaps.push(`携帯トイレは約${toiletDays}日分。断水前提で追加する`);
   if (!contactReady) gaps.push('集合場所と171などの連絡ルールを家族で決める');
   if (!summary.rows.some((item) => item.category === 'light' && item.quantity > 0)) gaps.push('停電用の灯りと予備電池を確保する');
   return {
     contactReady,
+    foodDays,
     waterDays: summary.waterDays,
     toiletDays,
     immediate: ['身の安全を確保し、火元と出口を確認', `家族の集合場所：${state.contact?.shelter || '未登録'}`, '安全なら在宅避難、危険なら指定避難先へ移動'],
-    first72Hours: [`水を1人1日3L以内で計画配分（現在 約${summary.waterDays}日分）`, `携帯トイレを1人1日5回で配分（現在 約${toiletDays}日分）`, '期限の近い食品から開封し、入出庫を記録'],
+    first72Hours: [`食料を1人1日450gで計画配分（現在 約${formatDays(foodDays)}日分）`, `水を1人1日3L以内で計画配分（現在 約${formatDays(summary.waterDays)}日分）`, `携帯トイレを1人1日5回で配分（現在 約${toiletDays}日分）`, '期限の近い食品から開封し、入出庫を記録'],
     gaps,
   };
 }

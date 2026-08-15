@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { generateEmergencyPlan, simulateDisaster } from './emergency.js';
 
-const summary = { waterDays: 1, rows: [{ category: 'hygiene', quantity: 10 }, { category: 'light', quantity: 1 }], categoryScores: [{ key: 'water', score: 30 }, { key: 'food', score: 80 }, { key: 'hygiene', score: 20 }, { key: 'light', score: 90 }, { key: 'heat', score: 50 }, { key: 'comfort', score: 100 }] };
+const summary = { foodDays: 2, waterDays: 1, rows: [{ category: 'hygiene', quantity: 10 }, { category: 'light', quantity: 1 }], categoryScores: [{ key: 'water', score: 30 }, { key: 'food', score: 80 }, { key: 'hygiene', score: 20 }, { key: 'light', score: 90 }, { key: 'heat', score: 50 }, { key: 'comfort', score: 100 }] };
 
 describe('emergency planning', () => {
   it('turns household stock and contact gaps into an action plan', () => {
     const plan = generateEmergencyPlan({ household: 2, contact: { shelter: '', note: '' } }, summary);
     expect(plan.waterDays).toBe(1);
+    expect(plan.foodDays).toBe(2);
     expect(plan.toiletDays).toBe(1);
     expect(plan.gaps).toContain('集合場所と171などの連絡ルールを家族で決める');
+    expect(plan.gaps).toContain('食料は約2.0日分。1人1日450gで3日分まで増やす');
   });
 
   it('scores a scenario and penalizes a longer outage', () => {

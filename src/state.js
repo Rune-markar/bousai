@@ -1,5 +1,6 @@
 import { createInitialInventory, daysFromNow, uid } from './domain.js';
 import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
+import { parseWeightGrams } from '../shared/productLookup.mjs';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
 export const SCHEMA_VERSION = 9;
@@ -25,7 +26,7 @@ export function normalizeInventoryItem(item = {}, index = 0) {
     brand: String(item.brand || ''),
     packageSize: String(item.packageSize || ''),
     volumeMl: Math.max(0, Number(item.volumeMl) || 0),
-    foodWeightG: Math.max(0, Number(item.foodWeightG) || (item.category === 'food' && item.unit === '食' ? 150 : 0)),
+    foodWeightG: Math.max(0, Number(item.foodWeightG) || (item.category === 'food' ? parseWeightGrams(`${item.packageSize || ''} ${item.name || ''}`) : 0)),
     packingVolumeMl: Math.max(0, Number(item.packingVolumeMl) || 0),
     imageUrl: String(item.imageUrl || ''),
     source: String(item.source || ''),

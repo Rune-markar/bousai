@@ -5,10 +5,11 @@ import {
   normalizeProduct,
   OPEN_FOOD_FACTS_ORIGIN,
   parseVolumeMl,
+  parseWeightGrams,
   PRODUCT_FIELDS,
 } from '../shared/productLookup.mjs';
 
-export { hasValidGtinCheckDigit, inferInventoryCategory, normalizeBarcode, normalizeProduct, parseVolumeMl };
+export { hasValidGtinCheckDigit, inferInventoryCategory, normalizeBarcode, normalizeProduct, parseVolumeMl, parseWeightGrams };
 
 export async function handleProductImageApi(req, res, rawUrl) {
   let imageUrl;

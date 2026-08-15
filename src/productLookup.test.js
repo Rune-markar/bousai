@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { lookupProductFromBrowser } from './productLookup.js';
+import { normalizeProduct, parseWeightGrams } from '../shared/productLookup.mjs';
 
 const response = ({ body, contentType = 'application/json', ok = true, status = 200 }) => ({
   ok,
@@ -40,5 +41,18 @@ describe('browser product lookup', () => {
     const fetchImpl = vi.fn(async () => response({ body: { message: '検索回数が多すぎます。' }, ok: false, status: 429 }));
     await expect(lookupProductFromBrowser('3017620422003', { fetchImpl })).rejects.toThrow('検索回数が多すぎます。');
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+});
+
+describe('food package weight', () => {
+  it('parses single and multipack gram quantities', () => {
+    expect(parseWeightGrams('100 g')).toBe(100);
+    expect(parseWeightGrams('6 x 200g')).toBe(1200);
+    expect(parseWeightGrams('1.5 kg')).toBe(1500);
+  });
+
+  it('adds food weight to normalized food products', () => {
+    expect(normalizeProduct('3017620422003', { product_name: '保存食', quantity: '3 x 100 g' }, { proxyImages: false }))
+      .toMatchObject({ category: 'food', foodWeightG: 300 });
   });
 });
