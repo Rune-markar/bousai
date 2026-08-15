@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Check, ChevronRight, CircleHelp, Minus, Plus, Sun, X, Zap } from 'lucide-react';
 import {
   BATTERY_BENCHMARKS,
@@ -14,12 +14,17 @@ const energy = (value) => value >= 1000 ? `${(value / 1000).toFixed(2)} kWh` : `
 export default function PowerEcosystem({ plan, onChange, onBack }) {
   const result = useMemo(() => calculatePowerSystem(plan), [plan]);
   const [panel, setPanel] = useState(null);
+  const headingRef = useRef(null);
   const updatePlan = (patch) => onChange(normalizePowerPlan({ ...result.plan, ...patch }));
   const updateDevice = (id, patch) => updatePlan({ devices: { ...result.plan.devices, [id]: { ...result.plan.devices[id], ...patch } } });
   const setQuantity = (row, delta) => updateDevice(row.id, { quantity: Math.min(20, Math.max(0, row.quantity + delta)) });
 
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
   return <section className="power-page power-ecosystem" aria-labelledby="power-page-title">
-    <div className="page-title power-page-title"><div><span className="kicker">POWER PLANNER</span><h1 id="power-page-title">停電時の電力設計</h1></div><button type="button" className="secondary-button" onClick={onBack}>ホームへ戻る</button></div>
+    <div className="page-title power-page-title"><div><span className="kicker">POWER PLANNER</span><h1 id="power-page-title" ref={headingRef} tabIndex="-1">停電時の電力設計</h1></div><button type="button" className="secondary-button" onClick={onBack}>ホームへ戻る</button></div>
     <div className="power-heading">
       <div><span className="kicker">POWER ECOSYSTEM</span><h2 id="power-ecosystem-title">停電時の電力を、一つの流れで設計</h2><p>使いたい機器を選ぶだけで、必要な蓄電池容量・出力・太陽光パネル・概算費用まで逆算します。</p></div>
       <span className="power-status"><Check />自動計算</span>

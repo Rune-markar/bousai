@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
 
@@ -31,8 +31,20 @@ describe('電力設計ページの導線', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '停電時の電力を設計' }));
 
-    expect(screen.getByRole('heading', { name: '停電時の電力設計' })).toBeInTheDocument();
+    const heading = screen.getByRole('heading', { name: '停電時の電力設計' });
+    expect(heading).toBeInTheDocument();
+    expect(heading).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: 'ホームへ戻る' }));
     expect(screen.getByText('今日のそなえ状況')).toBeInTheDocument();
+  });
+
+  it('防災力ページに旧電力プランナーを埋め込まない', () => {
+    render(<App />);
+
+    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
+    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '防災力' }));
+
+    expect(screen.getByRole('heading', { name: '防災力ロードマップ' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '停電時の電力を、一つの流れで設計' })).not.toBeInTheDocument();
   });
 });
