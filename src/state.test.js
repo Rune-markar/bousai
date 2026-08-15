@@ -10,6 +10,7 @@ describe('state migration', () => {
     expect(state.preparedness).toEqual({ completed: [], updatedAt: '' });
     expect(state.transactions).toEqual([]);
     expect(state.inventory[0].replenishmentPriority).toBe('medium');
+    expect(state.powerPlan.devices.phone.quantity).toBe(2);
   });
 
   it('recovers from corrupt JSON', () => {

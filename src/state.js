@@ -1,7 +1,8 @@
 import { createInitialInventory, daysFromNow, uid } from './domain.js';
+import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -51,6 +52,7 @@ export function createDefaultState() {
     selectedCharacter: 'hikari',
     characterAffinity: { akane: 0, yui: 0, riko: 0, hikari: 0, noa: 0 },
     dialogueLog: [],
+    powerPlan: createDefaultPowerPlan(),
   };
 }
 
@@ -79,6 +81,7 @@ export function normalizeState(input) {
     selectedCharacter: ['akane', 'yui', 'riko', 'hikari', 'noa'].includes(input.selectedCharacter) ? input.selectedCharacter : 'hikari',
     characterAffinity: Object.fromEntries(['akane', 'yui', 'riko', 'hikari', 'noa'].map((id) => [id, Math.min(100, Math.max(0, Number(input.characterAffinity?.[id]) || 0))])),
     dialogueLog: Array.isArray(input.dialogueLog) ? input.dialogueLog.filter(Boolean).slice(0, 100) : [],
+    powerPlan: normalizePowerPlan(input.powerPlan || fallback.powerPlan),
   };
 }
 

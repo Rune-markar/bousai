@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { CATEGORY_META, consumeByRotation, inventorySummary, transactionInsights, uid } from './domain.js';
 import BarcodeScanner from './BarcodeScanner.jsx';
+import PowerEcosystem from './PowerEcosystem.jsx';
 import { createTransaction, loadState, normalizeState, STORAGE_KEY } from './state.js';
 import { preparednessProgress, togglePreparednessTask } from './preparedness.js';
 import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, respondToCharacter } from './characters.js';
@@ -270,6 +271,8 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
       {focusedTask ? missionCard(focusedTask, true) : <div className="journey-complete"><Trophy /><div><b>全段階を踏破しました</b><span>季節の変わり目に点検と実地訓練を続けましょう。</span></div></div>}
       {focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).length > 0 && <details className="stage-more"><summary>この段階の全項目を見る <span>{focusedStage.total}項目</span></summary><div className="mission-list">{focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).map((task) => missionCard(task))}</div></details>}
     </section>
+
+    <PowerEcosystem plan={state.powerPlan} onChange={(powerPlan) => setState((old) => ({ ...old, powerPlan }))} />
 
     <details className="roadmap-overview">
       <summary><span><Route /><b>6段階の全体像を見る</b><small>先の備えや獲得済みの防災章を確認</small></span><ChevronRight /></summary>
