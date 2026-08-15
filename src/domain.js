@@ -7,6 +7,10 @@ export const CATEGORY_META = {
   comfort: { label: '快適', icon: 'heart', color: '#a87cb9' },
 };
 
+export const FOOD_GRAMS_PER_PERSON_DAY = 450;
+export const WATER_ML_PER_PERSON_DAY = 3000;
+export const STOCKPILE_TARGET_DAYS = 3;
+
 export const daysFromNow = (amount) => {
   const date = new Date();
   date.setHours(12, 0, 0, 0);
@@ -16,7 +20,7 @@ export const daysFromNow = (amount) => {
 
 export const createInitialInventory = () => [
   { id: 'water', name: '飲料水 500ml', category: 'water', tier: 1, unit: '本', quantity: 18, target: 24, price: 80, volumeMl: 500, expiry: daysFromNow(94), note: 'ケース単位で管理' },
-  { id: 'rice', name: 'アルファ米', category: 'food', tier: 1, unit: '食', quantity: 9, target: 12, price: 360, expiry: daysFromNow(420), note: '味の違うものを混ぜる' },
+  { id: 'rice', name: 'アルファ米', category: 'food', tier: 1, unit: '食', quantity: 9, target: 12, price: 360, foodWeightG: 100, expiry: daysFromNow(420), note: '味の違うものを混ぜる' },
   { id: 'gas', name: 'カセットボンベ', category: 'heat', tier: 2, unit: '本', quantity: 6, target: 9, price: 180, expiry: '', note: '高温を避けて保管' },
   { id: 'toilet', name: '携帯トイレ', category: 'hygiene', tier: 1, unit: '回分', quantity: 20, target: 35, price: 110, expiry: '', note: '家族5人×7日分' },
   { id: 'battery', name: '乾電池（単3）', category: 'light', tier: 2, unit: '本', quantity: 8, target: 12, price: 90, expiry: daysFromNow(21), note: 'ライトとラジオ用' },
@@ -114,15 +118,30 @@ export function inventorySummary(items, household = 2) {
   const categoryWeight = { water: 3, food: 3, hygiene: 2.5, heat: 2, light: 2, comfort: 0.5 };
   const totalCategoryWeight = categoryScores.reduce((sum, item) => sum + categoryWeight[item.key], 0);
   const score = totalCategoryWeight ? Math.round(categoryScores.reduce((sum, item) => sum + item.score * categoryWeight[item.key], 0) / totalCategoryWeight) : 0;
-  const waterMl = rows.filter((item) => item.category === 'water').reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.volumeMl) || 0), 0);
-  const waterDays = household ? Math.floor(waterMl / (household * 3000)) : 0;
+  const people = Math.max(1, Number(household) || 1);
+  const foodRows = rows.filter((item) => item.category === 'food');
+  const waterRows = rows.filter((item) => item.category === 'water');
+  const foodGrams = foodRows.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.foodWeightG) || 0), 0);
+  const waterMl = waterRows.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.volumeMl) || 0), 0);
+  const foodDays = foodGrams / (people * FOOD_GRAMS_PER_PERSON_DAY);
+  const waterDays = waterMl / (people * WATER_ML_PER_PERSON_DAY);
+  const foodTargetGrams = people * FOOD_GRAMS_PER_PERSON_DAY * STOCKPILE_TARGET_DAYS;
+  const waterTargetMl = people * WATER_ML_PER_PERSON_DAY * STOCKPILE_TARGET_DAYS;
   const rotationQueue = buildRotationQueue(items);
 
   return {
     rows,
     score,
     categoryScores,
+    foodGrams,
+    foodDays,
+    foodTargetGrams,
+    foodItemsMissingWeight: foodRows.filter((item) => Number(item.quantity) > 0 && !(Number(item.foodWeightG) > 0)).length,
+    waterMl,
     waterDays,
+    waterTargetMl,
+    waterItemsMissingVolume: waterRows.filter((item) => Number(item.quantity) > 0 && !(Number(item.volumeMl) > 0)).length,
+    survivalDays: Math.min(foodDays, waterDays),
     shortageCount: rows.filter((item) => item.shortage > 0).length,
     expiringCount: rows.filter((item) => item.isExpiring).length,
     checkDueCount: rows.filter((item) => item.isCheckDue).length,

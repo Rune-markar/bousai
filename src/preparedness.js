@@ -14,7 +14,7 @@ export const PREPAREDNESS_STAGES = [
     clearMessage: '最低限の在宅避難基盤が整いました。次は避難バッグと一週間の継続力へ広げましょう。',
     tasks: [
       { id: 'water-3', pillar: 'water', title: '飲料水を3日分', detail: '1人1日3Lを基準に、家族人数×3日分を確保する。', action: '備蓄画面で水の本数と容量を登録する', xp: 20, auto: 'water3', gate: true },
-      { id: 'food-core', pillar: 'food', title: '食料を3日分', detail: '主食・たんぱく源・補助食品を、加熱できない場合も想定して揃える。', action: '食べ慣れた食品を3日分書き出して不足を購入する', xp: 20, gate: true },
+      { id: 'food-core', pillar: 'food', title: '食料を3日分', detail: '1人1日450gを基準に、主食・たんぱく源・補助食品を揃える。', action: '備蓄画面で食品の重量を登録し、不足分を購入する', xp: 20, auto: 'food3', gate: true },
       { id: 'toilet-3', pillar: 'sanitation', title: '携帯トイレを3日分', detail: '1人1日5回×家族人数×3日を最低ラインにする。', action: '必要回数を計算し、備蓄画面の目標数を更新する', xp: 20, auto: 'toilet3', gate: true },
       { id: 'light-fire', pillar: 'power', title: '灯り・消火・防寒', detail: '停電時の照明、初期消火、季節に応じた体温維持を準備する。', action: '枕元のライトを点灯し、消火器の期限を確認する', xp: 15 },
     ],
@@ -72,6 +72,7 @@ export function getAutomaticTaskIds(state, inventorySummary) {
   const checks = {
     water3: inventorySummary.waterDays >= 3,
     water7: inventorySummary.waterDays >= 7,
+    food3: inventorySummary.foodDays >= 3,
     toilet3: toiletUnits >= people * 5 * 3,
     toilet7: toiletUnits >= people * 5 * 7,
     contactReady: Boolean(String(contact.shelter || '').trim() && String(contact.note || '').trim()),

@@ -66,6 +66,31 @@ describe('inventorySummary', () => {
     expect(summary.waterDays).toBe(1);
   });
 
+  it('converts total food weight and water volume into household days', () => {
+    const summary = inventorySummary([
+      { name: 'アルファ米', category: 'food', tier: 1, quantity: 9, target: 9, foodWeightG: 100, price: 0, expiry: '' },
+      { name: '飲料水', category: 'water', tier: 1, quantity: 18, target: 18, volumeMl: 500, price: 0, expiry: '' },
+    ], 2);
+    expect(summary.foodGrams).toBe(900);
+    expect(summary.waterMl).toBe(9000);
+    expect(summary.foodDays).toBe(1);
+    expect(summary.waterDays).toBe(1.5);
+    expect(summary.survivalDays).toBe(1);
+    expect(summary.foodTargetGrams).toBe(2700);
+    expect(summary.waterTargetMl).toBe(18000);
+  });
+
+  it('does not guess missing amounts and reports items that need input', () => {
+    const summary = inventorySummary([
+      { name: '重量不明の缶詰', category: 'food', tier: 1, quantity: 3, target: 3, price: 0, expiry: '' },
+      { name: '容量不明の水', category: 'water', tier: 1, quantity: 2, target: 2, price: 0, expiry: '' },
+    ], 1);
+    expect(summary.foodDays).toBe(0);
+    expect(summary.waterDays).toBe(0);
+    expect(summary.foodItemsMissingWeight).toBe(1);
+    expect(summary.waterItemsMissingVolume).toBe(1);
+  });
+
   it('counts one notification per item even when multiple alerts overlap', () => {
     const summary = inventorySummary([
       { name: '乾電池', category: 'light', tier: 2, unit: '本', quantity: 1, target: 3, expiry: '2026-08-20', nextCheck: '2026-08-01' },

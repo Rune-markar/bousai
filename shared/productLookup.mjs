@@ -41,17 +41,29 @@ export function parseVolumeMl(quantity = '') {
   return 0;
 }
 
+export function parseWeightGrams(quantity = '') {
+  const text = String(quantity).toLowerCase().replace(',', '.');
+  const multi = text.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*(mg|kg|g)\b/);
+  const single = text.match(/(\d+(?:\.\d+)?)\s*(mg|kg|g)\b/);
+  const toGrams = (value, unit) => Number(value) * (unit === 'kg' ? 1000 : unit === 'mg' ? 0.001 : 1);
+  if (multi) return Math.round(Number(multi[1]) * toGrams(multi[2], multi[3]));
+  if (single) return Math.round(toGrams(single[1], single[2]));
+  return 0;
+}
+
 export function normalizeProduct(code, product = {}, { proxyImages = true } = {}) {
   const name = product.product_name_ja || product.product_name || product.generic_name || product.brands || '';
   if (!name) return null;
   const remoteImage = product.image_front_small_url || product.image_front_url || '';
+  const category = inferInventoryCategory(product);
   return {
     barcode: code,
     name,
     brand: product.brands || '',
     packageSize: product.quantity || '',
     volumeMl: parseVolumeMl(product.quantity),
-    category: inferInventoryCategory(product),
+    foodWeightG: category === 'food' ? parseWeightGrams(product.quantity) : 0,
+    category,
     imageUrl: remoteImage ? (proxyImages ? `/api/product-image?url=${encodeURIComponent(remoteImage)}` : remoteImage) : '',
     source: 'Open Food Facts',
     sourceUrl: `${OPEN_FOOD_FACTS_ORIGIN}/product/${encodeURIComponent(code)}`,
