@@ -40,7 +40,7 @@ describe('電力設計ページの導線', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '太陽光' }));
     fireEvent.click(screen.getByRole('button', { name: 'ホームへ戻る' }));
-    expect(screen.getByText('今日のそなえ状況')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'わが家の防災状況' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '停電時の電力を設計' })).toHaveFocus();
     expect(container.querySelector('.app-shell')).not.toHaveClass('power-active');
     expect(document.documentElement).not.toHaveClass('power-document-active');

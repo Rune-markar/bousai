@@ -43,7 +43,7 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
     setProduct(null);
     const local = localProducts.find((item) => item.barcode === code);
     if (local) {
-      const localProduct = { barcode: code, name: local.name, brand: local.brand, packageSize: local.packageSize, volumeMl: local.volumeMl, category: local.category, imageUrl: local.imageUrl, source: local.source || '端末内の商品', sourceUrl: local.sourceUrl };
+      const localProduct = { barcode: code, name: local.name, brand: local.brand, packageSize: local.packageSize, volumeMl: local.volumeMl, foodWeightG: local.foodWeightG, category: local.category, imageUrl: local.imageUrl, source: local.source || '端末内の商品', sourceUrl: local.sourceUrl };
       setProduct(localProduct);
       setStatus('found');
       setMessage('登録済みの商品情報を端末から読み込みました。');

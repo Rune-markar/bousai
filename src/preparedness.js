@@ -14,7 +14,7 @@ export const PREPAREDNESS_STAGES = [
     clearMessage: '最低限の在宅避難基盤が整いました。次は避難バッグと一週間の継続力へ広げましょう。',
     tasks: [
       { id: 'water-3', pillar: 'water', title: '飲料水を3日分', detail: '1人1日3Lを基準に、家族人数×3日分を確保する。', action: '備蓄画面で水の本数と容量を登録する', xp: 20, auto: 'water3', gate: true },
-      { id: 'food-core', pillar: 'food', title: '食料を3日分', detail: '主食・たんぱく源・補助食品を、加熱できない場合も想定して揃える。', action: '食べ慣れた食品を3日分書き出して不足を購入する', xp: 20, gate: true },
+      { id: 'food-core', pillar: 'food', title: '食料を3日分', detail: '1人1日450gを基準に、主食・たんぱく源・補助食品を揃える。', action: '備蓄画面で食品の重量を登録し、不足分を購入する', xp: 20, auto: 'food3', gate: true },
       { id: 'toilet-3', pillar: 'sanitation', title: '携帯トイレを3日分', detail: '1人1日5回×家族人数×3日を最低ラインにする。', action: '必要回数を計算し、備蓄画面の目標数を更新する', xp: 20, auto: 'toilet3', gate: true },
       { id: 'light-fire', pillar: 'power', title: '灯り・消火・防寒', detail: '停電時の照明、初期消火、季節に応じた体温維持を準備する。', action: '枕元のライトを点灯し、消火器の期限を確認する', xp: 15 },
     ],
@@ -63,6 +63,18 @@ export const PREPAREDNESS_STAGES = [
 
 export const ALL_PREPAREDNESS_TASKS = PREPAREDNESS_STAGES.flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageId: stage.id, stageNumber: stage.number })));
 
+export const TARGET_REQUIREMENTS = [
+  { maxDays: 3, stageNumber: 2, label: '72時間をしのぐ力' },
+  { maxDays: 7, stageNumber: 4, label: '一週間を継続する力' },
+  { maxDays: 14, stageNumber: 5, label: '電力・通信まで自立する力' },
+  { maxDays: 30, stageNumber: 6, label: '長期化から復旧する力' },
+];
+
+export function targetRequirement(days = 7) {
+  const normalizedDays = Math.min(30, Math.max(3, Number(days) || 7));
+  return TARGET_REQUIREMENTS.find((requirement) => normalizedDays <= requirement.maxDays) || TARGET_REQUIREMENTS.at(-1);
+}
+
 const toiletQuantity = (inventory) => inventory.filter((item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || ''))).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
 
 export function getAutomaticTaskIds(state, inventorySummary) {
@@ -72,6 +84,7 @@ export function getAutomaticTaskIds(state, inventorySummary) {
   const checks = {
     water3: inventorySummary.waterDays >= 3,
     water7: inventorySummary.waterDays >= 7,
+    food3: inventorySummary.foodDays >= 3,
     toilet3: toiletUnits >= people * 5 * 3,
     toilet7: toiletUnits >= people * 5 * 7,
     contactReady: Boolean(String(contact.shelter || '').trim() && String(contact.note || '').trim()),
@@ -102,6 +115,30 @@ export function preparednessProgress(state, inventorySummary) {
   const level = Math.min(6, 1 + stages.filter((stage) => stage.gateClear).length);
   const titles = ['備えの芽', '命を守る人', '72時間サバイバー', '避難設計者', '暮らしの守り手', '自立防災士'];
   return { completed, automatic, stages, xp, maxXp, level, title: titles[level - 1], weakest, currentStage, nextTask, totalDone: completed.size, totalTasks: ALL_PREPAREDNESS_TASKS.length };
+}
+
+export function defensePower(state, inventorySummary) {
+  const targetDays = Math.min(30, Math.max(3, Number(state.preparedness?.targetDays) || 7));
+  const requiredStage = targetRequirement(targetDays);
+  const progress = preparednessProgress(state, inventorySummary);
+  const requiredTasks = ALL_PREPAREDNESS_TASKS.filter((task) => task.stageNumber <= requiredStage.stageNumber);
+  const completedTasks = requiredTasks.filter((task) => progress.completed.has(task.id)).length;
+  const waterCoverage = Math.min(1, Math.max(0, Number(inventorySummary.waterDays) || 0) / targetDays);
+  const foodCoverage = Math.min(1, Math.max(0, Number(inventorySummary.foodDays) || 0) / targetDays);
+  const earned = completedTasks + waterCoverage + foodCoverage;
+  const requirementCount = requiredTasks.length + 2;
+  return {
+    targetDays,
+    requiredStage,
+    requiredTasks,
+    completedTasks,
+    requirementCount,
+    fulfilled: completedTasks + Number(waterCoverage === 1) + Number(foodCoverage === 1),
+    waterCoverage,
+    foodCoverage,
+    score: Math.round(earned / requirementCount * 100),
+    nextTask: requiredTasks.find((task) => !progress.completed.has(task.id)) || null,
+  };
 }
 
 export function togglePreparednessTask(state, taskId, inventorySummary) {
