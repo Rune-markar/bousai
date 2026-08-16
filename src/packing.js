@@ -16,9 +16,25 @@ export const VOLUME_REFERENCE = {
   comfort: { samples: [80, 150, 300], medianMl: 150, label: '小型快適用品相当' },
 };
 
-const BAG_CATEGORY_TARGETS = {
-  'bag-primary': { water: 2, food: 3, hygiene: 5, light: 4, comfort: 1 },
-  'bag-secondary': { water: 4, food: 6, hygiene: 10, light: 4, comfort: 2 },
+export const EVACUATION_BAG_PROFILES = {
+  'bag-primary': {
+    stageLabel: '一時避難',
+    timing: '発災直後から安全な場所へ移動するまで',
+    policy: '命・移動・服薬を優先し、すぐ背負える軽さを保つ',
+    categoryTargets: { water: 2, food: 3, hygiene: 5, light: 4, comfort: 1 },
+    categoryReasons: {
+      water: '移動中の最低限の水分', food: '開封してすぐ食べる行動食', hygiene: '移動中のトイレ・衛生', light: '避難路の灯りと携帯電源', comfort: '低体温や不安への最小限の備え',
+    },
+  },
+  'bag-secondary': {
+    stageLabel: '2次避難',
+    timing: '安全確保後の避難生活を続ける期間',
+    policy: '一時避難分を取り置き、生活継続・衛生・情報を補う',
+    categoryTargets: { water: 4, food: 6, hygiene: 10, light: 4, comfort: 2 },
+    categoryReasons: {
+      water: '避難生活で追加する水分', food: '避難先での追加食', hygiene: '避難生活を続ける衛生用品', light: '充電・情報収集を続ける電源', comfort: '睡眠や心身の負担を減らす用品',
+    },
+  },
 };
 
 const BAG_CATEGORY_SCORE = {
@@ -87,18 +103,25 @@ export function updateBagSettings(state, taskId, next) {
 }
 
 function directSlots(taskId, item) {
-  const text = `${item.name || ''} ${item.note || ''}`;
+  // Notes often describe a use target (for example, "ラジオ用" batteries),
+  // so using them as product identity would falsely claim that the target item exists.
+  const text = `${item.name || ''} ${item.brand || ''} ${item.packageSize || ''}`;
   return (directSlotRules[taskId] || []).filter((rule) => (rule.category && rule.category === item.category) || rule.pattern?.test(text)).map((rule) => rule.slotId);
 }
 
-export function autoPackInventory(inventory, taskId, capacityL, household = 1) {
-  const baseTargets = BAG_CATEGORY_TARGETS[taskId];
-  if (!baseTargets) return { items: [], capacityMl: 0, usableCapacityMl: 0, usedMl: 0, remainingMl: 0, utilization: 0, matchedSlotIds: [] };
+export function autoPackInventory(inventory, taskId, capacityL, household = 1, options = {}) {
+  const profile = EVACUATION_BAG_PROFILES[taskId];
+  const baseTargets = profile?.categoryTargets;
+  if (!baseTargets) return { items: [], capacityMl: 0, usableCapacityMl: 0, usedMl: 0, remainingMl: 0, utilization: 0, matchedSlotIds: [], profile: null };
   const people = Math.min(12, Math.max(1, Number(household) || 1));
   const targets = Object.fromEntries(Object.entries(baseTargets).map(([category, amount]) => [category, ['water', 'food', 'hygiene'].includes(category) ? amount * people : amount]));
   const capacityMl = Math.max(0, Number(capacityL) || 0) * 1000;
   const usableCapacityMl = Math.floor(capacityMl * PACKING_EFFICIENCY);
-  const candidates = (inventory || []).filter((item) => Number(item.quantity) > 0 && targets[item.category] && item.category !== 'heat').map((item) => {
+  const reservedById = new Map((options.reservedItems || []).map((item) => [item.id, Math.max(0, Number(item.quantity) || 0)]));
+  const candidates = (inventory || []).map((item) => ({
+    ...item,
+    quantity: Math.max(0, Number(item.quantity) || 0) - (reservedById.get(item.id) || 0),
+  })).filter((item) => Number(item.quantity) > 0 && targets[item.category] && item.category !== 'heat').map((item) => {
     const volume = packingVolumeForItem(item);
     const score = (4 - Math.min(3, Math.max(1, Number(item.tier) || 2))) * 100 + (BAG_CATEGORY_SCORE[taskId]?.[item.category] || 0);
     return { item, volume, score };
@@ -114,10 +137,10 @@ export function autoPackInventory(inventory, taskId, capacityL, household = 1) {
     const quantity = Math.min(Math.floor(Number(candidate.item.quantity)), targetLeft, fit);
     if (quantity <= 0) continue;
     const totalMl = quantity * candidate.volume.ml;
-    selected.push({ id: candidate.item.id, name: candidate.item.name, unit: candidate.item.unit, category, quantity, unitVolumeMl: candidate.volume.ml, totalMl, volumeSource: candidate.volume.source, volumeLabel: candidate.volume.label, slotIds: directSlots(taskId, candidate.item) });
+    selected.push({ id: candidate.item.id, name: candidate.item.name, unit: candidate.item.unit, category, quantity, unitVolumeMl: candidate.volume.ml, totalMl, volumeSource: candidate.volume.source, volumeLabel: candidate.volume.label, slotIds: directSlots(taskId, candidate.item), reason: profile.categoryReasons[category] });
     categoryPacked[category] = (categoryPacked[category] || 0) + quantity;
     usedMl += totalMl;
   }
   const matchedSlotIds = [...new Set(selected.flatMap((item) => item.slotIds))];
-  return { items: selected, capacityMl, usableCapacityMl, usedMl, remainingMl: Math.max(0, usableCapacityMl - usedMl), utilization: usableCapacityMl ? Math.round(usedMl / usableCapacityMl * 100) : 0, matchedSlotIds };
+  return { items: selected, capacityMl, usableCapacityMl, usedMl, remainingMl: Math.max(0, usableCapacityMl - usedMl), utilization: usableCapacityMl ? Math.round(usedMl / usableCapacityMl * 100) : 0, matchedSlotIds, profile };
 }

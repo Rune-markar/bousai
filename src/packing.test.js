@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoPackInventory, bagSettings, packingVolumeForItem, updateBagSettings } from './packing.js';
+import { autoPackInventory, bagSettings, EVACUATION_BAG_PROFILES, packingVolumeForItem, updateBagSettings } from './packing.js';
 
 describe('inventory auto packing', () => {
   it('uses measured package volume before internal estimates', () => {
@@ -27,5 +27,29 @@ describe('inventory auto packing', () => {
     expect(bagSettings(state, 'bag-primary').capacityL).toBe(20);
     const changed = updateBagSettings(state, 'bag-primary', { mode: 'custom', customCapacityL: 27 });
     expect(bagSettings(changed, 'bag-primary')).toMatchObject({ mode: 'custom', capacityL: 27 });
+  });
+
+  it('identifies a different purpose and explanation for each evacuation stage', () => {
+    expect(EVACUATION_BAG_PROFILES['bag-primary']).toMatchObject({ stageLabel: '一時避難' });
+    expect(EVACUATION_BAG_PROFILES['bag-secondary']).toMatchObject({ stageLabel: '2次避難' });
+    const inventory = [{ id: 'water', name: '飲料水', category: 'water', tier: 1, unit: '本', quantity: 20, volumeMl: 500 }];
+    const primary = autoPackInventory(inventory, 'bag-primary', 20, 1);
+    const secondary = autoPackInventory(inventory, 'bag-secondary', 40, 1, { reservedItems: primary.items });
+    expect(primary.items[0]).toMatchObject({ quantity: 2, reason: '移動中の最低限の水分' });
+    expect(secondary.items[0]).toMatchObject({ quantity: 4, reason: '避難生活で追加する水分' });
+  });
+
+  it('reserves the primary allocation before proposing secondary bag stock', () => {
+    const inventory = [{ id: 'water', name: '飲料水', category: 'water', tier: 1, unit: '本', quantity: 5, volumeMl: 500 }];
+    const primary = autoPackInventory(inventory, 'bag-primary', 20, 1);
+    const secondary = autoPackInventory(inventory, 'bag-secondary', 40, 1, { reservedItems: primary.items });
+    expect(primary.items[0].quantity).toBe(2);
+    expect(secondary.items[0].quantity).toBe(3);
+    expect(primary.items[0].quantity + secondary.items[0].quantity).toBeLessThanOrEqual(inventory[0].quantity);
+  });
+
+  it('does not mistake an item usage note for the item itself', () => {
+    const result = autoPackInventory([{ id: 'battery', name: '乾電池（単3）', note: 'ライトとラジオ用', category: 'light', tier: 2, unit: '本', quantity: 8 }], 'bag-secondary', 40, 1);
+    expect(result.matchedSlotIds).not.toContain('radio');
   });
 });

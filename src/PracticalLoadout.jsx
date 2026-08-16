@@ -9,7 +9,13 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
   const completed = Boolean(state.preparedness?.completed?.includes(taskId));
   const [selectedId, setSelectedId] = useState(() => loadout?.items[0]?.id || '');
   const settings = bagSettings(state, taskId);
-  const packing = useMemo(() => settings ? autoPackInventory(state.inventory, taskId, settings.capacityL, state.household) : null, [settings, state.inventory, state.household, taskId]);
+  const primarySettings = bagSettings(state, 'bag-primary');
+  const primaryReservation = useMemo(() => taskId === 'bag-secondary' && primarySettings
+    ? autoPackInventory(state.inventory, 'bag-primary', primarySettings.capacityL, state.household)
+    : null, [primarySettings, state.inventory, state.household, taskId]);
+  const packing = useMemo(() => settings ? autoPackInventory(state.inventory, taskId, settings.capacityL, state.household, {
+    reservedItems: primaryReservation?.items || [],
+  }) : null, [settings, state.inventory, state.household, taskId, primaryReservation]);
 
   useEffect(() => setSelectedId(loadout?.items[0]?.id || ''), [taskId, loadout]);
   const selected = useMemo(() => loadout?.items.find((item) => item.id === selectedId) || loadout?.items[0], [loadout, selectedId]);
@@ -24,6 +30,8 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
   const packRequired = () => onChange(requiredLoadoutItemIds(loadout));
   const reset = () => onChange([]);
   const percent = status.total ? Math.round(status.done / status.total * 100) : 0;
+  const suggestedSlots = new Set(packing?.matchedSlotIds || []);
+  const missingRequired = loadout.items.filter((item) => item.required && !status.packed.has(item.id) && !suggestedSlots.has(item.id));
 
   return <div className="loadout-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="loadout-modal" role="dialog" aria-modal="true" aria-labelledby="loadout-title" style={{ '--loadout-accent': loadout.accent }}>
@@ -39,15 +47,17 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
       </div>
 
       {settings && <section className="inventory-packer" aria-labelledby="auto-pack-title">
-        <header className="packer-head"><div><span>AUTO PACK</span><h3 id="auto-pack-title">保有備蓄から自動選定</h3><p>優先度・在庫数・容量を照合し、入る数量を提案します。</p></div><b>{packing.items.length}<small>品目を選定</small></b></header>
+        <header className="packer-head"><div><span>AUTO IDENTIFIED・{packing.profile.stageLabel}</span><h3 id="auto-pack-title">保有備蓄から自動判定・提案</h3><p>{packing.profile.timing}。{packing.profile.policy}。</p></div><b>{packing.items.length}<small>品目を選定</small></b></header>
+        {taskId === 'bag-secondary' && <p className="packing-reservation-note">一時避難バッグへ先に割り当てた {primaryReservation.items.reduce((sum, item) => sum + item.quantity, 0)} 単位を除外して判定しています。</p>}
         <div className="bag-capacity-control">
           <div className="capacity-mode" aria-label="バッグ容量の設定方法"><button type="button" className={settings.mode === 'standard' ? 'active' : ''} onClick={() => onBagSettings({ ...settings, mode: 'standard' })}>標準 {settings.preset.capacityL}L</button><button type="button" className={settings.mode === 'custom' ? 'active' : ''} onClick={() => onBagSettings({ ...settings, mode: 'custom' })}>自分のバッグ</button></div>
           {settings.mode === 'custom' ? <label><span>実容量</span><input type="number" min="1" max="100" step="0.5" value={settings.customCapacityL} onChange={(event) => onBagSettings({ mode: 'custom', customCapacityL: event.target.value })} /><i>L</i></label> : <p><b>{settings.preset.label}</b><span>{settings.preset.source}</span></p>}
           <div className="capacity-meter"><span><i style={{ width: `${Math.min(100, packing.utilization)}%` }} /></span><p><b>{(packing.usedMl / 1000).toFixed(1)}L</b><small> / 実用域 {(packing.usableCapacityMl / 1000).toFixed(1)}L</small></p></div>
         </div>
         <div className="auto-pack-list">
-          {packing.items.length ? packing.items.map((entry) => <article key={entry.id}><span className="pack-item-icon">{entry.category === 'water' ? '💧' : entry.category === 'food' ? '🍚' : entry.category === 'hygiene' ? '🧼' : entry.category === 'light' ? '🔋' : '📦'}</span><div><b>{entry.name}</b><small>{entry.quantity}{entry.unit}・{(entry.totalMl / 1000).toFixed(2)}L</small></div><em className={entry.volumeSource === 'user' ? 'measured' : ''}>{entry.volumeLabel}</em></article>) : <p className="auto-pack-empty">容量内に選定できる登録済み備蓄がありません。</p>}
+          {packing.items.length ? packing.items.map((entry) => <article key={entry.id}><span className="pack-item-icon">{entry.category === 'water' ? '💧' : entry.category === 'food' ? '🍚' : entry.category === 'hygiene' ? '🧼' : entry.category === 'light' ? '🔋' : '📦'}</span><div><b>{entry.name}</b><small>{entry.quantity}{entry.unit}・{(entry.totalMl / 1000).toFixed(2)}L</small></div><em className={entry.volumeSource === 'user' ? 'measured' : ''}>{entry.reason}・{entry.volumeLabel}</em></article>) : <p className="auto-pack-empty">容量内に選定できる登録済み備蓄がありません。</p>}
         </div>
+        <div className="packing-gap"><b>在庫データから確認できない必需品</b>{missingRequired.length ? <div>{missingRequired.map((item) => <span key={item.id}>{item.symbol} {item.name}</span>)}</div> : <p><Check /> 必需品は在庫提案または確認済みです</p>}</div>
         <footer><p>形状差と未登録の必需品に備え、バッグ容量の85%までを使用します。残り <b>{(packing.remainingMl / 1000).toFixed(1)}L</b></p><button type="button" disabled={!packing.matchedSlotIds.length} onClick={() => onChange([...new Set([...status.packed, ...packing.matchedSlotIds])])}><PackageCheck />該当品をケースへ反映</button></footer>
       </section>}
 
