@@ -71,7 +71,7 @@ export const TARGET_REQUIREMENTS = [
 ];
 
 export function targetRequirement(days = 7) {
-  const normalizedDays = Math.min(30, Math.max(3, Number(days) || 7));
+  const normalizedDays = Math.min(90, Math.max(1, Number(days) || 7));
   return TARGET_REQUIREMENTS.find((requirement) => normalizedDays <= requirement.maxDays) || TARGET_REQUIREMENTS.at(-1);
 }
 
@@ -101,7 +101,7 @@ export function preparednessProgress(state, inventorySummary) {
     const gateTasks = stage.tasks.filter((task) => task.gate);
     const gateClear = gateTasks.every((task) => completed.has(task.id));
     const priorGateClear = PREPAREDNESS_STAGES.slice(0, index).every((prior) => prior.tasks.filter((task) => task.gate).every((task) => completed.has(task.id)));
-    return { ...stage, done, total: stage.tasks.length, percent: Math.round(done / stage.tasks.length * 100), gateClear, unlocked: index === 0 || priorGateClear };
+    return { ...stage, done, total: stage.tasks.length, percent: Math.round(done / stage.tasks.length * 100), gateClear, priorGateClear, unlocked: true };
   });
   const xp = ALL_PREPAREDNESS_TASKS.reduce((sum, task) => sum + (completed.has(task.id) ? task.xp : 0), 0);
   const maxXp = ALL_PREPAREDNESS_TASKS.reduce((sum, task) => sum + task.xp, 0);
@@ -118,7 +118,7 @@ export function preparednessProgress(state, inventorySummary) {
 }
 
 export function defensePower(state, inventorySummary) {
-  const targetDays = Math.min(30, Math.max(3, Number(state.preparedness?.targetDays) || 7));
+  const targetDays = Math.min(90, Math.max(1, Number(state.preparedness?.targetDays) || 7));
   const requiredStage = targetRequirement(targetDays);
   const progress = preparednessProgress(state, inventorySummary);
   const requiredTasks = ALL_PREPAREDNESS_TASKS.filter((task) => task.stageNumber <= requiredStage.stageNumber);

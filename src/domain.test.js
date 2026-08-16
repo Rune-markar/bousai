@@ -86,6 +86,18 @@ describe('inventorySummary', () => {
     expect(summary.survivalDays).toBe(3);
   });
 
+  it('calculates household continuity from food, water, and portable toilets', () => {
+    const summary = inventorySummary([
+      { name: '飲料水', category: 'water', quantity: 18, target: 18, volumeMl: 500 },
+      { name: '保存食', category: 'food', quantity: 12, target: 12, foodWeightG: 150 },
+      { name: '携帯トイレ', category: 'hygiene', quantity: 20, target: 20 },
+    ], 2);
+    expect(summary.waterDays).toBe(1.5);
+    expect(summary.foodDays).toBe(2);
+    expect(summary.toiletDays).toBe(2);
+    expect(summary.householdStockpileDays).toBe(1.5);
+  });
+
   it('converts total food weight and water volume into household days', () => {
     const summary = inventorySummary([
       { name: 'アルファ米', category: 'food', tier: 1, quantity: 9, target: 9, foodWeightG: 100, price: 0, expiry: '' },

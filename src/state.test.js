@@ -17,7 +17,8 @@ describe('state migration', () => {
 
   it('normalizes the preparedness target duration', () => {
     expect(normalizeState({ preparedness: { targetDays: 14 } }).preparedness.targetDays).toBe(14);
-    expect(normalizeState({ preparedness: { targetDays: 999 } }).preparedness.targetDays).toBe(30);
+    expect(normalizeState({ preparedness: { targetDays: 999 } }).preparedness.targetDays).toBe(90);
+    expect(normalizeState({ preparedness: { targetDays: 0 } }).preparedness.targetDays).toBe(7);
   });
 
   it('migrates food weight from an existing package label', () => {

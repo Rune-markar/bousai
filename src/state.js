@@ -79,7 +79,7 @@ export function normalizeState(input) {
       completed: Array.isArray(input.preparedness?.completed) ? input.preparedness.completed.filter((value) => typeof value === 'string') : [],
       loadouts: Object.fromEntries(Object.entries(input.preparedness?.loadouts || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
       bagSettings: Object.fromEntries(Object.entries(input.preparedness?.bagSettings || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, { mode: value.mode === 'custom' ? 'custom' : 'standard', customCapacityL: Math.min(100, Math.max(1, Number(value.customCapacityL) || 20)) }])),
-      targetDays: Math.min(30, Math.max(3, Number(input.preparedness?.targetDays) || fallback.preparedness.targetDays)),
+      targetDays: Math.min(90, Math.max(1, Number(input.preparedness?.targetDays) || fallback.preparedness.targetDays)),
       updatedAt: String(input.preparedness?.updatedAt || ''),
     },
     transactions: Array.isArray(input.transactions) ? input.transactions.filter(Boolean).slice(0, 500) : [],

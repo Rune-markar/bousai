@@ -11,6 +11,7 @@ export const FOOD_GRAMS_PER_MEAL = 150;
 export const MEALS_PER_PERSON_PER_DAY = 3;
 export const FOOD_GRAMS_PER_PERSON_DAY = FOOD_GRAMS_PER_MEAL * MEALS_PER_PERSON_PER_DAY;
 export const WATER_ML_PER_PERSON_DAY = 3000;
+export const TOILET_USES_PER_PERSON_DAY = 5;
 export const STOCKPILE_TARGET_DAYS = 3;
 
 export const daysFromNow = (amount) => {
@@ -123,10 +124,13 @@ export function inventorySummary(items, household = 2) {
   const people = Math.max(1, Number(household) || 1);
   const foodRows = rows.filter((item) => item.category === 'food');
   const waterRows = rows.filter((item) => item.category === 'water');
+  const toiletRows = rows.filter((item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')));
   const foodGrams = foodRows.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.foodWeightG) || 0), 0);
   const waterMl = waterRows.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.volumeMl) || 0), 0);
   const foodDays = foodGrams / (people * FOOD_GRAMS_PER_PERSON_DAY);
   const waterDays = waterMl / (people * WATER_ML_PER_PERSON_DAY);
+  const toiletUnits = toiletRows.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+  const toiletDays = toiletUnits / (people * TOILET_USES_PER_PERSON_DAY);
   const foodTargetGrams = people * FOOD_GRAMS_PER_PERSON_DAY * STOCKPILE_TARGET_DAYS;
   const waterTargetMl = people * WATER_ML_PER_PERSON_DAY * STOCKPILE_TARGET_DAYS;
   const rotationQueue = buildRotationQueue(items);
@@ -144,6 +148,9 @@ export function inventorySummary(items, household = 2) {
     waterTargetMl,
     waterItemsMissingVolume: waterRows.filter((item) => Number(item.quantity) > 0 && !(Number(item.volumeMl) > 0)).length,
     survivalDays: Math.min(foodDays, waterDays),
+    toiletUnits,
+    toiletDays,
+    householdStockpileDays: Math.min(foodDays, waterDays, toiletDays),
     shortageCount: rows.filter((item) => item.shortage > 0).length,
     expiringCount: rows.filter((item) => item.isExpiring).length,
     checkDueCount: rows.filter((item) => item.isCheckDue).length,

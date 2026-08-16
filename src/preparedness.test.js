@@ -43,11 +43,12 @@ describe('preparedness roadmap', () => {
     expect(progress.stages[2].unlocked).toBe(true);
   });
 
-  it('keeps the next stage locked when the food weight is below three days', () => {
+  it('keeps every stage actionable even when an earlier food target is incomplete', () => {
     const lowFood = { ...base, inventory: base.inventory.map((item) => item.category === 'food' ? { ...item, quantity: 1 } : item), preparedness: { completed: ['hazard-map', 'furniture', 'medicine'] } };
     const progress = preparednessProgress(lowFood, inventorySummary(lowFood.inventory, lowFood.household));
     expect(progress.completed.has('food-core')).toBe(false);
-    expect(progress.stages[2].unlocked).toBe(false);
+    expect(progress.stages[2].unlocked).toBe(true);
+    expect(progress.stages[2].priorGateClear).toBe(false);
   });
 
   it('raises the required roadmap stage as the stockpile target grows', () => {
@@ -55,6 +56,7 @@ describe('preparedness roadmap', () => {
     expect(targetRequirement(7).stageNumber).toBe(4);
     expect(targetRequirement(14).stageNumber).toBe(5);
     expect(targetRequirement(30).stageNumber).toBe(6);
+    expect(targetRequirement(45).stageNumber).toBe(6);
   });
 
   it('scores against both the selected duration and its required tasks', () => {
