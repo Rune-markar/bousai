@@ -3,7 +3,7 @@ import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
 import { parseWeightGrams } from '../shared/productLookup.mjs';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -36,6 +36,7 @@ export function normalizeInventoryItem(item = {}, index = 0) {
     nextCheck: item.nextCheck || daysFromNow(30),
     rotationEnabled: item.rotationEnabled !== false,
     rotationLeadDays: Math.max(0, Number(item.rotationLeadDays) || 30),
+    rotationReminderDate: item.rotationReminderDate || '',
     replenishmentPriority: ['high', 'medium', 'low'].includes(item.replenishmentPriority) ? item.replenishmentPriority : ((Number(item.tier) || 2) === 1 ? 'high' : (Number(item.tier) || 2) === 2 ? 'medium' : 'low'),
     replenishBy: item.replenishBy || '',
     purchaseFrom: String(item.purchaseFrom || ''),
@@ -49,7 +50,7 @@ export function createDefaultState() {
     household: 2,
     contact: { name: '家族の集合場所', phone: '', shelter: '〇〇小学校 体育館', note: '災害用伝言ダイヤル 171' },
     completedTips: [],
-    preparedness: { completed: [], loadouts: {}, bagSettings: {}, targetDays: 7, updatedAt: '' },
+    preparedness: { completed: [], loadouts: {}, bagSettings: {}, targetDays: 7, annualBudget: 0, updatedAt: '' },
     transactions: [],
     lastVisitAt: '',
     selectedCharacter: 'hikari',
@@ -80,6 +81,7 @@ export function normalizeState(input) {
       loadouts: Object.fromEntries(Object.entries(input.preparedness?.loadouts || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
       bagSettings: Object.fromEntries(Object.entries(input.preparedness?.bagSettings || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, { mode: value.mode === 'custom' ? 'custom' : 'standard', customCapacityL: Math.min(100, Math.max(1, Number(value.customCapacityL) || 20)) }])),
       targetDays: Math.min(90, Math.max(1, Number(input.preparedness?.targetDays) || fallback.preparedness.targetDays)),
+      annualBudget: Math.min(10000000, Math.max(0, Number(input.preparedness?.annualBudget) || 0)),
       updatedAt: String(input.preparedness?.updatedAt || ''),
     },
     transactions: Array.isArray(input.transactions) ? input.transactions.filter(Boolean).slice(0, 500) : [],

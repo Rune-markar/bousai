@@ -5,7 +5,7 @@ import {
   Download, History, Home, Lightbulb, MapPin, Minus, PackagePlus, Pencil, Phone,
   Plus, QrCode, Radio, RefreshCw, Route, Search, ShieldCheck, ShoppingBasket, Sparkles, Sun, Trash2, Trophy, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
-import { CATEGORY_META, consumeByRotation, FOOD_GRAMS_PER_PERSON_DAY, inventorySummary, transactionInsights, uid, WATER_ML_PER_PERSON_DAY } from './domain.js';
+import { CATEGORY_META, consumeByRotation, FOOD_GRAMS_PER_PERSON_DAY, inventorySummary, stockpileBudgetProjection, transactionInsights, uid, WATER_ML_PER_PERSON_DAY } from './domain.js';
 import BarcodeScanner from './BarcodeScanner.jsx';
 import PowerEcosystem from './PowerEcosystem.jsx';
 import PracticalLoadout from './PracticalLoadout.jsx';
@@ -23,7 +23,7 @@ const nav = [
   { id: 'plan', label: '緊急メモ', icon: ClipboardList },
   { id: 'learn', label: '知る', icon: BookOpen },
 ];
-const pageIds = new Set([...nav.map(({ id }) => id), 'power']);
+const pageIds = new Set([...nav.map(({ id }) => id), 'power', 'rolling']);
 const pageFromLocation = () => {
   const id = window.location.hash.replace(/^#\/?/, '');
   return pageIds.has(id) ? id : 'home';
@@ -150,7 +150,8 @@ function App() {
 
       <main ref={mainRef}>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
-        {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} />}
+        {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} />}
+        {page === 'rolling' && <RollingStock state={state} summary={summary} transactions={state.transactions} updateInventory={updateInventory} onBack={() => setPage('inventory')} />}
         {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} />}
         {page === 'plan' && <EmergencyPlan state={state} summary={summary} setState={setState} setToast={setToast} />}
         {page === 'learn' && <Learn completed={state.completedTips} setState={setState} />}
@@ -184,7 +185,7 @@ function App() {
         updateInventory(inventory, modal === 'new' ? '備蓄品を追加しました' : '変更を保存しました', transaction);
         setModal(null);
       }} />}
-      {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} onReplenish={replenishShortage} />}
+      {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} onOpenRolling={() => { setNotificationsOpen(false); setPage('rolling'); }} onReplenish={replenishShortage} />}
       {shareOpen && <ShareQrPanel onClose={() => setShareOpen(false)} setToast={setToast} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={18} />{toast}</div>}
     </div>
@@ -192,6 +193,8 @@ function App() {
 }
 
 function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef }) {
+  const [targetOpen, setTargetOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const defense = useMemo(() => defensePower(state, summary), [state, summary]);
   const setTargetDays = (targetDays) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, targetDays: Math.min(90, Math.max(1, Number(targetDays) || 1)) } }));
   const stockpileDays = Number.isFinite(summary.householdStockpileDays) ? summary.householdStockpileDays : summary.survivalDays;
@@ -204,8 +207,7 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
 
     <div className="target-day-control">
       <span><CalendarDays />目標備蓄日数</span>
-      <div className="target-day-presets">{[3, 7, 14, 30].map((days) => <button className={defense.targetDays === days ? 'active' : ''} key={days} onClick={() => setTargetDays(days)}>{days}<small>日</small></button>)}</div>
-      <label className="target-day-custom"><span>自由入力</span><input aria-label="目標備蓄日数を自由入力" type="number" inputMode="numeric" min="1" max="90" value={defense.targetDays} onChange={(event) => setTargetDays(event.target.value)} /><small>日</small></label>
+      <button type="button" className="target-day-open" onClick={() => setTargetOpen(true)}><b>{defense.targetDays}</b>日 <span>変更</span><ChevronRight /></button>
       <p>{defense.requiredStage.label}が必要</p>
     </div>
 
@@ -214,11 +216,10 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
         <div className="metric-title"><span><Droplets />食料・水の備蓄</span><button onClick={() => setPage('inventory')}>備蓄を確認 <ArrowRight /></button></div>
         <div className="survival-main"><div><small>生活継続の目安</small><strong>{formatDays(stockpileDays)}<em>日分</em></strong><p>{targetGap ? `目標まで あと${formatDays(targetGap)}日分` : `${defense.targetDays}日目標を達成`}</p></div><ShieldCheck /></div>
         <div className="supply-days">
-          <div><span><Droplets />水</span><b>{formatDays(summary.waterDays)}<small>日分</small></b><i><u style={{ width: `${defense.waterCoverage * 100}%` }} /></i></div>
-          <div><span><ShoppingBasket />食料</span><b>{formatDays(summary.foodDays)}<small>日分</small></b><i><u style={{ width: `${defense.foodCoverage * 100}%` }} /></i></div>
+          <div><span><Droplets />水<small>1人1日3L</small></span><b>{formatDays(summary.waterDays)}<small>日分</small></b><i><u style={{ width: `${defense.waterCoverage * 100}%` }} /></i></div>
+          <div><span><ShoppingBasket />食料<small>1人1日450g</small></span><b>{formatDays(summary.foodDays)}<small>日分</small></b><i><u style={{ width: `${defense.foodCoverage * 100}%` }} /></i></div>
         </div>
-        <p className="daily-baseline">1人1日あたり 水3L・食料450g・携帯トイレ5回で計算</p>
-        <details className="home-stockpile-details"><summary>トイレ・非常用電源も確認 <ChevronRight /></summary><div><span><Sparkles /><small>携帯トイレ</small><b>{formatDays(summary.toiletDays)}日分</b></span><span><Zap /><small>非常用電源</small><b>{state.powerPlan?.autonomyDays || 3}日計画</b></span></div><p>生活継続の目安は、水・食料・携帯トイレのうち最短の日数です。電源は選択した機器を動かす計画日数です。</p></details>
+        <button type="button" className="home-stockpile-open" onClick={() => setDetailsOpen(true)}>トイレ・非常用電源も確認 <ChevronRight /></button>
         {summary.foodItemsMissingWeight > 0 && <button className="food-weight-notice" onClick={() => setPage('inventory')}>重量未登録の食料が{summary.foodItemsMissingWeight}件あります <ChevronRight /></button>}
       </article>
 
@@ -233,6 +234,8 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
       <button ref={powerEntryRef} aria-label="停電時の電力を設計" onClick={() => setPage('power')}><Zap /><span><b>電力設計</b><small>蓄電池・太陽光</small></span><ChevronRight /></button>
       <button className="quick-add" onClick={() => setModal('new')}><PackagePlus /><span><b>備蓄を追加</b><small>すぐに登録</small></span><Plus /></button>
     </nav>
+    {targetOpen && <TargetDaysDialog value={defense.targetDays} onClose={() => setTargetOpen(false)} onSave={(value) => { setTargetDays(value); setTargetOpen(false); }} />}
+    {detailsOpen && <StockpileDetailsDialog summary={summary} powerDays={state.powerPlan?.autonomyDays || 3} onClose={() => setDetailsOpen(false)} onPower={() => { setDetailsOpen(false); setPage('power'); }} />}
   </section>;
 }
 
@@ -253,6 +256,19 @@ function CharacterBubble({ state, summary, setState, setPage }) {
       <div className="character-portrait"><img src={`${import.meta.env.BASE_URL}${character.image}`} alt={character.imageAlt} /></div>
     </div>
   </div>;
+}
+
+function TargetDaysDialog({ value, onClose, onSave }) {
+  const dialogRef = useRef(null);
+  const [days, setDays] = useState(value);
+  useDialogClose(onClose, dialogRef);
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="target-days-title" onSubmit={(event) => { event.preventDefault(); onSave(days); }}><div className="modal-title"><div><span className="kicker">STOCKPILE GOAL</span><h2 id="target-days-title">目標備蓄日数を変更</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><label><span>目標日数（1〜90日）</span><input autoFocus type="number" inputMode="numeric" min="1" max="90" value={days} onChange={(event) => setDays(event.target.value)} /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button"><Check />設定する</button></div></form></div>;
+}
+
+function StockpileDetailsDialog({ summary, powerDays, onClose, onPower }) {
+  const dialogRef = useRef(null);
+  useDialogClose(onClose, dialogRef);
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="stockpile-details-title"><div className="modal-title"><div><span className="kicker">LIVING SUPPORT</span><h2 id="stockpile-details-title">トイレ・非常用電源</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><div className="stockpile-detail-grid"><span><Sparkles /><small>携帯トイレ・1人1日5回</small><b>{formatDays(summary.toiletDays)}日分</b></span><button type="button" onClick={onPower}><Zap /><small>非常用電源</small><b>{powerDays}日計画</b><ChevronRight /></button></div><p className="dialog-note">生活継続の目安は、水・食料・携帯トイレのうち最短の日数です。電源は選択した機器を動かす計画日数です。</p></section></div>;
 }
 
 function ScoreRing({ score }) {
@@ -413,10 +429,11 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
   </section>;
 }
 
-function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast }) {
+function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast, setPage }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [consumeItem, setConsumeItem] = useState(null);
+  const [budgetOpen, setBudgetOpen] = useState(false);
   const importRef = useRef(null);
   const insights = useMemo(() => transactionInsights(transactions), [transactions]);
   const rows = summary.rows.filter((item) => (filter === 'all' || item.category === filter) && item.name.toLowerCase().includes(query.toLowerCase()));
@@ -441,13 +458,6 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     const item = summary.rows.find((entry) => entry.id === id);
     if (window.confirm('この期限ロットを削除しますか？履歴には削除記録が残ります。')) updateInventory(rawRows().filter((entry) => entry.id !== id), '備蓄品を削除しました', createTransaction('delete', item, -item.quantity, '期限ロットを削除'));
   };
-  const rotateOne = (entry) => {
-    const result = consumeByRotation(rawRows(), entry.key, 1);
-    const consumed = result.consumed[0];
-    if (!consumed) return;
-    const note = `${consumed.item.expiry || '期限未設定'}のロットから先入れ先出し。補充分を買い足し計画へ反映`;
-    updateInventory(result.inventory, `${consumed.item.name}を消費し、買い足し候補へ反映しました`, createTransaction('rotate', consumed.item, -1, note));
-  };
   const exportData = () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -471,7 +481,7 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     }
   };
   return <section className="wrap page-section">
-    <div className="page-title"><div><span className="kicker">MY STOCKPILE</span><h1>わが家の備蓄</h1><p>不足も期限も、ここでひと目に。</p></div><div className="page-actions"><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
+    <div className="page-title"><div><span className="kicker">MY STOCKPILE</span><h1>わが家の備蓄</h1><p>不足も期限も、ここでひと目に。</p></div><div className="page-actions"><button className="secondary-button" onClick={() => setPage('rolling')}><RefreshCw />ローリングストック</button><button className="secondary-button" onClick={() => setBudgetOpen(true)}><CalendarDays />年間予算で計画</button><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
     <div className="summary-strip"><div><span>備蓄力</span><b>{summary.score}%</b></div><div><span>不足品</span><b>{summary.shortageCount}品</b></div><div><span>期限間近</span><b>{summary.expiringCount}品</b></div><div><span>補充費用</span><b>¥{summary.replenishmentCost.toLocaleString()}</b></div></div>
     <article className="card inventory-priority"><div className="section-heading compact"><div><span className="kicker">DO THIS FIRST</span><h2>最優先の補充</h2></div><ShoppingBasket /></div>{summary.replenishmentPlan.length ? <>{summary.replenishmentPlan.slice(0, 1).map((item) => <div className="priority-row" key={item.id}><button type="button" className="priority-row-main" onClick={() => setModal(item)}><span className={`priority priority-${item.replenishmentPriority}`}>{item.replenishmentPriority === 'high' ? '高' : item.replenishmentPriority === 'medium' ? '中' : '低'}</span><span><b>{item.name}</b><small>{item.shortage}{item.unit}不足・¥{item.replenishmentCost.toLocaleString()}</small></span><ChevronRight /></button><button type="button" className="priority-refill" onClick={() => adjust(item.id, item.shortage)}><Plus />不足分を補充</button></div>)}{summary.replenishmentPlan.length > 1 && <p className="priority-remaining">ほか{summary.replenishmentPlan.length - 1}品は下の在庫一覧で確認できます</p>}</> : <div className="empty-small"><Check />補充予定はありません</div>}</article>
     <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="備蓄品を検索" /></label><div className="filters"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>すべて</button>{Object.entries(CATEGORY_META).map(([key, value]) => <button className={filter === key ? 'active' : ''} key={key} onClick={() => setFilter(key)}>{value.label}</button>)}</div></div>
@@ -484,12 +494,45 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
       {!rows.length && <div className="empty-state"><Search /><h3>該当する備蓄品がありません</h3><p>検索条件を変えてみてください。</p></div>}
     </div>
     <details className="inventory-analysis"><summary><span><ShieldCheck /><b>備蓄日数の詳しい計算を見る</b><small>食料と水が何日もつかを確認</small></span><ChevronRight /></summary><div><StockpileDaysPanel summary={summary} household={state.household} targetDays={state.preparedness?.targetDays || 7} onAction={() => setFilter(summary.foodItemsMissingWeight ? 'food' : 'water')} actionLabel="対象を絞り込む" /></div></details>
-    <article className="card rolling-panel"><div className="section-heading compact"><div><span className="kicker">ROLLING STOCK</span><h2>ローリングストック</h2><p>期限の近いロットから消費し、不足分を補充計画へ自動反映します。</p></div><RefreshCw /></div><div className="rolling-summary"><span><small>循環待ち</small><b>{summary.rotationDueCount}品</b></span><span><small>期限付き在庫</small><b>{summary.rotationQueue.length}品</b></span><span><small>補充候補</small><b>{summary.shortageCount}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list">{summary.rotationQueue.slice(0, 6).map((entry) => <div className={`rolling-row ${entry.status}`} key={entry.key}><span className="rolling-order">{entry.status === 'expired' ? '期限切れ' : entry.daysToRotate <= 0 ? '今すぐ循環' : `${entry.daysToRotate}日後`}</span><span><b>{entry.nextLot.name}</b><small>期限 {entry.nextLot.expiry}・対象ロット {entry.nextLot.quantity}{entry.nextLot.unit}・合計 {entry.totalQuantity}{entry.nextLot.unit}</small></span><button type="button" onClick={() => rotateOne(entry)}><RefreshCw />1{entry.nextLot.unit}消費して買い足す</button></div>)}</div> : <div className="empty-small"><Check />期限を登録すると循環予定を自動作成します</div>}</article>
     <div className="operations-grid single-operation">
-      <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴と傾向</h2></div><History /></div><div className="insight-strip"><span>30日消費<b>{insights.consumed30Days}</b></span><span>うち廃棄<b>{insights.discarded30Days}</b></span><span>最多<b>{insights.topConsumed?.name || '—'}</b></span></div>{transactions.length ? transactions.slice(0, 10).map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '循環' : entry.type === 'consume' ? '消費' : entry.type === 'discard' ? '廃棄' : entry.type === 'delete' ? '削除' : entry.type === 'edit' ? '編集' : '入庫'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{entry.reason || entry.note || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</article>
+      <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴と傾向</h2></div><History /></div><div className="insight-strip"><span>30日消費<b>{insights.consumed30Days}</b></span><span>うち廃棄<b>{insights.discarded30Days}</b></span><span>最多<b>{insights.topConsumed?.name || '—'}</b></span></div>{transactions.length ? transactions.slice(0, 10).map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '期限順消費' : entry.type === 'consume' ? '消費' : entry.type === 'discard' ? '廃棄' : entry.type === 'delete' ? '削除' : entry.type === 'edit' ? '編集' : '入庫'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{entry.reason || entry.note || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</article>
     </div>
     {consumeItem && <ConsumptionModal item={consumeItem} onClose={() => setConsumeItem(null)} onSave={consume} />}
+    {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
   </section>;
+}
+
+function RollingStock({ state, summary, transactions, updateInventory, onBack }) {
+  const rawRows = () => state.inventory;
+  const rotateOne = (entry) => {
+    const result = consumeByRotation(rawRows(), entry.key, 1);
+    const consumed = result.consumed[0];
+    if (!consumed) return;
+    updateInventory(result.inventory, `${consumed.item.name}を消費として記録しました`, createTransaction('rotate', consumed.item, -1, `${consumed.item.expiry}の期限が近いロットから消費。補充候補に反映`));
+  };
+  const replenishOne = (entry) => {
+    const item = entry.nextLot;
+    const inventory = rawRows().map((row) => row.id === item.id ? { ...row, quantity: Number(row.quantity) + 1, lastChecked: new Date().toISOString().slice(0, 10) } : row);
+    updateInventory(inventory, `${item.name}を1${item.unit}補充しました`, createTransaction('add', item, 1, 'ローリングストックの補充完了'));
+  };
+  const setReminder = (entry, value) => {
+    const inventory = rawRows().map((row) => row.id === entry.nextLot.id ? { ...row, rotationReminderDate: value } : row);
+    updateInventory(inventory, value ? `再通知日を${value}に設定しました` : '再通知日を解除しました');
+  };
+  const today = new Date().toISOString().slice(0, 10);
+  const limit = new Date(); limit.setDate(limit.getDate() + 30);
+  const maxReminder = limit.toISOString().slice(0, 10);
+  const rollingHistory = transactions.filter((entry) => entry.type === 'rotate' || (entry.type === 'add' && entry.note === 'ローリングストックの補充完了')).slice(0, 8);
+  return <section className="wrap page-section rolling-page"><div className="page-title"><div><span className="kicker">ROLLING STOCK</span><h1>ローリングストック</h1><p>期限の近い物から使い、実際に買った時だけ補充を記録します。</p></div><button className="secondary-button" onClick={onBack}><ArrowRight className="back-arrow" />備蓄へ戻る</button></div><aside className="rolling-guide"><b>操作の違い</b><span><Minus />備蓄一覧の「−」は通常の消費・廃棄</span><span><RefreshCw />「消費として記録」は期限が最も近いロットを1つ減らす</span><span><Plus />「補充済み」は購入した在庫を1つ増やす</span></aside><div className="rolling-summary"><span><small>今すぐ対応</small><b>{summary.rotationDueCount}品</b></span><span><small>期限付き在庫</small><b>{summary.rotationQueue.length}品</b></span><span><small>補充候補</small><b>{summary.shortageCount}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list card">{summary.rotationQueue.map((entry) => { const reminderMax = entry.nextLot.expiry >= today && entry.nextLot.expiry < maxReminder ? entry.nextLot.expiry : maxReminder; return <article className={`rolling-row rolling-row-full ${entry.status}`} key={entry.key}><span className="rolling-order">{entry.status === 'expired' ? '期限切れ' : entry.daysToRotate <= 0 ? '今すぐ消費候補' : `${entry.daysToRotate}日後`}</span><span><b>{entry.nextLot.name}</b><small>消費期限 {entry.nextLot.expiry}（この画面では変更できません）</small><label className="rolling-reminder"><span>再通知日</span><input type="date" min={today} max={reminderMax} value={entry.nextLot.rotationReminderDate || ''} onChange={(event) => setReminder(entry, event.target.value)} /></label></span><div className="rolling-actions"><button type="button" onClick={() => rotateOne(entry)}><RefreshCw />1{entry.nextLot.unit}を消費として記録</button><button type="button" onClick={() => replenishOne(entry)}><Plus />1{entry.nextLot.unit}を補充済み</button></div></article>; })}</div> : <div className="empty-state"><Check /><h3>期限付きの備蓄はありません</h3><p>備蓄品に期限を登録すると、ここへ期限順に表示します。</p></div>}<article className="card operation-panel rolling-history"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>ローリングストック履歴</h2></div><History /></div>{rollingHistory.length ? rollingHistory.map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '期限順消費' : '補充済み'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</article></section>;
+}
+
+function BudgetPlannerDialog({ state, summary, setState, onClose }) {
+  const dialogRef = useRef(null);
+  useDialogClose(onClose, dialogRef);
+  const budget = state.preparedness?.annualBudget || 0;
+  const projection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, budget), [state.inventory, state.household, state.preparedness?.targetDays, budget]);
+  const duration = projection.months === null ? '年間予算を入力すると表示します' : projection.months === 0 ? '目標日数を達成済み' : projection.months < 12 ? `約${projection.months}か月` : `約${(projection.months / 12).toFixed(1)}年`;
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal budget-dialog" role="dialog" aria-modal="true" aria-labelledby="budget-title"><div className="modal-title"><div><span className="kicker">ANNUAL BUDGET</span><h2 id="budget-title">年間予算で備蓄を計画</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><label><span>年間の防災費予算（円）</span><input autoFocus type="number" min="0" max="10000000" step="1000" value={budget} onChange={(event) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, annualBudget: Math.min(10000000, Math.max(0, Number(event.target.value) || 0)) } }))} /></label><div className="budget-result"><span>目標<strong>{projection.targetDays}日分</strong></span><span>概算不足費用<strong>¥{projection.totalCost.toLocaleString()}</strong></span><span>到達目安<strong>{duration}</strong></span></div><div className="budget-resources">{projection.resources.map((item) => <div key={item.key}><span><b>{item.label}</b><small>現在 {formatDays(item.currentDays)}日分</small></span><strong>{item.hasPrice ? `約¥${item.estimatedCost.toLocaleString()}` : item.currentDays >= projection.targetDays ? '達成済み' : '単価未登録'}</strong></div>)}</div><p className="dialog-note">登録済みの容量・重量・単価から計算した概算です。年間予算を不足分へ均等に使う前提の目安です。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={onClose}><Check />この予算で保存</button></div></section></div>;
 }
 
 function CategoryIcon({ category }) {
@@ -646,15 +689,13 @@ function ShareQrPanel({ onClose, setToast }) {
   </section></div>;
 }
 
-function NotificationPanel({ state, summary, setToast, onClose, onOpenItem, onReplenish }) {
+function NotificationPanel({ state, summary, setToast, onClose, onOpenItem, onOpenRolling, onReplenish }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
-  const notifications = summary.rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue).sort((a, b) => a.tier - b.tier || a.ratio - b.ratio);
-  const message = (item) => [
-    item.isExpired ? '期限切れ' : item.isExpiring ? `期限まで${item.daysToExpiry}日` : '',
-    item.isCheckDue ? '棚卸し確認日を超過' : '',
-    item.shortage > 0 ? `${item.shortage}${item.unit}不足` : '',
-  ].filter(Boolean).join('・');
+  const expiry = summary.rows.filter((item) => item.isExpiring || item.isRotationReminderDue).sort((a, b) => (a.daysToExpiry ?? 9999) - (b.daysToExpiry ?? 9999));
+  const shortages = summary.rows.filter((item) => item.shortage > 0).sort((a, b) => a.tier - b.tier || a.ratio - b.ratio);
+  const checks = summary.rows.filter((item) => item.isCheckDue).sort((a, b) => a.daysToCheck - b.daysToCheck);
+  const notifications = new Set([...expiry, ...shortages, ...checks].map((item) => item.id));
   const enableNotifications = async () => {
     if (!('Notification' in window)) return setToast('この端末はシステム通知に対応していません');
     const permission = await Notification.requestPermission();
@@ -664,7 +705,8 @@ function NotificationPanel({ state, summary, setToast, onClose, onOpenItem, onRe
       setToast('次回からキャラクターがお知らせします');
     } else setToast('通知は許可されませんでした');
   };
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title"><div className="modal-title"><div><span className="kicker">NOTIFICATIONS</span><h2 id="notification-title">備蓄のお知らせ</h2><small className="notification-count">{notifications.length}品目</small></div><button type="button" aria-label="通知一覧を閉じる" onClick={onClose}><X /></button></div><button type="button" className="notification-enable" onClick={enableNotifications}><Bell />次回起動時のキャラクター通知を許可</button>{notifications.length ? notifications.map((item) => <div className="notification-row" key={item.id}><span className={`status-dot ${item.isExpiring || item.isCheckDue ? 'amber' : 'red'}`} /><button type="button" className="notification-detail" onClick={() => onOpenItem(item)}><span><b>{item.name}</b><small>{message(item)}</small></span><ChevronRight /></button>{item.shortage > 0 && <button type="button" className="notification-refill" onClick={() => onReplenish(item)}><Plus />{item.shortage}{item.unit}補充</button>}</div>) : <div className="empty-small"><Check />現在のお知らせはありません</div>}</section></div>;
+  const group = (title, description, rows, kind) => rows.length ? <section className="notification-group"><header><div><b>{title}</b><small>{description}</small></div><span>{rows.length}</span></header>{rows.map((item) => <div className="notification-row" key={`${kind}-${item.id}`}><span className={`status-dot ${kind === 'shortage' ? 'red' : 'amber'}`} /><button type="button" className="notification-detail" onClick={() => kind === 'expiry' ? onOpenRolling() : onOpenItem(item)}><span><b>{item.name}</b><small>{kind === 'expiry' ? item.isExpired ? '期限切れです' : item.isRotationReminderDue ? `設定した再通知日です・期限まで${item.daysToExpiry}日` : `期限まで${item.daysToExpiry}日` : kind === 'shortage' ? `${item.shortage}${item.unit}不足しています` : `確認日を${Math.abs(item.daysToCheck)}日超過しています`}</small></span><ChevronRight /></button>{kind === 'shortage' && <button type="button" className="notification-refill" onClick={() => onReplenish(item)}><Plus />{item.shortage}{item.unit}補充</button>}</div>)}</section> : null;
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title"><div className="modal-title"><div><span className="kicker">NOTIFICATIONS</span><h2 id="notification-title">今、対応すること</h2><small className="notification-count">重複をまとめて{notifications.size}品目</small></div><button type="button" aria-label="通知一覧を閉じる" onClick={onClose}><X /></button></div><div className="notification-overview"><span>期限対応<b>{expiry.length}</b></span><span>補充<b>{shortages.length}</b></span><span>点検<b>{checks.length}</b></span></div><button type="button" className="notification-enable" onClick={enableNotifications}><Bell />端末の通知を有効にする</button>{notifications.size ? <>{group('期限対応', '1か月以内の期限と再通知日', expiry, 'expiry')}{group('補充', '目標数に足りない備蓄', shortages, 'shortage')}{group('点検', '保管場所で状態を確認', checks, 'check')}</> : <div className="empty-small"><Check />今すぐ対応するお知らせはありません</div>}</section></div>;
 }
 
 const knowledgeSections = [

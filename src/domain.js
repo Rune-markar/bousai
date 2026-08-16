@@ -37,6 +37,7 @@ export function itemStats(item, today = new Date()) {
   const ratio = target ? quantity / target : quantity ? 1 : 0;
   let daysToExpiry = null;
   let daysToCheck = null;
+  let daysToRotationReminder = null;
   if (item.expiry) {
     const start = new Date(today);
     start.setHours(0, 0, 0, 0);
@@ -48,6 +49,11 @@ export function itemStats(item, today = new Date()) {
     start.setHours(0, 0, 0, 0);
     daysToCheck = Math.ceil((new Date(`${item.nextCheck}T00:00:00`) - start) / 86400000);
   }
+  if (item.rotationReminderDate) {
+    const start = new Date(today);
+    start.setHours(0, 0, 0, 0);
+    daysToRotationReminder = Math.ceil((new Date(`${item.rotationReminderDate}T00:00:00`) - start) / 86400000);
+  }
 
   return {
     shortage,
@@ -58,7 +64,9 @@ export function itemStats(item, today = new Date()) {
     isExpired: daysToExpiry !== null && daysToExpiry < 0,
     daysToCheck,
     isCheckDue: daysToCheck !== null && daysToCheck <= 0,
-    priority: (daysToExpiry !== null && daysToExpiry < 0) || (quantity === 0 && target > 0) ? 'high' : ratio < 0.5 || (daysToExpiry !== null && daysToExpiry <= 7) ? 'medium' : shortage > 0 || (daysToExpiry !== null && daysToExpiry <= 30) || (daysToCheck !== null && daysToCheck <= 0) ? 'low' : 'ok',
+    daysToRotationReminder,
+    isRotationReminderDue: daysToRotationReminder !== null && daysToRotationReminder <= 0,
+    priority: (daysToExpiry !== null && daysToExpiry < 0) || (quantity === 0 && target > 0) ? 'high' : ratio < 0.5 || (daysToExpiry !== null && daysToExpiry <= 7) ? 'medium' : shortage > 0 || (daysToExpiry !== null && daysToExpiry <= 30) || (daysToCheck !== null && daysToCheck <= 0) || (daysToRotationReminder !== null && daysToRotationReminder <= 0) ? 'low' : 'ok',
   };
 }
 
@@ -109,7 +117,7 @@ export function consumeByRotation(items, key, amount = 1, today = new Date()) {
 
 export function inventorySummary(items, household = 2) {
   const rows = items.map((item) => ({ ...item, ...itemStats(item) }));
-  const notificationRows = rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue);
+  const notificationRows = rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue || item.isRotationReminderDue);
   const tierWeight = (tier) => ({ 1: 3, 2: 2, 3: 1 }[tier] || 1);
   const categoryScores = Object.keys(CATEGORY_META).map((key) => {
     const categoryRows = rows.filter((item) => item.category === key);
@@ -154,6 +162,7 @@ export function inventorySummary(items, household = 2) {
     shortageCount: rows.filter((item) => item.shortage > 0).length,
     expiringCount: rows.filter((item) => item.isExpiring).length,
     checkDueCount: rows.filter((item) => item.isCheckDue).length,
+    rotationReminderDueCount: rows.filter((item) => item.isRotationReminderDue).length,
     notificationCount: notificationRows.length,
     replenishmentCost: rows.reduce((sum, item) => sum + item.replenishmentCost, 0),
     replenishmentPlan: rows.filter((item) => item.shortage > 0).sort((a, b) => {
@@ -165,6 +174,28 @@ export function inventorySummary(items, household = 2) {
     rotationQueue,
     rotationDueCount: rotationQueue.filter((item) => item.daysToRotate <= 0).length,
   };
+}
+
+export function stockpileBudgetProjection(items, household = 1, targetDays = 7, annualBudget = 0) {
+  const people = Math.max(1, Number(household) || 1);
+  const target = Math.max(1, Number(targetDays) || 1);
+  const budget = Math.max(0, Number(annualBudget) || 0);
+  const resources = [
+    { key: 'water', label: '水', daily: people * WATER_ML_PER_PERSON_DAY, amount: (item) => item.category === 'water' ? Number(item.volumeMl) || 0 : 0 },
+    { key: 'food', label: '食料', daily: people * FOOD_GRAMS_PER_PERSON_DAY, amount: (item) => item.category === 'food' ? Number(item.foodWeightG) || 0 : 0 },
+    { key: 'toilet', label: '携帯トイレ', daily: people * TOILET_USES_PER_PERSON_DAY, amount: (item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')) ? 1 : 0 },
+  ].map((resource) => {
+    const applicable = items.filter((item) => resource.amount(item) > 0);
+    const stocked = applicable.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0) * resource.amount(item), 0);
+    const pricedAmount = applicable.reduce((sum, item) => sum + resource.amount(item), 0);
+    const pricedCost = applicable.reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0), 0);
+    const missing = Math.max(0, target * resource.daily - stocked);
+    const unitCost = pricedAmount ? pricedCost / pricedAmount : 0;
+    return { key: resource.key, label: resource.label, currentDays: stocked / resource.daily, estimatedCost: Math.ceil(missing * unitCost), hasPrice: unitCost > 0 };
+  });
+  const totalCost = resources.reduce((sum, item) => sum + item.estimatedCost, 0);
+  const months = totalCost === 0 ? 0 : budget > 0 ? Math.ceil(totalCost / budget * 12) : null;
+  return { resources, totalCost, months, targetDays: target, annualBudget: budget, complete: resources.every((item) => item.currentDays >= target) };
 }
 
 export const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

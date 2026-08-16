@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRotationQueue, consumeByRotation, inventorySummary, itemStats, transactionInsights } from './domain.js';
+import { buildRotationQueue, consumeByRotation, inventorySummary, itemStats, stockpileBudgetProjection, transactionInsights } from './domain.js';
 
 describe('itemStats', () => {
   it('不足数と補充費用を計算する', () => {
@@ -14,6 +14,19 @@ describe('itemStats', () => {
     expect(stats.daysToExpiry).toBe(16);
     expect(stats.isExpiring).toBe(true);
     expect(stats.isExpired).toBe(false);
+  });
+});
+
+describe('stockpileBudgetProjection', () => {
+  it('目標日数までの概算費用と年間予算から到達月数を返す', () => {
+    const result = stockpileBudgetProjection([
+      { name: '水', category: 'water', quantity: 3, volumeMl: 1000, price: 100 },
+      { name: '食料', category: 'food', quantity: 3, foodWeightG: 450, price: 300 },
+      { name: '携帯トイレ', category: 'hygiene', quantity: 15, price: 50 },
+    ], 1, 7, 12000);
+    expect(result.resources.map((item) => item.currentDays)).toEqual([1, 3, 3]);
+    expect(result.totalCost).toBe(4000);
+    expect(result.months).toBe(4);
   });
 });
 
