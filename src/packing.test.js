@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { autoPackInventory, bagSettings, EVACUATION_BAG_PROFILES, packingVolumeForItem, updateBagSettings } from './packing.js';
+import { autoPackInventory, bagSettings, BAG_VOLUME_EXAMPLES, EVACUATION_BAG_PROFILES, packingVolumeForItem, updateBagSettings } from './packing.js';
 
 describe('inventory auto packing', () => {
+  it('shows relatable volume examples for bag capacity', () => {
+    expect(BAG_VOLUME_EXAMPLES).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '飲料水 500ml', volumeMl: 600 }),
+      expect.objectContaining({ label: '防寒シート' }),
+      expect.objectContaining({ label: '小型ライト' }),
+    ]));
+  });
   it('uses measured package volume before internal estimates', () => {
     expect(packingVolumeForItem({ name: '水', category: 'water', packingVolumeMl: 720, volumeMl: 500 })).toMatchObject({ ml: 720, source: 'user' });
     expect(packingVolumeForItem({ name: '水', category: 'water', volumeMl: 500 })).toMatchObject({ ml: 600, source: 'content' });

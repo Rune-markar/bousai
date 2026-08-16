@@ -71,7 +71,7 @@ export const TARGET_REQUIREMENTS = [
 ];
 
 export function targetRequirement(days = 7) {
-  const normalizedDays = Math.min(90, Math.max(1, Number(days) || 7));
+  const normalizedDays = Math.min(180, Math.max(1, Number(days) || 7));
   return TARGET_REQUIREMENTS.find((requirement) => normalizedDays <= requirement.maxDays) || TARGET_REQUIREMENTS.at(-1);
 }
 
@@ -118,7 +118,7 @@ export function preparednessProgress(state, inventorySummary) {
 }
 
 export function defensePower(state, inventorySummary) {
-  const targetDays = Math.min(90, Math.max(1, Number(state.preparedness?.targetDays) || 7));
+  const targetDays = Math.min(180, Math.max(1, Number(state.preparedness?.targetDays) || 7));
   const requiredStage = targetRequirement(targetDays);
   const progress = preparednessProgress(state, inventorySummary);
   const requiredTasks = ALL_PREPAREDNESS_TASKS.filter((task) => task.stageNumber <= requiredStage.stageNumber);

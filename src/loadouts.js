@@ -12,13 +12,14 @@ export const PRACTICAL_LOADOUTS = {
   },
   'bag-primary': {
     label: 'GO BAG / 01', title: '1次避難バッグ', subtitle: '命を守って即時退避する、軽量・最優先の装備', accent: '#d4a13a',
+    referenceBudget: { range: '約12,000〜18,000円', note: 'バッグ本体と基本装備を新規購入する場合の目安' },
     items: [
-      { id: 'water', symbol: '💧', name: '飲料水 500ml', detail: '移動を妨げない量。期限と開封状態を確認。', required: true },
+      { id: 'water', symbol: '💧', name: '飲料水 500ml', detail: '移動を妨げない量。期限と開封状態を確認。', referenceVolume: '1本 約600ml', required: true },
       { id: 'medicine', symbol: '💊', name: '常用薬', detail: '最低3日分と処方情報。', required: true },
-      { id: 'light', symbol: '🔦', name: 'ライト', detail: '両手が空く小型ライト。実際に点灯する。', required: true },
+      { id: 'light', symbol: '🔦', name: 'ライト', detail: '両手が空く小型ライト。実際に点灯する。', referenceVolume: '小型 約250ml', required: true },
       { id: 'whistle', symbol: '📣', name: '救助笛', detail: 'バッグ外側からすぐ取れる位置へ。', required: true },
       { id: 'toilet', symbol: '🚻', name: '携帯トイレ', detail: '家族分の便袋・凝固剤を小分けにする。', size: 'wide', required: true },
-      { id: 'thermal', symbol: '🧣', name: '防寒シート', detail: '雨風と低体温を防ぐ。', required: true },
+      { id: 'thermal', symbol: '🧣', name: '防寒シート', detail: '雨風と低体温を防ぐ。', referenceVolume: '圧縮時 約300ml', required: true },
       { id: 'battery', symbol: '🔋', name: '小型充電池', detail: 'ケーブルと残量を同時に確認。', required: true },
       { id: 'idcopy', symbol: '🪪', name: '身分証の控え', detail: '防水袋に入れ、番号の露出を避ける。', required: true },
       { id: 'food', symbol: '🍫', name: '行動食', detail: '開封してすぐ食べられる物。', size: 'wide' },
@@ -26,6 +27,7 @@ export const PRACTICAL_LOADOUTS = {
   },
   'bag-secondary': {
     label: 'STAY BAG / 02', title: '2次避難バッグ', subtitle: '避難生活を継続する装備。1次バッグと役割を重ねない', accent: '#668ca1',
+    referenceBudget: { range: '約20,000〜30,000円', note: '中型バッグと生活継続用品を新規購入する場合の目安' },
     items: [
       { id: 'clothes', symbol: '👕', name: '着替え', detail: '季節に合う下着・靴下を圧縮する。', size: 'wide', required: true },
       { id: 'hygiene', symbol: '🧼', name: '衛生ポーチ', detail: '歯磨き、手指衛生、生理用品など。', required: true },

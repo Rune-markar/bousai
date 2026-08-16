@@ -75,4 +75,9 @@ describe('preparedness roadmap', () => {
     expect(thirtyDay.requirementCount).toBeGreaterThan(threeDay.requirementCount);
     expect(thirtyDay.score).toBeLessThan(threeDay.score);
   });
+
+  it('supports long-term targets up to 180 days', () => {
+    const summary = inventorySummary(base.inventory, base.household);
+    expect(defensePower({ ...base, preparedness: { completed: [], targetDays: 180 } }, summary).targetDays).toBe(180);
+  });
 });

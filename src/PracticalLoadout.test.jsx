@@ -35,8 +35,18 @@ describe('避難バッグの自動判定表示', () => {
   it('自動提案だけでは実物確認済みにしない', () => {
     render(<PracticalLoadout taskId="bag-primary" state={state} {...handlers} />);
     expect(screen.queryByRole('button', { name: '必須品を一括確認' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText('保有備蓄からの提案を見る'));
-    expect(screen.getByRole('button', { name: '実物確認へ進む' })).toBeInTheDocument();
+    expect(screen.getByText('保有備蓄から自動提案')).toBeInTheDocument();
+    expect(screen.getByText('現状の備蓄品')).toBeInTheDocument();
+    expect(screen.getByText('バッグへの自動配置')).toBeInTheDocument();
     expect(handlers.onChange).not.toHaveBeenCalled();
+  });
+
+  it('理想構成はアイコンから詳細を開いて収納確認する', () => {
+    render(<PracticalLoadout taskId="bag-primary" state={state} {...handlers} />);
+    expect(screen.getByText('参考予算（アプリ内概算）')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '飲料水 500mlの詳細を表示' }));
+    expect(screen.getByText('容量目安 1本 約600ml')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '実物を確認して収納' }));
+    expect(handlers.onChange).toHaveBeenCalledWith(['water']);
   });
 });

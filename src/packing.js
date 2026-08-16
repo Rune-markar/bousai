@@ -5,6 +5,12 @@ export const BAG_CAPACITY_PRESETS = {
 
 export const PACKING_EFFICIENCY = 0.85;
 
+export const BAG_VOLUME_EXAMPLES = [
+  { symbol: '💧', label: '飲料水 500ml', volumeMl: 600 },
+  { symbol: '🧣', label: '防寒シート', volumeMl: 300 },
+  { symbol: '🔦', label: '小型ライト', volumeMl: 250 },
+];
+
 // Package-envelope samples (ml) are deliberately conservative. The median is
 // used when the user has not measured the actual product.
 export const VOLUME_REFERENCE = {
