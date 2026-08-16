@@ -195,11 +195,12 @@ function App() {
 function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef }) {
   const [targetOpen, setTargetOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [budgetOpen, setBudgetOpen] = useState(false);
   const defense = useMemo(() => defensePower(state, summary), [state, summary]);
   const setTargetDays = (targetDays) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, targetDays: Math.min(90, Math.max(1, Number(targetDays) || 1)) } }));
   const stockpileDays = Number.isFinite(summary.householdStockpileDays) ? summary.householdStockpileDays : summary.survivalDays;
   const targetGap = Math.max(0, defense.targetDays - stockpileDays);
-  return <section className="home-dashboard wrap" aria-label="防災ホーム">
+  return <section className={`home-dashboard wrap${detailsOpen ? ' details-expanded' : ''}`} aria-label="防災ホーム">
     <header className="home-heading">
       <div><span className="kicker">TODAY'S READINESS</span><h1>わが家の防災状況</h1></div>
       <div className="household-control" aria-label="家族人数"><Users /><button aria-label="家族人数を減らす" onClick={() => setState((old) => ({ ...old, household: Math.max(1, old.household - 1) }))}><Minus /></button><b>{state.household}<small>人</small></b><button aria-label="家族人数を増やす" onClick={() => setState((old) => ({ ...old, household: Math.min(12, old.household + 1) }))}><Plus /></button></div>
@@ -219,7 +220,8 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
           <div><span><Droplets />水<small>1人1日3L</small></span><b>{formatDays(summary.waterDays)}<small>日分</small></b><i><u style={{ width: `${defense.waterCoverage * 100}%` }} /></i></div>
           <div><span><ShoppingBasket />食料<small>1人1日450g</small></span><b>{formatDays(summary.foodDays)}<small>日分</small></b><i><u style={{ width: `${defense.foodCoverage * 100}%` }} /></i></div>
         </div>
-        <button type="button" className="home-stockpile-open" onClick={() => setDetailsOpen(true)}>トイレ・非常用電源も確認 <ChevronRight /></button>
+        <div className="home-stockpile-actions"><button type="button" onClick={() => setBudgetOpen(true)}><CalendarDays />備蓄計画を立てる</button><button type="button" onClick={() => setDetailsOpen((open) => !open)}>トイレ・非常用電源も確認 <ChevronRight /></button></div>
+        {detailsOpen && <div className="home-stockpile-inline"><span><Sparkles /><small>携帯トイレ・1人1日5回</small><b>{formatDays(summary.toiletDays)}日分</b></span><button type="button" onClick={() => setPage('power')}><Zap /><small>非常用電源</small><b>{state.powerPlan?.autonomyDays || 3}日計画</b><ChevronRight /></button><p>生活継続の目安は水・食料・携帯トイレのうち最短の日数です。</p></div>}
         {summary.foodItemsMissingWeight > 0 && <button className="food-weight-notice" onClick={() => setPage('inventory')}>重量未登録の食料が{summary.foodItemsMissingWeight}件あります <ChevronRight /></button>}
       </article>
 
@@ -235,7 +237,7 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
       <button className="quick-add" onClick={() => setModal('new')}><PackagePlus /><span><b>備蓄を追加</b><small>すぐに登録</small></span><Plus /></button>
     </nav>
     {targetOpen && <TargetDaysDialog value={defense.targetDays} onClose={() => setTargetOpen(false)} onSave={(value) => { setTargetDays(value); setTargetOpen(false); }} />}
-    {detailsOpen && <StockpileDetailsDialog summary={summary} powerDays={state.powerPlan?.autonomyDays || 3} onClose={() => setDetailsOpen(false)} onPower={() => { setDetailsOpen(false); setPage('power'); }} />}
+    {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
   </section>;
 }
 
@@ -260,15 +262,10 @@ function CharacterBubble({ state, summary, setState, setPage }) {
 
 function TargetDaysDialog({ value, onClose, onSave }) {
   const dialogRef = useRef(null);
-  const [days, setDays] = useState(value);
+  const [days, setDays] = useState(Number(value) || 1);
   useDialogClose(onClose, dialogRef);
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="target-days-title" onSubmit={(event) => { event.preventDefault(); onSave(days); }}><div className="modal-title"><div><span className="kicker">STOCKPILE GOAL</span><h2 id="target-days-title">目標備蓄日数を変更</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><label><span>目標日数（1〜90日）</span><input autoFocus type="number" inputMode="numeric" min="1" max="90" value={days} onChange={(event) => setDays(event.target.value)} /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button"><Check />設定する</button></div></form></div>;
-}
-
-function StockpileDetailsDialog({ summary, powerDays, onClose, onPower }) {
-  const dialogRef = useRef(null);
-  useDialogClose(onClose, dialogRef);
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="stockpile-details-title"><div className="modal-title"><div><span className="kicker">LIVING SUPPORT</span><h2 id="stockpile-details-title">トイレ・非常用電源</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><div className="stockpile-detail-grid"><span><Sparkles /><small>携帯トイレ・1人1日5回</small><b>{formatDays(summary.toiletDays)}日分</b></span><button type="button" onClick={onPower}><Zap /><small>非常用電源</small><b>{powerDays}日計画</b><ChevronRight /></button></div><p className="dialog-note">生活継続の目安は、水・食料・携帯トイレのうち最短の日数です。電源は選択した機器を動かす計画日数です。</p></section></div>;
+  const adjust = (delta) => setDays((current) => Math.min(90, Math.max(1, current + delta)));
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="target-days-title" onSubmit={(event) => { event.preventDefault(); onSave(days); }}><div className="modal-title"><div><span className="kicker">STOCKPILE GOAL</span><h2 id="target-days-title">目標備蓄日数を変更</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><p className="stepper-help">左右の矢印で1日ずつ調整します（1〜90日）。</p><div className="target-day-stepper" aria-label="目標備蓄日数"><button autoFocus type="button" aria-label="目標備蓄日数を1日減らす" disabled={days <= 1} onClick={() => adjust(-1)}><ChevronRight /></button><output aria-live="polite"><b>{days}</b><small>日</small></output><button type="button" aria-label="目標備蓄日数を1日増やす" disabled={days >= 90} onClick={() => adjust(1)}><ChevronRight /></button></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button"><Check />設定する</button></div></form></div>;
 }
 
 function ScoreRing({ score }) {
@@ -404,8 +401,8 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
       {focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).length > 0 && <details className="stage-more"><summary>この段階の全項目を見る <span>{focusedStage.total}項目</span></summary><div className="mission-list">{focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).map((task) => missionCard(task))}</div></details>}
     </section>
 
-    <details className="roadmap-overview">
-      <summary><span><Route /><b>6段階の全体像を見る</b><small>どの段階からでも、必要な備えを実行できます</small></span><ChevronRight /></summary>
+    <section className="roadmap-overview" aria-labelledby="roadmap-overview-title">
+      <header className="roadmap-overview-head"><span><Route /><b id="roadmap-overview-title">6段階の防災マップ</b><small>現在地と、この先に必要な備えを一度に確認できます</small></span><em>{completedStages} / 6 段階達成</em></header>
       <div className="roadmap-overview-body">
         <div className="stage-flow" role="list" aria-label="防災力の段階">
           {progress.stages.map((stage, index) => <div className="stage-flow-unit" key={stage.id}>
@@ -424,7 +421,7 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
         </section>
         <section className="achievement-section"><div className="section-heading compact"><div><span className="kicker">ACHIEVEMENTS</span><h2>獲得した防災章</h2></div><Trophy /></div><div className="achievement-row">{progress.stages.map((stage) => <div className={`achievement ${stage.gateClear ? 'earned' : ''}`} key={stage.id}><span><StageIcon name={stage.icon} /></span><b>{stage.title}</b><small>{stage.gateClear ? '獲得済み' : '未獲得'}</small></div>)}</div></section>
       </div>
-    </details>
+    </section>
     {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} />}
   </section>;
 }
@@ -433,7 +430,7 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [consumeItem, setConsumeItem] = useState(null);
-  const [budgetOpen, setBudgetOpen] = useState(false);
+  const [calculationOpen, setCalculationOpen] = useState(false);
   const importRef = useRef(null);
   const insights = useMemo(() => transactionInsights(transactions), [transactions]);
   const rows = summary.rows.filter((item) => (filter === 'all' || item.category === filter) && item.name.toLowerCase().includes(query.toLowerCase()));
@@ -481,8 +478,8 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     }
   };
   return <section className="wrap page-section">
-    <div className="page-title"><div><span className="kicker">MY STOCKPILE</span><h1>わが家の備蓄</h1><p>不足も期限も、ここでひと目に。</p></div><div className="page-actions"><button className="secondary-button" onClick={() => setPage('rolling')}><RefreshCw />ローリングストック</button><button className="secondary-button" onClick={() => setBudgetOpen(true)}><CalendarDays />年間予算で計画</button><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
-    <div className="summary-strip"><div><span>備蓄力</span><b>{summary.score}%</b></div><div><span>不足品</span><b>{summary.shortageCount}品</b></div><div><span>期限間近</span><b>{summary.expiringCount}品</b></div><div><span>補充費用</span><b>¥{summary.replenishmentCost.toLocaleString()}</b></div></div>
+    <div className="page-title"><div><span className="kicker">MY STOCKPILE</span><h1>わが家の備蓄</h1><p>不足も期限も、ここでひと目に。</p></div><div className="page-actions"><button className="secondary-button" onClick={() => setPage('rolling')}><RefreshCw />消費計画</button><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
+    <div className="summary-strip inventory-summary-strip"><div><span>備蓄力</span><b>{summary.score}%</b></div><div><span>不足品</span><b>{summary.shortageCount}品</b></div><div><span>期限間近</span><b>{summary.expiringCount}品</b></div><div><span>補充費用</span><b>¥{summary.replenishmentCost.toLocaleString()}</b></div><button type="button" className="calculation-help" aria-label="備蓄日数の計算方法を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />計算方法</button></div>
     <article className="card inventory-priority"><div className="section-heading compact"><div><span className="kicker">DO THIS FIRST</span><h2>最優先の補充</h2></div><ShoppingBasket /></div>{summary.replenishmentPlan.length ? <>{summary.replenishmentPlan.slice(0, 1).map((item) => <div className="priority-row" key={item.id}><button type="button" className="priority-row-main" onClick={() => setModal(item)}><span className={`priority priority-${item.replenishmentPriority}`}>{item.replenishmentPriority === 'high' ? '高' : item.replenishmentPriority === 'medium' ? '中' : '低'}</span><span><b>{item.name}</b><small>{item.shortage}{item.unit}不足・¥{item.replenishmentCost.toLocaleString()}</small></span><ChevronRight /></button><button type="button" className="priority-refill" onClick={() => adjust(item.id, item.shortage)}><Plus />不足分を補充</button></div>)}{summary.replenishmentPlan.length > 1 && <p className="priority-remaining">ほか{summary.replenishmentPlan.length - 1}品は下の在庫一覧で確認できます</p>}</> : <div className="empty-small"><Check />補充予定はありません</div>}</article>
     <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="備蓄品を検索" /></label><div className="filters"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>すべて</button>{Object.entries(CATEGORY_META).map(([key, value]) => <button className={filter === key ? 'active' : ''} key={key} onClick={() => setFilter(key)}>{value.label}</button>)}</div></div>
     <div className="inventory-list">
@@ -493,12 +490,11 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
       </article>)}
       {!rows.length && <div className="empty-state"><Search /><h3>該当する備蓄品がありません</h3><p>検索条件を変えてみてください。</p></div>}
     </div>
-    <details className="inventory-analysis"><summary><span><ShieldCheck /><b>備蓄日数の詳しい計算を見る</b><small>食料と水が何日もつかを確認</small></span><ChevronRight /></summary><div><StockpileDaysPanel summary={summary} household={state.household} targetDays={state.preparedness?.targetDays || 7} onAction={() => setFilter(summary.foodItemsMissingWeight ? 'food' : 'water')} actionLabel="対象を絞り込む" /></div></details>
     <div className="operations-grid single-operation">
       <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴と傾向</h2></div><History /></div><div className="insight-strip"><span>30日消費<b>{insights.consumed30Days}</b></span><span>うち廃棄<b>{insights.discarded30Days}</b></span><span>最多<b>{insights.topConsumed?.name || '—'}</b></span></div>{transactions.length ? transactions.slice(0, 10).map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '期限順消費' : entry.type === 'consume' ? '消費' : entry.type === 'discard' ? '廃棄' : entry.type === 'delete' ? '削除' : entry.type === 'edit' ? '編集' : '入庫'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{entry.reason || entry.note || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</article>
     </div>
     {consumeItem && <ConsumptionModal item={consumeItem} onClose={() => setConsumeItem(null)} onSave={consume} />}
-    {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
+    {calculationOpen && <StockpileCalculationDialog summary={summary} household={state.household} targetDays={state.preparedness?.targetDays || 7} onClose={() => setCalculationOpen(false)} onAction={() => { setFilter(summary.foodItemsMissingWeight ? 'food' : 'water'); setCalculationOpen(false); }} />}
   </section>;
 }
 
@@ -508,12 +504,7 @@ function RollingStock({ state, summary, transactions, updateInventory, onBack })
     const result = consumeByRotation(rawRows(), entry.key, 1);
     const consumed = result.consumed[0];
     if (!consumed) return;
-    updateInventory(result.inventory, `${consumed.item.name}を消費として記録しました`, createTransaction('rotate', consumed.item, -1, `${consumed.item.expiry}の期限が近いロットから消費。補充候補に反映`));
-  };
-  const replenishOne = (entry) => {
-    const item = entry.nextLot;
-    const inventory = rawRows().map((row) => row.id === item.id ? { ...row, quantity: Number(row.quantity) + 1, lastChecked: new Date().toISOString().slice(0, 10) } : row);
-    updateInventory(inventory, `${item.name}を1${item.unit}補充しました`, createTransaction('add', item, 1, 'ローリングストックの補充完了'));
+    updateInventory(result.inventory, `${consumed.item.name}を消費として記録しました`, createTransaction('rotate', consumed.item, -1, `${consumed.item.expiry}の期限が近いロットから消費`));
   };
   const setReminder = (entry, value) => {
     const inventory = rawRows().map((row) => row.id === entry.nextLot.id ? { ...row, rotationReminderDate: value } : row);
@@ -522,8 +513,15 @@ function RollingStock({ state, summary, transactions, updateInventory, onBack })
   const today = new Date().toISOString().slice(0, 10);
   const limit = new Date(); limit.setDate(limit.getDate() + 30);
   const maxReminder = limit.toISOString().slice(0, 10);
-  const rollingHistory = transactions.filter((entry) => entry.type === 'rotate' || (entry.type === 'add' && entry.note === 'ローリングストックの補充完了')).slice(0, 8);
-  return <section className="wrap page-section rolling-page"><div className="page-title"><div><span className="kicker">ROLLING STOCK</span><h1>ローリングストック</h1><p>期限の近い物から使い、実際に買った時だけ補充を記録します。</p></div><button className="secondary-button" onClick={onBack}><ArrowRight className="back-arrow" />備蓄へ戻る</button></div><aside className="rolling-guide"><b>操作の違い</b><span><Minus />備蓄一覧の「−」は通常の消費・廃棄</span><span><RefreshCw />「消費として記録」は期限が最も近いロットを1つ減らす</span><span><Plus />「補充済み」は購入した在庫を1つ増やす</span></aside><div className="rolling-summary"><span><small>今すぐ対応</small><b>{summary.rotationDueCount}品</b></span><span><small>期限付き在庫</small><b>{summary.rotationQueue.length}品</b></span><span><small>補充候補</small><b>{summary.shortageCount}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list card">{summary.rotationQueue.map((entry) => { const reminderMax = entry.nextLot.expiry >= today && entry.nextLot.expiry < maxReminder ? entry.nextLot.expiry : maxReminder; return <article className={`rolling-row rolling-row-full ${entry.status}`} key={entry.key}><span className="rolling-order">{entry.status === 'expired' ? '期限切れ' : entry.daysToRotate <= 0 ? '今すぐ消費候補' : `${entry.daysToRotate}日後`}</span><span><b>{entry.nextLot.name}</b><small>消費期限 {entry.nextLot.expiry}（この画面では変更できません）</small><label className="rolling-reminder"><span>再通知日</span><input type="date" min={today} max={reminderMax} value={entry.nextLot.rotationReminderDate || ''} onChange={(event) => setReminder(entry, event.target.value)} /></label></span><div className="rolling-actions"><button type="button" onClick={() => rotateOne(entry)}><RefreshCw />1{entry.nextLot.unit}を消費として記録</button><button type="button" onClick={() => replenishOne(entry)}><Plus />1{entry.nextLot.unit}を補充済み</button></div></article>; })}</div> : <div className="empty-state"><Check /><h3>期限付きの備蓄はありません</h3><p>備蓄品に期限を登録すると、ここへ期限順に表示します。</p></div>}<article className="card operation-panel rolling-history"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>ローリングストック履歴</h2></div><History /></div>{rollingHistory.length ? rollingHistory.map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '期限順消費' : '補充済み'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</article></section>;
+  const rollingHistory = transactions.filter((entry) => entry.type === 'rotate').slice(0, 8);
+  const upcomingCount = summary.rotationQueue.filter((entry) => entry.status === 'upcoming').length;
+  return <section className="wrap page-section rolling-page"><div className="page-title"><div><span className="kicker">CONSUMPTION PLAN</span><h1>ローリングストック消費計画</h1><p>期限が近い物を、期限が来る前に使う順番として整理します。</p></div><button className="secondary-button" onClick={onBack}><ArrowRight className="back-arrow" />備蓄へ戻る</button></div><aside className="rolling-guide"><b>この画面で行うこと</b><span><CalendarDays />期限順に消費予定を確認する</span><span><Bell />必要な日に再通知を設定する</span><span><RefreshCw />実際に使った時だけ消費として記録する</span></aside><div className="rolling-summary"><span><small>消費時期が到来</small><b>{summary.rotationDueCount}品</b></span><span><small>30日以内に予定</small><b>{upcomingCount}品</b></span><span><small>計画中</small><b>{summary.rotationQueue.length}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list card">{summary.rotationQueue.map((entry) => { const reminderMax = entry.nextLot.expiry >= today && entry.nextLot.expiry < maxReminder ? entry.nextLot.expiry : maxReminder; return <article className={`rolling-row rolling-row-full ${entry.status}`} key={entry.key}><span className="rolling-order">{entry.status === 'expired' ? '期限切れ' : entry.daysToRotate <= 0 ? '消費時期です' : `${entry.daysToRotate}日後に消費`}</span><span><b>{entry.nextLot.name}</b><small>消費期限 {entry.nextLot.expiry}（期限日は変更できません）</small><label className="rolling-reminder"><span>消費予定の再通知日</span><input type="date" min={today} max={reminderMax} value={entry.nextLot.rotationReminderDate || ''} onChange={(event) => setReminder(entry, event.target.value)} /></label></span><div className="rolling-actions"><button type="button" onClick={() => rotateOne(entry)}><RefreshCw />1{entry.nextLot.unit}を消費として記録</button></div></article>; })}</div> : <div className="empty-state"><Check /><h3>期限付きの備蓄はありません</h3><p>備蓄品に期限を登録すると、ここへ期限順に表示します。</p></div>}<article className="card operation-panel rolling-history"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴</h2></div><History /></div>{rollingHistory.length ? rollingHistory.map((entry) => <div className="history-row" key={entry.id}><span className="history-type rotate">期限順消費</span><span><b>{entry.name}</b><small>{entry.quantityDelta}{entry.unit}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">消費を記録すると履歴が残ります</div>}</article></section>;
+}
+
+function StockpileCalculationDialog({ summary, household, targetDays, onClose, onAction }) {
+  const dialogRef = useRef(null);
+  useDialogClose(onClose, dialogRef);
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal calculation-dialog" role="dialog" aria-modal="true" aria-labelledby="calculation-title"><div className="modal-title"><div><span className="kicker">HOW IT IS CALCULATED</span><h2 id="calculation-title">備蓄日数の計算方法</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><StockpileDaysPanel summary={summary} household={household} targetDays={targetDays} onAction={onAction} actionLabel="対象を絞り込む" /></section></div>;
 }
 
 function BudgetPlannerDialog({ state, summary, setState, onClose }) {
