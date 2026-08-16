@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowRight, Award, Backpack, BadgeCheck, Bell, BookOpen, Box, CalendarDays,
   Check, ChevronRight, CircleHelp, ClipboardList, Copy, Droplets, Flame, Heart,
@@ -23,6 +23,11 @@ const nav = [
   { id: 'plan', label: '緊急メモ', icon: ClipboardList },
   { id: 'learn', label: '知る', icon: BookOpen },
 ];
+const pageIds = new Set([...nav.map(({ id }) => id), 'power']);
+const pageFromLocation = () => {
+  const id = window.location.hash.replace(/^#\/?/, '');
+  return pageIds.has(id) ? id : 'home';
+};
 
 const emptyForm = { name: '', category: 'food', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', volumeMl: 0, foodWeightG: 0, packingVolumeMl: 0, imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30, replenishmentPriority: 'high', replenishBy: '', purchaseFrom: '' };
 
@@ -32,7 +37,7 @@ function Brand() {
 
 function App() {
   const [state, setState] = useState(loadState);
-  const [page, setPage] = useState('home');
+  const [page, setPageState] = useState(pageFromLocation);
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -41,7 +46,15 @@ function App() {
   const summary = useMemo(() => inventorySummary(state.inventory, state.household), [state.inventory, state.household]);
   const visitChecked = useRef(false);
   const powerEntryRef = useRef(null);
+  const mainRef = useRef(null);
   const previousPageRef = useRef(page);
+
+  const setPage = useCallback((nextPage, { replace = false } = {}) => {
+    if (!pageIds.has(nextPage)) return;
+    const nextHash = `#/${nextPage}`;
+    if (window.location.hash !== nextHash) window.history[replace ? 'replaceState' : 'pushState']({ sonaePage: nextPage }, '', nextHash);
+    setPageState(nextPage);
+  }, []);
 
   useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), [state]);
   useEffect(() => {
@@ -64,6 +77,16 @@ function App() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [page]);
   useEffect(() => {
+    if (!window.location.hash || !pageIds.has(window.location.hash.replace(/^#\/?/, ''))) setPage('home', { replace: true });
+    const syncPage = () => setPageState(pageFromLocation());
+    window.addEventListener('popstate', syncPage);
+    window.addEventListener('hashchange', syncPage);
+    return () => {
+      window.removeEventListener('popstate', syncPage);
+      window.removeEventListener('hashchange', syncPage);
+    };
+  }, [setPage]);
+  useEffect(() => {
     const className = 'power-document-active';
     const active = page === 'power';
     document.documentElement.classList.toggle(className, active);
@@ -76,7 +99,20 @@ function App() {
   useEffect(() => {
     const previousPage = previousPageRef.current;
     previousPageRef.current = page;
-    if (page === 'home' && previousPage === 'power') powerEntryRef.current?.focus();
+    if (previousPage === page) return;
+    if (page === 'home' && previousPage === 'power') {
+      powerEntryRef.current?.focus();
+      return;
+    }
+    if (page === 'power') return;
+    const frame = window.requestAnimationFrame(() => {
+      const heading = mainRef.current?.querySelector('h1');
+      if (heading) {
+        heading.setAttribute('tabindex', '-1');
+        heading.focus();
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [page]);
   useEffect(() => {
     if (visitChecked.current) return;
@@ -94,18 +130,25 @@ function App() {
     setState((old) => ({ ...old, inventory, transactions: transaction ? [transaction, ...old.transactions].slice(0, 500) : old.transactions }));
     if (message) setToast(message);
   };
+  const replenishShortage = (item) => {
+    const amount = Math.max(0, Number(item.shortage) || 0);
+    if (!amount) return;
+    const inventory = state.inventory.map((entry) => entry.id === item.id ? { ...entry, quantity: Number(entry.quantity) + amount, lastChecked: new Date().toISOString().slice(0, 10) } : entry);
+    updateInventory(inventory, `${item.name}を${amount}${item.unit}補充しました`, createTransaction('add', item, amount, '不足通知から補充'));
+    setNotificationsOpen(false);
+  };
 
   return (
     <div className={`app-shell${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
       <header className="topbar">
         <Brand />
         <nav className="desktop-nav" aria-label="メインナビゲーション">
-          {nav.map(({ id, label, icon: Icon }) => <button className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={18} />{label}</button>)}
+          {nav.map(({ id, label, icon: Icon }) => <button aria-current={page === id ? 'page' : undefined} className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={18} />{label}</button>)}
         </nav>
         <div className="header-actions">{!online && <span className="offline-badge"><WifiOff />オフライン</span>}<button className="notification-button share-button" aria-label="アクセス用QRコードを開く" onClick={() => setShareOpen(true)}><QrCode size={20} /></button><button className="notification-button" aria-label={`通知一覧を開く（${summary.notificationCount}件）`} onClick={() => setNotificationsOpen(true)}><Bell size={20} /><span>{summary.notificationCount}</span></button></div>
       </header>
 
-      <main>
+      <main ref={mainRef}>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
         {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} />}
         {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} />}
@@ -119,7 +162,7 @@ function App() {
       </footer>
 
       <nav className="mobile-nav" aria-label="モバイルナビゲーション">
-        {nav.map(({ id, label, icon: Icon }) => <button className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
+        {nav.map(({ id, label, icon: Icon }) => <button aria-current={page === id ? 'page' : undefined} className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
       {modal && <ItemModal item={modal === 'new' ? null : modal} inventory={state.inventory} onClose={() => setModal(null)} onSave={(form) => {
@@ -141,7 +184,7 @@ function App() {
         updateInventory(inventory, modal === 'new' ? '備蓄品を追加しました' : '変更を保存しました', transaction);
         setModal(null);
       }} />}
-      {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} />}
+      {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} onReplenish={replenishShortage} />}
       {shareOpen && <ShareQrPanel onClose={() => setShareOpen(false)} setToast={setToast} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={18} />{toast}</div>}
     </div>
@@ -270,11 +313,18 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
   const progress = useMemo(() => preparednessProgress(state, summary), [state, summary]);
   const [selectedStageId, setSelectedStageId] = useState(() => progress.currentStage.id);
   const [activeLoadout, setActiveLoadout] = useState(null);
+  const nextMissionHeadingRef = useRef(null);
+  const previousFocusedTaskRef = useRef(progress.nextTask?.id);
   const selectedStage = progress.stages.find((stage) => stage.id === selectedStageId) || progress.currentStage;
   const focusedTask = progress.nextTask;
   const focusedStage = progress.currentStage;
   const weakestLabel = progress.weakest ? pillarLabels[progress.weakest.pillar] : '総合';
   const completedStages = progress.stages.filter((stage) => stage.gateClear).length;
+  useEffect(() => {
+    const previousTask = previousFocusedTaskRef.current;
+    previousFocusedTaskRef.current = progress.nextTask?.id;
+    if (previousTask && previousTask !== progress.nextTask?.id) nextMissionHeadingRef.current?.focus();
+  }, [progress.nextTask?.id]);
 
   const toggle = (task) => {
     if (getLoadout(task.id)) {
@@ -323,7 +373,7 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
     const taskStage = progress.stages.find((stage) => stage.tasks.some((entry) => entry.id === task.id));
     return <article className={`mission ${compact ? 'mission-focus' : ''} ${done ? 'done' : ''}`} key={task.id}>
       <button className="mission-check" type="button" disabled={!taskStage?.unlocked && !done} aria-label={loadout ? `${task.title}の装備ケースを開く` : task.auto ? `${task.title}の連動データを確認` : `${task.title}を${done ? '未達成に戻す' : '達成にする'}`} onClick={() => toggle(task)}>{done ? <Check /> : task.auto ? <RefreshCw /> : loadout ? <Backpack /> : null}</button>
-      <div className="mission-copy"><div><span className="mission-pillar">{pillarLabels[task.pillar]}</span>{task.gate && <span className="mission-gate">次段階の条件</span>}{automatic && <span className="mission-auto">自動達成</span>}{loadout && <span className="mission-loadout-tag">装備ケース</span>}</div><h3>{task.title}</h3><p>{task.detail}</p><small><Lightbulb /> 次の行動：{task.action}</small>{loadout && <button className="mission-loadout" type="button" onClick={() => toggle(task)} disabled={!taskStage?.unlocked && !done}><span className="mission-loadout-items">{loadout.items.slice(0, 5).map((item) => <i key={item.id} className={kitStatus.packed.has(item.id) ? 'packed' : ''}>{item.symbol}</i>)}</span><b>{loadout.label}</b><em>{kitStatus.done} / {kitStatus.total} 必須品</em><ChevronRight /></button>}</div>
+      <div className="mission-copy"><div><span className="mission-pillar">{pillarLabels[task.pillar]}</span>{task.gate && <span className="mission-gate">次段階の条件</span>}{automatic && <span className="mission-auto">自動達成</span>}{loadout && <span className="mission-loadout-tag">装備ケース</span>}</div><h3>{task.title}</h3><p>{task.detail}</p><small><Lightbulb /> 次の行動：{task.action}</small>{task.id === 'hazard-map' && !done && <a className="mission-action-link" href="https://disaportal.gsi.go.jp/" target="_blank" rel="noreferrer">国のハザードマップを開く<ArrowRight /></a>}{loadout && <button className="mission-loadout" type="button" onClick={() => toggle(task)} disabled={!taskStage?.unlocked && !done}><span className="mission-loadout-items">{loadout.items.slice(0, 5).map((item) => <i key={item.id} className={kitStatus.packed.has(item.id) ? 'packed' : ''}>{item.symbol}</i>)}</span><b>{loadout.label}</b><em>{kitStatus.done} / {kitStatus.total} 必須品</em><ChevronRight /></button>}</div>
       <span className="mission-xp">+{task.xp} XP</span>
     </article>;
   };
@@ -338,7 +388,7 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
     </section>
 
     <section className="next-mission" aria-labelledby="next-mission-title">
-      <div className="next-mission-heading"><div><span className="kicker">NEXT MISSION</span><h2 id="next-mission-title">いまは、これだけ</h2></div><span>{focusedStage.done} / {focusedStage.total}</span></div>
+      <div className="next-mission-heading"><div><span className="kicker">NEXT MISSION</span><h2 id="next-mission-title" ref={nextMissionHeadingRef} tabIndex="-1">いまは、これだけ</h2></div><span>{focusedStage.done} / {focusedStage.total}</span></div>
       {focusedTask ? missionCard(focusedTask, true) : <div className="journey-complete"><Trophy /><div><b>全段階を踏破しました</b><span>季節の変わり目に点検と実地訓練を続けましょう。</span></div></div>}
       {focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).length > 0 && <details className="stage-more"><summary>この段階の全項目を見る <span>{focusedStage.total}項目</span></summary><div className="mission-list">{focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).map((task) => missionCard(task))}</div></details>}
     </section>
@@ -382,7 +432,7 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     if (delta < 0 && item.quantity <= 0) return;
     const nextQuantity = Math.max(0, Number(item.quantity) + delta);
     const inventory = rawRows().map((entry) => entry.id === id ? { ...entry, quantity: nextQuantity, lastChecked: new Date().toISOString().slice(0, 10) } : entry);
-    updateInventory(inventory, delta > 0 ? '1つ補充しました' : '1つ消費しました', createTransaction(delta > 0 ? 'add' : 'consume', item, delta, delta > 0 ? 'クイック補充' : 'クイック消費'));
+    updateInventory(inventory, delta > 0 ? `${delta}${item.unit}補充しました` : `${Math.abs(delta)}${item.unit}消費しました`, createTransaction(delta > 0 ? 'add' : 'consume', item, delta, delta > 0 ? 'クイック補充' : 'クイック消費'));
   };
   const consume = ({ amount, reason, note }) => {
     const item = summary.rows.find((entry) => entry.id === consumeItem.id);
@@ -427,9 +477,9 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     }
   };
   return <section className="wrap page-section">
-    <div className="page-title"><div><span className="kicker">MY STOCKPILE</span><h1>わが家の備蓄</h1><p>不足も期限も、ここでひと目に。</p></div><div className="page-actions"><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
+    <div className="page-title"><div><span className="kicker">MY STOCKPILE</span><h1>わが家の備蓄</h1><p>不足も期限も、ここでひと目に。</p></div><div className="page-actions"><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
     <div className="summary-strip"><div><span>備蓄力</span><b>{summary.score}%</b></div><div><span>不足品</span><b>{summary.shortageCount}品</b></div><div><span>期限間近</span><b>{summary.expiringCount}品</b></div><div><span>補充費用</span><b>¥{summary.replenishmentCost.toLocaleString()}</b></div></div>
-    <StockpileDaysPanel summary={summary} household={state.household} targetDays={state.preparedness?.targetDays || 7} onAction={() => setFilter(summary.foodItemsMissingWeight ? 'food' : 'water')} actionLabel="対象を絞り込む" />
+    <article className="card inventory-priority"><div className="section-heading compact"><div><span className="kicker">DO THIS FIRST</span><h2>最優先の補充</h2></div><ShoppingBasket /></div>{summary.replenishmentPlan.length ? <>{summary.replenishmentPlan.slice(0, 1).map((item) => <div className="priority-row" key={item.id}><button type="button" className="priority-row-main" onClick={() => setModal(item)}><span className={`priority priority-${item.replenishmentPriority}`}>{item.replenishmentPriority === 'high' ? '高' : item.replenishmentPriority === 'medium' ? '中' : '低'}</span><span><b>{item.name}</b><small>{item.shortage}{item.unit}不足・¥{item.replenishmentCost.toLocaleString()}</small></span><ChevronRight /></button><button type="button" className="priority-refill" onClick={() => adjust(item.id, item.shortage)}><Plus />不足分を補充</button></div>)}{summary.replenishmentPlan.length > 1 && <p className="priority-remaining">ほか{summary.replenishmentPlan.length - 1}品は下の在庫一覧で確認できます</p>}</> : <div className="empty-small"><Check />補充予定はありません</div>}</article>
     <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="備蓄品を検索" /></label><div className="filters"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>すべて</button>{Object.entries(CATEGORY_META).map(([key, value]) => <button className={filter === key ? 'active' : ''} key={key} onClick={() => setFilter(key)}>{value.label}</button>)}</div></div>
     <div className="inventory-list">
       {rows.map((item) => <article className="inventory-item" key={item.id}>
@@ -439,9 +489,9 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
       </article>)}
       {!rows.length && <div className="empty-state"><Search /><h3>該当する備蓄品がありません</h3><p>検索条件を変えてみてください。</p></div>}
     </div>
+    <details className="inventory-analysis"><summary><span><ShieldCheck /><b>備蓄日数の詳しい計算を見る</b><small>食料と水が何日もつかを確認</small></span><ChevronRight /></summary><div><StockpileDaysPanel summary={summary} household={state.household} targetDays={state.preparedness?.targetDays || 7} onAction={() => setFilter(summary.foodItemsMissingWeight ? 'food' : 'water')} actionLabel="対象を絞り込む" /></div></details>
     <article className="card rolling-panel"><div className="section-heading compact"><div><span className="kicker">ROLLING STOCK</span><h2>ローリングストック</h2><p>期限の近いロットから消費し、不足分を補充計画へ自動反映します。</p></div><RefreshCw /></div><div className="rolling-summary"><span><small>循環待ち</small><b>{summary.rotationDueCount}品</b></span><span><small>期限付き在庫</small><b>{summary.rotationQueue.length}品</b></span><span><small>補充候補</small><b>{summary.shortageCount}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list">{summary.rotationQueue.slice(0, 6).map((entry) => <div className={`rolling-row ${entry.status}`} key={entry.key}><span className="rolling-order">{entry.status === 'expired' ? '期限切れ' : entry.daysToRotate <= 0 ? '今すぐ循環' : `${entry.daysToRotate}日後`}</span><span><b>{entry.nextLot.name}</b><small>期限 {entry.nextLot.expiry}・対象ロット {entry.nextLot.quantity}{entry.nextLot.unit}・合計 {entry.totalQuantity}{entry.nextLot.unit}</small></span><button type="button" onClick={() => rotateOne(entry)}><RefreshCw />1{entry.nextLot.unit}消費して買い足す</button></div>)}</div> : <div className="empty-small"><Check />期限を登録すると循環予定を自動作成します</div>}</article>
-    <div className="operations-grid">
-      <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">REPLENISHMENT</span><h2>補充計画</h2></div><ShoppingBasket /></div>{summary.replenishmentPlan.length ? summary.replenishmentPlan.map((item) => <button key={item.id} className="plan-row" onClick={() => setModal(item)}><span className={`priority priority-${item.replenishmentPriority}`}>{item.replenishmentPriority === 'high' ? '高' : item.replenishmentPriority === 'medium' ? '中' : '低'}</span><span><b>{item.name}</b><small>{item.shortage}{item.unit}・¥{item.replenishmentCost.toLocaleString()}{item.replenishBy ? `・${item.replenishBy}まで` : ''}{item.purchaseFrom ? `・${item.purchaseFrom}` : ''}</small></span><ChevronRight /></button>) : <div className="empty-small"><Check />補充予定はありません</div>}</article>
+    <div className="operations-grid single-operation">
       <article className="card operation-panel"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴と傾向</h2></div><History /></div><div className="insight-strip"><span>30日消費<b>{insights.consumed30Days}</b></span><span>うち廃棄<b>{insights.discarded30Days}</b></span><span>最多<b>{insights.topConsumed?.name || '—'}</b></span></div>{transactions.length ? transactions.slice(0, 10).map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '循環' : entry.type === 'consume' ? '消費' : entry.type === 'discard' ? '廃棄' : entry.type === 'delete' ? '削除' : entry.type === 'edit' ? '編集' : '入庫'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{entry.reason || entry.note || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</article>
     </div>
     {consumeItem && <ConsumptionModal item={consumeItem} onClose={() => setConsumeItem(null)} onSave={consume} />}
@@ -475,15 +525,20 @@ function EmergencyPlan({ state, summary, setState, setToast }) {
   useEffect(() => setDraft(state.contact), [state.contact]);
   const set = (key, value) => setDraft((old) => ({ ...old, [key]: value }));
   return <section className="wrap page-section narrow-page"><div className="page-title"><div><span className="kicker">EMERGENCY NOTE</span><h1>もしもの時のメモ</h1><p>通信が不安定でも、この端末から確認できます。</p></div></div>
-    <div className="emergency-banner"><ShieldCheck /><div><b>家族で一度、声に出して確認しよう</b><span>集合場所と連絡方法が決まっているだけで、もしもの不安は小さくできます。</span></div></div>
-    <form className="card plan-form" onSubmit={(e) => { e.preventDefault(); setState((old) => ({ ...old, contact: draft })); setToast('緊急メモを端末に保存しました'); }}>
+    <div className="emergency-banner"><ShieldCheck /><div><b>緊急時は、まず下の内容を確認</b><span>編集は後回しにして、集合場所・連絡先・最初の行動を確認してください。</span></div></div>
+    <section className="emergency-readout" aria-label="登録済みの緊急連絡情報">
+      <article><MapPin /><span>避難・集合場所</span><b>{state.contact.shelter || '未登録'}</b></article>
+      <article><Phone /><span>緊急連絡先</span>{state.contact.phone ? <a href={`tel:${state.contact.phone.replace(/[^\d+]/g, '')}`}>{state.contact.phone}</a> : <b className="missing">未登録</b>}</article>
+      <article><ClipboardList /><span>家族への伝言・連絡ルール</span><b>{state.contact.note || '未登録'}</b></article>
+    </section>
+    <section className="generated-plan"><div className="section-heading compact"><div><span className="kicker">AUTO PLAN</span><h2>わが家の72時間行動計画</h2></div><ShieldCheck /></div><div className="plan-columns"><article><h3>発災直後</h3>{plan.immediate.map((item) => <p key={item}><Check />{item}</p>)}</article><article><h3>最初の72時間</h3>{plan.first72Hours.map((item) => <p key={item}><Check />{item}</p>)}</article></div>{plan.gaps.length ? <div className="plan-gaps"><b>先に埋めたい弱点</b>{plan.gaps.map((gap) => <span key={gap}><AlertTriangle />{gap}</span>)}</div> : <div className="stage-clear-message"><Check /><div><b>基礎条件は整っています</b><span>半年ごとに実物を使って見直してください。</span></div></div>}</section>
+    <details className="emergency-editor"><summary><span><Pencil /><b>緊急メモを編集する</b><small>集合場所・連絡先・家族ルールを変更</small></span><ChevronRight /></summary><form className="card plan-form" onSubmit={(e) => { e.preventDefault(); setState((old) => ({ ...old, contact: draft })); setToast('緊急メモを端末に保存しました'); }}>
       <label><span><Users />メモの名前</span><input value={draft.name} onChange={(e) => set('name', e.target.value)} /></label>
       <label><span><MapPin />避難・集合場所</span><input value={draft.shelter} onChange={(e) => set('shelter', e.target.value)} placeholder="例：〇〇小学校 体育館" /></label>
       <label><span><Phone />緊急連絡先</span><input value={draft.phone} onChange={(e) => set('phone', e.target.value)} placeholder="例：090-0000-0000" inputMode="tel" /></label>
       <label><span><ClipboardList />家族への伝言・連絡ルール</span><textarea value={draft.note} onChange={(e) => set('note', e.target.value)} rows="5" /></label>
       <button className="primary-button" type="submit"><Check />この端末に保存</button>
-    </form>
-    <section className="generated-plan"><div className="section-heading compact"><div><span className="kicker">AUTO PLAN</span><h2>わが家の72時間行動計画</h2></div><ShieldCheck /></div><div className="plan-columns"><article><h3>発災直後</h3>{plan.immediate.map((item) => <p key={item}><Check />{item}</p>)}</article><article><h3>最初の72時間</h3>{plan.first72Hours.map((item) => <p key={item}><Check />{item}</p>)}</article></div>{plan.gaps.length ? <div className="plan-gaps"><b>先に埋めたい弱点</b>{plan.gaps.map((gap) => <span key={gap}><AlertTriangle />{gap}</span>)}</div> : <div className="stage-clear-message"><Check /><div><b>基礎条件は整っています</b><span>半年ごとに実物を使って見直してください。</span></div></div>}</section>
+    </form></details>
     <section className="simulator"><div className="section-heading compact"><div><span className="kicker">DISASTER SIMULATOR</span><h2>もし今、災害が起きたら</h2></div><Radio /></div><div className="simulator-controls"><label><span>想定</span><select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>{DISASTER_SCENARIOS.map((scenario) => <option value={scenario.id} key={scenario.id}>{scenario.name}</option>)}</select></label><label><span>継続日数</span><input type="number" min="1" max="14" value={days} onChange={(event) => setDays(event.target.value)} /></label></div><div className={`simulation-result status-${simulation.status}`}><div><span>対応力</span><b>{simulation.score}<small>%</small></b><em>{simulation.status}</em></div><section><h3>{simulation.scenario.name}・{simulation.days}日間</h3><p>{simulation.scenario.opening}</p><strong>{simulation.advice}</strong><div className="gap-chips">{simulation.criticalGaps.map((gap) => <span key={gap.key}>{CATEGORY_META[gap.key]?.label || gap.key} {gap.score}%</span>)}</div></section></div></section>
     <div className="offline-note"><Zap /><div><b>初回表示後はオフラインでも確認できます</b><span>アプリ本体と入力済みデータをこの端末に保存します。商品情報の新規照会には通信が必要です。</span></div></div>
   </section>;
@@ -597,7 +652,7 @@ function ShareQrPanel({ onClose, setToast }) {
   </section></div>;
 }
 
-function NotificationPanel({ state, summary, setToast, onClose, onOpenItem }) {
+function NotificationPanel({ state, summary, setToast, onClose, onOpenItem, onReplenish }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
   const notifications = summary.rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue).sort((a, b) => a.tier - b.tier || a.ratio - b.ratio);
@@ -615,7 +670,7 @@ function NotificationPanel({ state, summary, setToast, onClose, onOpenItem }) {
       setToast('次回からキャラクターがお知らせします');
     } else setToast('通知は許可されませんでした');
   };
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title"><div className="modal-title"><div><span className="kicker">NOTIFICATIONS</span><h2 id="notification-title">備蓄のお知らせ</h2><small className="notification-count">{notifications.length}品目</small></div><button type="button" aria-label="通知一覧を閉じる" onClick={onClose}><X /></button></div><button type="button" className="notification-enable" onClick={enableNotifications}><Bell />次回起動時のキャラクター通知を許可</button>{notifications.length ? notifications.map((item) => <button className="notification-row" key={item.id} onClick={() => onOpenItem(item)}><span className={`status-dot ${item.isExpiring || item.isCheckDue ? 'amber' : 'red'}`} /><span><b>{item.name}</b><small>{message(item)}</small></span><ChevronRight /></button>) : <div className="empty-small"><Check />現在のお知らせはありません</div>}</section></div>;
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title"><div className="modal-title"><div><span className="kicker">NOTIFICATIONS</span><h2 id="notification-title">備蓄のお知らせ</h2><small className="notification-count">{notifications.length}品目</small></div><button type="button" aria-label="通知一覧を閉じる" onClick={onClose}><X /></button></div><button type="button" className="notification-enable" onClick={enableNotifications}><Bell />次回起動時のキャラクター通知を許可</button>{notifications.length ? notifications.map((item) => <div className="notification-row" key={item.id}><span className={`status-dot ${item.isExpiring || item.isCheckDue ? 'amber' : 'red'}`} /><button type="button" className="notification-detail" onClick={() => onOpenItem(item)}><span><b>{item.name}</b><small>{message(item)}</small></span><ChevronRight /></button>{item.shortage > 0 && <button type="button" className="notification-refill" onClick={() => onReplenish(item)}><Plus />{item.shortage}{item.unit}補充</button>}</div>) : <div className="empty-small"><Check />現在のお知らせはありません</div>}</section></div>;
 }
 
 const tips = [

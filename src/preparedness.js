@@ -87,7 +87,7 @@ export function getAutomaticTaskIds(state, inventorySummary) {
     food3: inventorySummary.foodDays >= 3,
     toilet3: toiletUnits >= people * 5 * 3,
     toilet7: toiletUnits >= people * 5 * 7,
-    contactReady: Boolean(String(contact.shelter || '').trim() && String(contact.note || '').trim()),
+    contactReady: Boolean(String(contact.shelter || '').trim() && String(contact.phone || '').trim() && String(contact.note || '').trim()),
   };
   return new Set(ALL_PREPAREDNESS_TASKS.filter((task) => task.auto && checks[task.auto]).map((task) => task.id));
 }

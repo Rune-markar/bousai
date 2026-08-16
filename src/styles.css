@@ -266,3 +266,44 @@ body.power-document-active{height:100dvh;min-height:0}
 }
 
 .home-shortcuts{grid-template-columns:repeat(6,minmax(0,1fr))}
+
+/* Usability pass: keep frequent and safety-critical actions readable and reachable. */
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,[tabindex="-1"]:focus-visible{outline:3px solid #4f9e8b;outline-offset:3px}
+.primary-button,.secondary-button,.notification-button,.modal-title>button{min-width:44px;min-height:44px}
+.desktop-nav button{min-height:44px}
+.household-control button{width:44px;height:44px;flex:0 0 44px}
+.target-day-control button,.filters button,.quick-actions button,.tip-card button{min-width:44px;min-height:44px}
+.metric-title>button{min-height:44px;padding:8px}
+.quick-actions button{width:44px;height:44px}
+.tip-card button{padding:8px 0}
+.scan-actions button,.scan-actions label,.barcode-manual input,.barcode-manual button{min-height:44px}
+
+.inventory-priority{padding:20px;margin-bottom:14px;border-color:#d7c99f;background:linear-gradient(120deg,#fffdf6,#fff)}
+.inventory-priority .section-heading{margin-bottom:8px}
+.data-management{position:relative}.data-management>summary{min-height:44px;list-style:none;border:0;border-radius:12px;padding:10px 14px;background:#eceee9;color:#5f6d69;display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;cursor:pointer}.data-management>summary::-webkit-details-marker{display:none}.data-management>summary svg{width:16px}.data-management>div{position:absolute;right:0;top:50px;z-index:10;width:190px;border:1px solid #d9ded7;border-radius:13px;background:#fff;padding:8px;box-shadow:0 14px 35px rgba(20,50,44,.16);display:grid;gap:6px}.data-management>div button{width:100%}
+.priority-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;border-top:1px solid #e8e9e2}
+.priority-row-main{min-width:0;border:0;background:transparent;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:12px 3px;text-align:left;cursor:pointer}
+.priority-row-main>span:nth-child(2){min-width:0;display:flex;flex-direction:column;gap:3px}.priority-row-main b{font-size:12px}.priority-row-main small{font-size:10px;color:#73847e}.priority-row-main>svg{width:15px;color:#8c9995}
+.priority-refill{min-height:44px;border:1px solid #b8d0c5;border-radius:10px;background:#e7f1ec;color:#265f52;padding:8px 12px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;cursor:pointer}.priority-refill svg{width:15px}
+.priority-remaining{margin:8px 0 0;color:#71827c;font-size:10px}
+.inventory-analysis{margin-top:18px;border:1px solid #dfe2da;border-radius:18px;background:#fff;overflow:hidden}.inventory-analysis>summary{min-height:58px;list-style:none;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer}.inventory-analysis>summary::-webkit-details-marker{display:none}.inventory-analysis>summary>span{display:grid;grid-template-columns:auto 1fr;gap:2px 9px;align-items:center}.inventory-analysis>summary svg:first-child{grid-row:1/3;width:20px;color:#397467}.inventory-analysis>summary b{font-size:13px}.inventory-analysis>summary small{font-size:10px;color:#75857f}.inventory-analysis>summary>svg{width:17px;transition:transform .2s}.inventory-analysis[open]>summary>svg{transform:rotate(90deg)}.inventory-analysis>div{padding:0 16px 16px}.inventory-analysis .stockpile-runway{margin:0}.single-operation{grid-template-columns:1fr}
+
+.emergency-readout{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}.emergency-readout article{min-width:0;border:1px solid #dce2da;border-radius:15px;background:#fff;padding:16px;display:grid;grid-template-columns:auto 1fr;gap:5px 9px;align-items:center}.emergency-readout article:last-child{grid-column:1/-1}.emergency-readout svg{grid-row:1/3;width:21px;color:#377466}.emergency-readout span{font-size:10px;color:#71827c}.emergency-readout b,.emergency-readout a{font-size:14px;color:#203f38;overflow-wrap:anywhere}.emergency-readout a{font-weight:800}.emergency-readout .missing{color:#b35a43}
+.generated-plan{margin-top:0}.emergency-editor{margin-top:16px;border:1px solid #dfe2da;border-radius:16px;background:#fff;overflow:hidden}.emergency-editor>summary{min-height:60px;list-style:none;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer}.emergency-editor>summary::-webkit-details-marker{display:none}.emergency-editor>summary>span{display:grid;grid-template-columns:auto 1fr;gap:2px 9px;align-items:center}.emergency-editor>summary svg:first-child{grid-row:1/3;width:19px;color:#397467}.emergency-editor>summary b{font-size:13px}.emergency-editor>summary small{font-size:10px;color:#75857f}.emergency-editor>summary>svg{width:17px;transition:transform .2s}.emergency-editor[open]>summary>svg{transform:rotate(90deg)}.emergency-editor .plan-form{border:0;border-top:1px solid #e2e5df;border-radius:0;box-shadow:none}
+
+.notification-row{grid-template-columns:auto minmax(0,1fr);padding:10px 3px}.notification-detail{min-width:0;min-height:44px;border:0;background:transparent;display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;text-align:left;cursor:pointer}.notification-detail>span{min-width:0;display:flex;flex-direction:column;gap:3px}.notification-detail svg{width:15px;color:#8c9995}.notification-refill{grid-column:2;min-height:44px;border:1px solid #b8d0c5;border-radius:10px;background:#e7f1ec;color:#265f52;padding:8px 11px;display:flex;align-items:center;justify-content:center;gap:5px;font-size:11px;font-weight:800;cursor:pointer}.notification-refill svg{width:14px}
+
+.mission-action-link{width:max-content;min-height:44px;margin-top:9px;padding:9px 12px;border-radius:10px;background:#e5efe9;color:#286657;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;text-decoration:none}.mission-action-link svg{width:14px}
+.rolling-row>button{min-height:44px}
+
+.inventory-packer>summary{list-style:none;cursor:pointer}.inventory-packer>summary::-webkit-details-marker{display:none}.packer-head>svg{width:18px;align-self:center;transition:transform .2s}.inventory-packer[open] .packer-head>svg{transform:rotate(90deg)}.packer-body{margin-top:12px}.packing-policy{font-size:11px;line-height:1.6;color:#aab6b1;margin:0}.loadout-head>div>span,.packer-head span,.inspector-label,.loadout-hud i,.inspector-state,.mission-loadout-tag{font-size:11px}.loadout-head p,.loadout-hud b small,.loadout-hud>span:last-child,.item-label small,.loadout-inspector p,.packer-head p,.packer-head>b small,.packing-reservation-note,.packing-gap>b,.packing-gap span,.packing-gap p,.inventory-packer footer p,.bag-capacity-control>p span,.bag-capacity-control>label span,.bag-capacity-control>label i,.capacity-meter small,.auto-pack-list article small,.auto-pack-list article em{font-size:11px}.loadout-hud>div small,.item-label b,.loadout-inspector>button,.loadout-actions button,.capacity-mode button,.bag-capacity-control>p b,.auto-pack-list article b,.inventory-packer footer button{font-size:12px}.loadout-head>button{width:44px;height:44px;flex:0 0 44px}.loadout-inspector>button,.loadout-actions button,.capacity-mode button,.inventory-packer footer button{min-height:44px}.loadout-verification-note{align-self:center;color:#bdc8c3;font-size:12px;line-height:1.5}.loadout-actions{align-items:center}.loadout-workbench{scroll-margin-top:12px}
+
+@media(max-width:650px){
+  .roadmap-page{display:flex;flex-direction:column}.roadmap-title{order:0}.next-mission{order:1;width:100%;margin-top:0}.roadmap-command{order:2;margin-top:14px}.roadmap-overview{order:3;width:100%}
+  .emergency-readout{grid-template-columns:1fr}.emergency-readout article:last-child{grid-column:auto}
+  .priority-row{grid-template-columns:1fr}.priority-refill{margin:0 0 10px 34px}
+  .summary-strip{grid-template-columns:repeat(4,1fr)}.summary-strip>div{min-width:0;padding:10px 7px!important;border-bottom:0!important}.summary-strip span{font-size:9px}.summary-strip b{font-size:13px}.data-management>div{left:0;right:auto}
+}
+@media(max-width:460px){
+  .loadout-head p{font-size:12px;max-width:none}.loadout-hud{margin:12px 0}.loadout-case{grid-auto-rows:100px}.item-label b{white-space:normal;line-height:1.35}.loadout-inspector{grid-template-columns:72px 1fr}.loadout-verification-note{grid-column:1/-1;text-align:center}.inventory-analysis>div{padding:0 8px 8px}.inventory-analysis .stockpile-runway{padding:18px 14px}
+}

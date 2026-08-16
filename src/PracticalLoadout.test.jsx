@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PracticalLoadout from './PracticalLoadout.jsx';
 
 const state = {
@@ -14,6 +14,7 @@ const state = {
 const handlers = { onChange: vi.fn(), onBagSettings: vi.fn(), onComplete: vi.fn(), onClose: vi.fn() };
 
 describe('避難バッグの自動判定表示', () => {
+  beforeEach(() => vi.clearAllMocks());
   afterEach(() => cleanup());
 
   it('一時避難の目的と在庫提案理由を表示する', () => {
@@ -29,5 +30,13 @@ describe('避難バッグの自動判定表示', () => {
     expect(screen.getByText(/一時避難バッグへ先に割り当てた 2 単位を除外/)).toBeInTheDocument();
     expect(screen.getByText(/3本・1.80L/)).toBeInTheDocument();
     expect(screen.getByText(/避難生活で追加する水分/)).toBeInTheDocument();
+  });
+
+  it('自動提案だけでは実物確認済みにしない', () => {
+    render(<PracticalLoadout taskId="bag-primary" state={state} {...handlers} />);
+    expect(screen.queryByRole('button', { name: '必須品を一括確認' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('保有備蓄からの提案を見る'));
+    expect(screen.getByRole('button', { name: '実物確認へ進む' })).toBeInTheDocument();
+    expect(handlers.onChange).not.toHaveBeenCalled();
   });
 });

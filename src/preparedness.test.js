@@ -9,7 +9,7 @@ const base = {
     { category: 'food', quantity: 6, target: 6, foodWeightG: 450 },
     { name: '携帯トイレ', category: 'hygiene', quantity: 30, target: 30 },
   ],
-  contact: { shelter: '小学校', note: '171を使う' },
+  contact: { shelter: '小学校', phone: '090-0000-0000', note: '171を使う' },
   preparedness: { completed: [] },
 };
 
@@ -19,6 +19,12 @@ describe('preparedness roadmap', () => {
     expect([...progress.automatic]).toEqual(expect.arrayContaining(['water-3', 'toilet-3', 'family-route']));
     expect(progress.automatic.has('food-core')).toBe(true);
     expect(progress.completed.has('water-7')).toBe(false);
+  });
+
+  it('does not mark the family route complete without an emergency contact number', () => {
+    const noPhone = { ...base, contact: { shelter: '小学校', phone: '', note: '171を使う' } };
+    const progress = preparednessProgress(noPhone, inventorySummary(noPhone.inventory, noPhone.household));
+    expect(progress.automatic.has('family-route')).toBe(false);
   });
 
   it('keeps automatic tasks authoritative and toggles manual tasks', () => {
