@@ -112,6 +112,15 @@ describe('停電時の電力設計', () => {
     }
   });
 
+  it('電気復旧に備える1週間の目安を補足で確認できる', () => {
+    render(<Planner />);
+
+    fireEvent.click(screen.getByRole('button', { name: '電気備蓄1週間の目安' }));
+    const dialog = screen.getByRole('dialog', { name: '電気は1週間を目安に' });
+    expect(within(dialog).getByText('目標：7日分')).toBeInTheDocument();
+    expect(within(dialog).getByText(/電気の復旧は、およそ1週間/)).toBeInTheDocument();
+  });
+
   it('負荷ウィンドウにフォーカスを閉じ込め、閉じた後は負荷ボタンへ戻す', async () => {
     render(<Planner />);
 

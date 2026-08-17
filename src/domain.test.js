@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRotationQueue, consumeByRotation, inventorySummary, itemStats, stockpileBudgetProjection, transactionInsights } from './domain.js';
+import { buildRotationQueue, consumeByRotation, inventorySummary, itemStats, stockpileBudgetProjection, stockpileUnitNeeds, transactionInsights } from './domain.js';
 
 describe('itemStats', () => {
   it('不足数と補充費用を計算する', () => {
@@ -154,5 +154,33 @@ describe('inventorySummary', () => {
     ];
     expect(inventorySummary(items.filter((item) => item.category !== 'hygiene')).score)
       .toBeLessThanOrEqual(inventorySummary(items).score);
+  });
+});
+
+describe('stockpileUnitNeeds', () => {
+  it('目標との差を2L水・食数・トイレ・ボンベ・コンロの実数へ換算する', () => {
+    const needs = stockpileUnitNeeds([
+      { name: '飲料水', category: 'water', quantity: 3, volumeMl: 2000 },
+      { name: '保存食', category: 'food', quantity: 6, foodWeightG: 150 },
+      { name: '携帯トイレ', category: 'hygiene', quantity: 10 },
+      { name: 'カセットボンベ', category: 'heat', quantity: 6 },
+    ], 2, 7, new Date('2026-08-17T12:00:00'));
+    expect(needs.map(({ key, shortage, unit }) => ({ key, shortage, unit }))).toEqual([
+      { key: 'water', shortage: 18, unit: '本' },
+      { key: 'food', shortage: 36, unit: '食' },
+      { key: 'toilet', shortage: 60, unit: '回分' },
+      { key: 'gas', shortage: 6, unit: '本' },
+      { key: 'stove', shortage: 1, unit: '台' },
+    ]);
+    expect(needs.find((item) => item.key === 'gas')).toMatchObject({
+      reference: '一般的なカセットボンベ',
+      current: '6本',
+      target: '12本',
+    });
+  });
+
+  it('期限切れ品を実物換算の現在庫に含めない', () => {
+    const needs = stockpileUnitNeeds([{ name: '期限切れ水', category: 'water', quantity: 20, volumeMl: 2000, expiry: '2026-08-16' }], 1, 1, new Date('2026-08-17T12:00:00'));
+    expect(needs.find((item) => item.key === 'water').shortage).toBe(2);
   });
 });

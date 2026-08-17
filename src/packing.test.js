@@ -55,6 +55,17 @@ describe('inventory auto packing', () => {
     expect(primary.items[0].quantity + secondary.items[0].quantity).toBeLessThanOrEqual(inventory[0].quantity);
   });
 
+  it('excludes expired stock and prefers the nearest usable expiry', () => {
+    const inventory = [
+      { id: 'expired', name: '期限切れの水', category: 'water', tier: 1, unit: '本', quantity: 2, volumeMl: 500, expiry: '2026-08-15' },
+      { id: 'later', name: '期限が先の水', category: 'water', tier: 1, unit: '本', quantity: 2, volumeMl: 500, expiry: '2026-09-30' },
+      { id: 'sooner', name: '期限が近い水', category: 'water', tier: 1, unit: '本', quantity: 2, volumeMl: 500, expiry: '2026-08-18' },
+    ];
+    const result = autoPackInventory(inventory, 'bag-primary', 20, 1, { today: '2026-08-17' });
+    expect(result.items.map((item) => item.id)).toEqual(['sooner']);
+    expect(result.items.map((item) => item.id)).not.toContain('expired');
+  });
+
   it('does not mistake an item usage note for the item itself', () => {
     const result = autoPackInventory([{ id: 'battery', name: '乾電池（単3）', note: 'ライトとラジオ用', category: 'light', tier: 2, unit: '本', quantity: 8 }], 'bag-secondary', 40, 1);
     expect(result.matchedSlotIds).not.toContain('radio');

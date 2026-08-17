@@ -3,23 +3,26 @@ import {
   AlertTriangle, ArrowRight, Award, Backpack, BadgeCheck, Bell, BookOpen, Box, CalendarDays,
   Check, ChevronRight, CircleHelp, ClipboardList, Copy, Droplets, Flame, Heart,
   Download, History, Home, Lightbulb, MapPin, Minus, PackagePlus, Pencil, Phone,
-  Plus, QrCode, Radio, RefreshCw, Route, Search, ShieldCheck, ShoppingBasket, Sparkles, Sun, Trash2, Trophy, Upload, Users, WifiOff, X, Zap,
+  Plus, QrCode, Radio, RefreshCw, Route, Search, Settings, ShieldAlert, ShieldCheck, ShoppingBasket, Sparkles, Sun, Trash2, Trophy, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
-import { CATEGORY_META, consumeByRotation, FOOD_GRAMS_PER_PERSON_DAY, inventorySummary, stockpileBudgetProjection, transactionInsights, uid, WATER_ML_PER_PERSON_DAY } from './domain.js';
+import { CATEGORY_META, consumeByRotation, FOOD_GRAMS_PER_PERSON_DAY, inventorySummary, stockpileBudgetProjection, stockpileUnitNeeds, transactionInsights, uid, WATER_ML_PER_PERSON_DAY } from './domain.js';
 import BarcodeScanner from './BarcodeScanner.jsx';
 import PowerEcosystem from './PowerEcosystem.jsx';
 import PracticalLoadout from './PracticalLoadout.jsx';
+import DisasterPreparedness from './DisasterPreparedness.jsx';
 import { createTransaction, loadState, normalizeState, STORAGE_KEY } from './state.js';
 import { defensePower, preparednessProgress, togglePreparednessTask } from './preparedness.js';
 import { completeLoadout, getLoadout, loadoutStatus, updateLoadout } from './loadouts.js';
-import { updateBagSettings } from './packing.js';
+import { autoPackInventory, bagSettings, updateBagSettings } from './packing.js';
 import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, respondToCharacter } from './characters.js';
 import { DISASTER_SCENARIOS, generateEmergencyPlan, simulateDisaster } from './emergency.js';
 
 const nav = [
   { id: 'home', label: 'ホーム', icon: Home },
   { id: 'inventory', label: '備蓄', icon: Box },
+  { id: 'bags', label: '避難バッグ', icon: Backpack },
   { id: 'roadmap', label: '防災力', icon: Route },
+  { id: 'disasters', label: '災害対策', icon: ShieldAlert },
   { id: 'plan', label: '緊急メモ', icon: ClipboardList },
   { id: 'learn', label: '知る', icon: BookOpen },
 ];
@@ -42,6 +45,7 @@ function App() {
   const [toast, setToast] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
   const summary = useMemo(() => inventorySummary(state.inventory, state.household), [state.inventory, state.household]);
   const visitChecked = useRef(false);
@@ -145,14 +149,16 @@ function App() {
         <nav className="desktop-nav" aria-label="メインナビゲーション">
           {nav.map(({ id, label, icon: Icon }) => <button aria-current={page === id ? 'page' : undefined} className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={18} />{label}</button>)}
         </nav>
-        <div className="header-actions">{!online && <span className="offline-badge"><WifiOff />オフライン</span>}<button className="notification-button share-button" aria-label="アクセス用QRコードを開く" onClick={() => setShareOpen(true)}><QrCode size={20} /></button><button className="notification-button" aria-label={`通知一覧を開く（${summary.notificationCount}件）`} onClick={() => setNotificationsOpen(true)}><Bell size={20} /><span>{summary.notificationCount}</span></button></div>
+        <div className="header-actions">{!online && <span className="offline-badge"><WifiOff />オフライン</span>}<button className="notification-button" aria-label="オプションを開く" onClick={() => setOptionsOpen(true)}><Settings size={20} /></button><button className="notification-button share-button" aria-label="アクセス用QRコードを開く" onClick={() => setShareOpen(true)}><QrCode size={20} /></button><button className="notification-button" aria-label={`通知一覧を開く（${summary.notificationCount}件）`} onClick={() => setNotificationsOpen(true)}><Bell size={20} /><span>{summary.notificationCount}</span></button></div>
       </header>
 
       <main ref={mainRef}>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
         {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} />}
+        {page === 'bags' && <EvacuationBags state={state} setState={setState} setToast={setToast} setPage={setPage} />}
         {page === 'rolling' && <RollingStock state={state} summary={summary} transactions={state.transactions} updateInventory={updateInventory} onBack={() => setPage('inventory')} />}
         {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} />}
+        {page === 'disasters' && <DisasterPreparedness state={state} setState={setState} setToast={setToast} />}
         {page === 'plan' && <EmergencyPlan state={state} summary={summary} setState={setState} setToast={setToast} />}
         {page === 'learn' && <Learn completed={state.completedTips} setState={setState} />}
         {page === 'power' && <PowerEcosystem plan={state.powerPlan} onChange={(powerPlan) => setState((old) => ({ ...old, powerPlan }))} onBack={() => setPage('home')} />}
@@ -187,9 +193,73 @@ function App() {
       }} />}
       {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} onOpenRolling={() => { setNotificationsOpen(false); setPage('rolling'); }} onReplenish={replenishShortage} />}
       {shareOpen && <ShareQrPanel onClose={() => setShareOpen(false)} setToast={setToast} />}
+      {optionsOpen && <OptionsPanel state={state} setState={setState} onClose={() => setOptionsOpen(false)} setToast={setToast} />}
+      {!state.onboarding?.completed && <SetupWizard state={state} setState={setState} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={18} />{toast}</div>}
     </div>
   );
+}
+
+function SetupWizard({ state, setState }) {
+  const [step, setStep] = useState(1);
+  const [household, setHousehold] = useState(state.household || 1);
+  const [targetDays, setTargetDays] = useState(state.preparedness?.targetDays || 7);
+  const [contact, setContact] = useState(state.contact);
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    dialogRef.current?.querySelector('[autofocus], button, input')?.focus();
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [step]);
+  const finish = (saveContact) => setState((old) => ({
+    ...old,
+    household: Math.min(12, Math.max(1, Number(household) || 1)),
+    contact: saveContact ? { ...old.contact, ...contact } : old.contact,
+    preparedness: { ...old.preparedness, targetDays: Math.min(180, Math.max(1, Number(targetDays) || 7)) },
+    onboarding: { completed: true, completedAt: new Date().toISOString() },
+  }));
+  return <div className="setup-backdrop">
+    <section ref={dialogRef} className="setup-wizard" role="dialog" aria-modal="true" aria-labelledby="setup-title">
+      <Brand />
+      <ol className="setup-progress" aria-label={`初期設定 3ステップ中${step}ステップ目`}>
+        {[{ label: '家族人数', icon: Users }, { label: '備蓄目標', icon: CalendarDays }, { label: '連絡先', icon: MapPin }].map(({ label, icon: Icon }, index) => { const number = index + 1; return <li className={number < step ? 'done' : number === step ? 'current' : ''} aria-current={number === step ? 'step' : undefined} key={label}><span>{number < step ? <Check /> : <Icon />}</span><b>{label}</b><small>{number} / 3</small></li>; })}
+      </ol>
+      <span className="kicker">FIRST SETUP ・ {step} / 3</span>
+      {step === 1 && <div className="setup-step">
+        <h1 id="setup-title">何人分の備えをしますか？</h1>
+        <p>必要な水・食料・携帯トイレの量を、この人数で計算します。</p>
+        <div className="setup-stepper" aria-label="家族人数"><button autoFocus type="button" aria-label="家族人数を1人減らす" disabled={household <= 1} onClick={() => setHousehold((value) => Math.max(1, value - 1))}><Minus /></button><b>{household}<small>人</small></b><button type="button" aria-label="家族人数を1人増やす" disabled={household >= 12} onClick={() => setHousehold((value) => Math.min(12, value + 1))}><Plus /></button></div>
+        <button className="primary-button setup-next" type="button" onClick={() => setStep(2)}>次へ<ArrowRight /></button>
+      </div>}
+      {step === 2 && <div className="setup-step">
+        <h1 id="setup-title">何日分の備蓄を目指しますか？</h1>
+        <p>迷った場合は、まず7日分がおすすめです。後から変更できます。</p>
+        <div className="setup-day-options">{[3, 7, 14, 30].map((day) => <button autoFocus={day === 3} type="button" className={Number(targetDays) === day ? 'active' : ''} aria-pressed={Number(targetDays) === day} key={day} onClick={() => setTargetDays(day)}><b>{day}</b><small>日分</small>{day === 7 && <em>おすすめ</em>}</button>)}</div>
+        <label className="setup-custom-days"><span>その他の日数</span><input type="number" inputMode="numeric" min="1" max="180" value={targetDays} onChange={(event) => setTargetDays(event.target.value)} /><small>日分</small></label>
+        <div className="setup-actions"><button className="secondary-button" type="button" onClick={() => setStep(1)}>戻る</button><button className="primary-button" type="button" onClick={() => setStep(3)}>次へ<ArrowRight /></button></div>
+      </div>}
+      {step === 3 && <div className="setup-step">
+        <h1 id="setup-title">集合場所と連絡先</h1>
+        <p>通信が使えないときにも、この端末で確認できます。未定の場合は後で設定できます。</p>
+        <div className="setup-contact-fields"><label><span><MapPin />避難・集合場所</span><input autoFocus value={contact.shelter} onChange={(event) => setContact((old) => ({ ...old, shelter: event.target.value }))} placeholder="例：〇〇小学校 体育館" /></label><label><span><Phone />緊急連絡先</span><input inputMode="tel" value={contact.phone} onChange={(event) => setContact((old) => ({ ...old, phone: event.target.value }))} placeholder="例：090-0000-0000" /></label></div>
+        <div className="setup-actions setup-finish-actions"><button className="secondary-button" type="button" onClick={() => finish(false)}>あとで設定</button><button className="primary-button" type="button" onClick={() => finish(true)}><Check />初期設定を完了</button></div>
+        <button className="setup-back-link" type="button" onClick={() => setStep(2)}>目標備蓄日数に戻る</button>
+      </div>}
+    </section>
+  </div>;
+}
+
+function OptionsPanel({ state, setState, onClose, setToast }) {
+  const dialogRef = useRef(null);
+  const [household, setHousehold] = useState(state.household);
+  useDialogClose(onClose, dialogRef);
+  const save = () => {
+    setState((old) => ({ ...old, household: Math.min(12, Math.max(1, Number(household) || 1)) }));
+    setToast('家族人数を更新しました');
+    onClose();
+  };
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal compact-modal options-panel" role="dialog" aria-modal="true" aria-labelledby="options-title"><div className="modal-title"><div><span className="kicker">OPTIONS</span><h2 id="options-title">オプション</h2></div><button type="button" aria-label="オプションを閉じる" onClick={onClose}><X /></button></div><div className="option-household"><div><Users /><span><b>家族人数</b><small>備蓄日数の計算に使用します</small></span></div><div className="setup-stepper"><button autoFocus type="button" aria-label="家族人数を1人減らす" disabled={household <= 1} onClick={() => setHousehold((value) => Math.max(1, value - 1))}><Minus /></button><b>{household}<small>人</small></b><button type="button" aria-label="家族人数を1人増やす" disabled={household >= 12} onClick={() => setHousehold((value) => Math.min(12, value + 1))}><Plus /></button></div></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="button" className="primary-button" onClick={save}><Check />保存する</button></div></section></div>;
 }
 
 function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef }) {
@@ -197,20 +267,25 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [calculationOpen, setCalculationOpen] = useState(false);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
   const defense = useMemo(() => defensePower(state, summary), [state, summary]);
+  const unitNeeds = useMemo(() => stockpileUnitNeeds(state.inventory, state.household, defense.targetDays), [state.inventory, state.household, defense.targetDays]);
+  const waterNeed = unitNeeds.find((item) => item.key === 'water');
+  const gasNeed = unitNeeds.find((item) => item.key === 'gas');
+  const stoveNeed = unitNeeds.find((item) => item.key === 'stove');
   const setTargetDays = (targetDays) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, targetDays: Math.min(180, Math.max(1, Number(targetDays) || 1)) } }));
   const stockpileDays = Number.isFinite(summary.householdStockpileDays) ? summary.householdStockpileDays : summary.survivalDays;
   const targetGap = Math.max(0, defense.targetDays - stockpileDays);
   return <section className={`home-dashboard wrap${detailsOpen ? ' details-expanded' : ''}`} aria-label="防災ホーム">
     <header className="home-heading">
       <div><span className="kicker">TODAY'S READINESS</span><h1>わが家の防災状況</h1></div>
-      <div className="household-control" aria-label="家族人数"><Users /><button aria-label="家族人数を減らす" onClick={() => setState((old) => ({ ...old, household: Math.max(1, old.household - 1) }))}><Minus /></button><b>{state.household}<small>人</small></b><button aria-label="家族人数を増やす" onClick={() => setState((old) => ({ ...old, household: Math.min(12, old.household + 1) }))}><Plus /></button></div>
+      <div className="household-summary" aria-label={`家族${state.household}人`}><Users /><b>{state.household}<small>人</small></b></div>
     </header>
 
     <div className="target-day-control">
       <span><CalendarDays />目標備蓄日数</span>
       <button type="button" className="target-day-open" onClick={() => setTargetOpen(true)}><b>{defense.targetDays}</b>日 <span>変更</span><ChevronRight /></button>
-      <p>{defense.requiredStage.label}が必要</p>
+      <p className="target-unit-summary"><b>実物では</b><span>2L水 あと{waterNeed.shortage}本</span><span>ボンベ あと{gasNeed.shortage}本</span><span>コンロ あと{stoveNeed.shortage}台</span></p>
     </div>
 
     <div className="home-metrics">
@@ -219,10 +294,10 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
         <div className="survival-main"><div><small>生活継続の目安</small><strong>{formatDays(stockpileDays)}<em>日分</em></strong><p>{targetGap ? `目標まで あと${formatDays(targetGap)}日分` : `${defense.targetDays}日目標を達成`}</p></div><ShieldCheck /></div>
         <div className="supply-days">
           <div><span><Droplets />水<small>1人1日3L</small></span><b>{formatDays(summary.waterDays)}<small>日分</small></b><i><u style={{ width: `${defense.waterCoverage * 100}%` }} /></i></div>
-          <div><span><ShoppingBasket />食料<small>1人1日450g</small></span><b>{formatDays(summary.foodDays)}<small>日分</small></b><i><u style={{ width: `${defense.foodCoverage * 100}%` }} /></i></div>
+          <div><span><ShoppingBasket />食料<small>1人1日3食（重量日数は簡易換算）</small></span><b>{formatDays(summary.foodDays)}<small>日分</small></b><i><u style={{ width: `${defense.foodCoverage * 100}%` }} /></i></div>
         </div>
         <div className="home-stockpile-actions"><button type="button" onClick={() => setBudgetOpen(true)}><CalendarDays />備蓄計画を立てる</button><button type="button" onClick={() => setDetailsOpen((open) => !open)}>トイレ・非常用電源も確認 <ChevronRight /></button></div>
-        {detailsOpen && <div className="home-stockpile-inline"><span><Sparkles /><small>携帯トイレ・1人1日5回</small><b>{formatDays(summary.toiletDays)}日分</b></span><button type="button" onClick={() => setPage('power')}><Zap /><small>非常用電源</small><b>{state.powerPlan?.autonomyDays || 3}日計画</b><ChevronRight /></button><p>生活継続の目安は水・食料・携帯トイレのうち最短の日数です。</p></div>}
+        {detailsOpen && <div className="home-stockpile-inline"><button type="button" aria-label="衛生備蓄1か月の目安" onClick={() => setBenchmarkOpen(true)}><Sparkles /><small>携帯トイレ・衛生用品</small><b>{formatDays(summary.toiletDays)}日分</b><CircleHelp /></button><button type="button" onClick={() => setPage('power')}><Zap /><small>非常用電源</small><b>{state.powerPlan?.autonomyDays || 3}日計画</b><ChevronRight /></button><p>生活継続の目安は水・食料・携帯トイレのうち最短の日数です。</p></div>}
         {summary.foodItemsMissingWeight > 0 && <button className="food-weight-notice" onClick={() => setPage('inventory')}>重量未登録の食料が{summary.foodItemsMissingWeight}件あります <ChevronRight /></button>}
       </article>
 
@@ -234,12 +309,14 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
     </div>
 
     <nav className="home-shortcuts" aria-label="ホームのクイック操作">
+      <button className="quick-bag" aria-label="避難バッグを自動で準備" onClick={() => setPage('bags')}><Backpack /><span><b>避難バッグ</b><small>在庫から自動選定</small></span><ChevronRight /></button>
       <button ref={powerEntryRef} aria-label="停電時の電力を設計" onClick={() => setPage('power')}><Zap /><span><b>電力設計</b><small>蓄電池・太陽光</small></span><ChevronRight /></button>
       <button className="quick-add" onClick={() => setModal('new')}><PackagePlus /><span><b>備蓄を追加</b><small>すぐに登録</small></span><Plus /></button>
     </nav>
     {targetOpen && <TargetDaysDialog value={defense.targetDays} onClose={() => setTargetOpen(false)} onSave={(value) => { setTargetDays(value); setTargetOpen(false); }} />}
     {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
     {calculationOpen && <StockpileCalculationDialog summary={summary} household={state.household} targetDays={defense.targetDays} onClose={() => setCalculationOpen(false)} onAction={() => { setCalculationOpen(false); setPage('inventory'); }} />}
+    {benchmarkOpen && <PreparednessBenchmarkDialog kind="hygiene" onClose={() => setBenchmarkOpen(false)} />}
   </section>;
 }
 
@@ -281,6 +358,39 @@ const formatDays = (days) => (Math.floor(Math.max(0, Number(days) || 0) * 10) / 
 const formatFoodWeight = (grams) => Number(grams) >= 1000 ? `${(Number(grams) / 1000).toFixed(1)}kg` : `${Math.round(Number(grams) || 0)}g`;
 const formatWaterVolume = (ml) => `${((Number(ml) || 0) / 1000).toFixed(1)}L`;
 
+function ConcreteNeedsPanel({ items, household, targetDays }) {
+  const needs = useMemo(() => stockpileUnitNeeds(items, household, targetDays), [items, household, targetDays]);
+  const icon = (key) => key === 'water' ? <Droplets /> : key === 'food' ? <ShoppingBasket /> : key === 'toilet' ? <Sparkles /> : <Flame />;
+  return <section className="card concrete-needs" aria-labelledby="concrete-needs-title">
+    <header><div><span className="kicker">REAL-WORLD SHOPPING LIST</span><h2 id="concrete-needs-title">目標まで、実物であといくつ？</h2><p>{household}人・{targetDays}日分の目標を、店頭で選べる単位に換算しています。</p></div><span className="concrete-goal"><CalendarDays />{targetDays}日目標</span></header>
+    <div className="daily-stockpile-guide" aria-label="1人1日あたりの備蓄目安">
+      <article className="water-guide"><span><Droplets /></span><div><small>水・1人1日</small><b>合計3L</b><p><strong>飲料1L＋調理2L</strong><br /><em>湯せん・食品洗浄・生活用水は別途</em></p><a href={stockpileEvidence.water.url} target="_blank" rel="noreferrer">根拠：{stockpileEvidence.water.label}</a></div></article>
+      <article><span><ShoppingBasket /></span><div><small>食料・1人1日</small><b>3食</b><p>{targetDays}日なら1人 {targetDays * 3}食分</p><a href={stockpileEvidence.food.url} target="_blank" rel="noreferrer">根拠：{stockpileEvidence.food.label}</a></div></article>
+      <article><span><Sparkles /></span><div><small>携帯トイレ</small><b>1人1週間 35回分</b><p>1日5回として計算</p><a href={stockpileEvidence.hygiene.url} target="_blank" rel="noreferrer">根拠：{stockpileEvidence.hygiene.label}</a></div></article>
+      <article><span><Flame /></span><div><small>カセットボンベ</small><b>1人1週間 約6本</b><p>使用量は調理内容・器具で変動</p><a href={stockpileEvidence.heat.url} target="_blank" rel="noreferrer">根拠：{stockpileEvidence.heat.label}</a></div></article>
+    </div>
+    <div className="concrete-needs-grid">{needs.map((item) => <article className={item.shortage ? '' : 'complete'} key={item.key}><span className={`concrete-icon ${item.key}`}>{icon(item.key)}</span><div><small>{item.label}</small><b>{item.reference}</b><span>現在 {item.current} ／ 目標 {item.target}</span></div>{item.shortage ? <strong><small>あと</small>{item.shortage}<em>{item.unit}</em></strong> : <strong className="need-complete"><Check />準備済み</strong>}</article>)}</div>
+    <footer><CircleHelp /><span>数値は公的資料の家庭備蓄目安に基づきます。年齢、健康状態、季節、調理方法に応じて追加してください。</span></footer>
+  </section>;
+}
+
+const stockpileEvidence = {
+  water: { label: '政府広報（飲料1L・調理2L）', url: 'https://www.gov-online.go.jp/video/cao/dl/public_html/gov/pdf/katsuji/tenjidaikatsuji202103.pdf' },
+  food: { label: '政府広報（1日3食）', url: 'https://www.gov-online.go.jp/tokusyu/bousai/preparation.html' },
+  hygiene: { label: '経済産業省（35回分／週）', url: 'https://www.meti.go.jp/policy/mono_info_service/mono/jyutaku/toirebichiku.html' },
+  heat: { label: '政府広報（約6本／週）', url: 'https://www.gov-online.go.jp/article/202103/entry-10236.html' },
+  light: { label: '内閣府掲載資料（1人1個）', url: 'https://www.bousai.go.jp/kyoiku/chikubousai/chikubo/chikubo/pdf/11_002.pdf' },
+};
+
+const itemCategoryGuidance = {
+  water: { title: '水の備蓄基準', primary: '1人1日 合計3L（飲料1L＋調理2L）', detail: '湯せん、食品・食器の洗浄、トイレなどの生活用水は3Lに含まれないため、別に確保します。', evidence: stockpileEvidence.water },
+  food: { title: '食料の備蓄基準', primary: '1人1日 3食', detail: '最低3日分、できれば1週間分を目標にします。重量は食品で異なるため、450gは公的必要量ではなくアプリの日数比較用換算です。', evidence: stockpileEvidence.food },
+  hygiene: { title: '衛生用品の備蓄基準', primary: '携帯トイレ：1人1週間 35回分', detail: '1日5回として計算します。密閉袋、トイレットペーパー、ウェットティッシュも一緒に備えます。', evidence: stockpileEvidence.hygiene },
+  heat: { title: '熱源の備蓄基準', primary: 'カセットボンベ：1人1週間 約6本', detail: '政府広報の家庭備蓄例です。実際の燃焼時間は火力、気温、器具、調理内容で変わるため、調理回数へは換算しません。', evidence: stockpileEvidence.heat },
+  light: { title: '灯り・電源の確認基準', primary: '懐中電灯：できれば1人1個', detail: '使用機器に合う予備電池と、情報収集用のラジオ・モバイルバッテリーも確認します。', evidence: stockpileEvidence.light },
+  comfort: { title: '快適用品の考え方', primary: '普段使う量＋家族分', detail: '乳幼児、高齢者、女性、持病、季節など、家族固有の必要量を優先して入力します。' },
+};
+
 function StockpileDaysPanel({ summary, household, targetDays = 3, onAction, actionLabel }) {
   const missingCount = summary.foodItemsMissingWeight + summary.waterItemsMissingVolume;
   const foodTargetGrams = household * FOOD_GRAMS_PER_PERSON_DAY * targetDays;
@@ -289,14 +399,14 @@ function StockpileDaysPanel({ summary, household, targetDays = 3, onAction, acti
   const waterPercent = Math.min(100, summary.waterMl / waterTargetMl * 100) || 0;
   const milestones = [...new Set([Math.ceil(targetDays / 3), Math.ceil(targetDays * 2 / 3), targetDays])];
   return <article className="card stockpile-runway">
-    <header><div><span className="kicker">HOUSEHOLD RUNWAY</span><h2>食料と水は、あと何日もつ？</h2><p>家族{household}人で、食料は1人1日450g・水は1人1日3Lとして単純換算します。</p></div><span className="runway-household"><Users />{household}人分</span></header>
+    <header><div><span className="kicker">HOUSEHOLD RUNWAY</span><h2>食料と水は、あと何日もつ？</h2><p>水は公的目安の1人1日3L。食料重量は1日3食を比較するためのアプリ内簡易換算です。</p></div><span className="runway-household"><Users />{household}人分</span></header>
     <div className="runway-layout">
       <div className="runway-answer"><small>食料と水が両方そろう日数</small><strong>{formatDays(summary.survivalDays)}<em>日</em></strong><span>{targetDays}日目標まで あと{formatDays(Math.max(0, targetDays - summary.survivalDays))}日分</span></div>
       <div className="runway-days" aria-label={`${targetDays}日目標のうち${formatDays(summary.survivalDays)}日分`}>
         {milestones.map((day) => <div className="runway-day" style={{ '--fill': `${Math.min(100, summary.survivalDays / day * 100)}%` }} key={day}><b>{day}日</b><span>{summary.survivalDays >= day ? '確保' : summary.survivalDays > 0 ? '一部' : '未確保'}</span></div>)}
       </div>
       <div className="runway-resources">
-        <section><div><span className="resource-icon food"><ShoppingBasket /></span><p><small>食料 合計 {formatFoodWeight(summary.foodGrams)}</small><b>{formatDays(summary.foodDays)}日分</b></p><em>必要 {formatFoodWeight(foodTargetGrams)}</em></div><div className="resource-meter"><i style={{ width: `${foodPercent}%` }} /></div><small>{formatFoodWeight(summary.foodGrams)} ÷（{household}人 × 450g）</small></section>
+        <section><div><span className="resource-icon food"><ShoppingBasket /></span><p><small>食料 合計 {formatFoodWeight(summary.foodGrams)}</small><b>{formatDays(summary.foodDays)}日分</b></p><em>簡易換算値 {formatFoodWeight(foodTargetGrams)}</em></div><div className="resource-meter"><i style={{ width: `${foodPercent}%` }} /></div><small>アプリ内換算：1食150g × 1日3食（公的な必要重量ではありません）</small></section>
         <section><div><span className="resource-icon water"><Droplets /></span><p><small>水 合計 {formatWaterVolume(summary.waterMl)}</small><b>{formatDays(summary.waterDays)}日分</b></p><em>必要 {formatWaterVolume(waterTargetMl)}</em></div><div className="resource-meter water"><i style={{ width: `${waterPercent}%` }} /></div><small>{formatWaterVolume(summary.waterMl)} ÷（{household}人 × 3L）</small></section>
       </div>
     </div>
@@ -312,6 +422,53 @@ function RadarChart({ values }) {
   }).join(' ');
   const rings = [20, 40, 60].map((r) => values.map((_, index) => { const a = -Math.PI / 2 + index * Math.PI * 2 / values.length; return `${90 + Math.cos(a) * r},${83 + Math.sin(a) * r}`; }).join(' '));
   return <div className="radar"><svg viewBox="0 0 180 170">{rings.map((p, i) => <polygon points={p} key={i} className="radar-ring" />)}{values.map((_, i) => { const a = -Math.PI / 2 + i * Math.PI * 2 / values.length; return <line key={i} x1="90" y1="83" x2={90 + Math.cos(a) * 60} y2={83 + Math.sin(a) * 60} />; })}<polygon points={points} className="radar-value" />{values.map((value, i) => { const a = -Math.PI / 2 + i * Math.PI * 2 / values.length; return <text key={value.key} x={90 + Math.cos(a) * 76} y={87 + Math.sin(a) * 72} textAnchor="middle">{CATEGORY_META[value.key].label}</text>; })}</svg></div>;
+}
+
+const evacuationBagStages = [
+  { id: 'bag-primary', step: '01', label: '一時避難', title: 'まず持ち出すバッグ', timing: '発災直後〜安全な場所への移動', description: '命・移動・服薬を優先し、すぐ背負える軽さに絞ります。' },
+  { id: 'bag-secondary', step: '02', label: '二次避難', title: '避難生活を続けるバッグ', timing: '安全確保後〜避難生活', description: '一時避難分を確保した残りから、衛生・情報・生活用品を補います。' },
+];
+
+function EvacuationBags({ state, setState, setToast, setPage }) {
+  const [activeLoadout, setActiveLoadout] = useState(null);
+  const primarySettings = bagSettings(state, 'bag-primary');
+  const secondarySettings = bagSettings(state, 'bag-secondary');
+  const primaryPacking = useMemo(() => autoPackInventory(state.inventory, 'bag-primary', primarySettings.capacityL, state.household), [state.inventory, state.household, primarySettings.capacityL]);
+  const secondaryPacking = useMemo(() => autoPackInventory(state.inventory, 'bag-secondary', secondarySettings.capacityL, state.household, { reservedItems: primaryPacking.items }), [state.inventory, state.household, secondarySettings.capacityL, primaryPacking]);
+  const packingById = { 'bag-primary': primaryPacking, 'bag-secondary': secondaryPacking };
+
+  const finishLoadout = () => {
+    const nextState = completeLoadout(state, activeLoadout);
+    if (nextState === state) return;
+    setState(nextState);
+    setActiveLoadout(null);
+    setToast('バッグの実物確認を完了しました');
+  };
+
+  return <section className="wrap page-section evacuation-bags-page">
+    <div className="page-title bag-page-title"><div><span className="kicker">EVACUATION BAG PLANNER</span><h1>避難バッグを自動で準備</h1><p>現在の備蓄・家族人数・バッグ容量から、その時点の最適な内容物を自動選定します。</p></div><button type="button" className="secondary-button" onClick={() => setPage('inventory')}><Box />備蓄を確認・追加</button></div>
+
+    <aside className="bag-auto-note" aria-label="自動選定の仕組み"><Sparkles /><div><b>在庫を更新すると、バッグの中身も自動で再計算</b><span>一時避難を先に確保し、二次避難には残りの在庫を割り当てます。期限が近く、重要度の高い備蓄を優先します。</span></div></aside>
+
+    <div className="evacuation-stage-flow" aria-label="避難段階を選択">
+      {evacuationBagStages.map((stage, index) => {
+        const packing = packingById[stage.id];
+        const settings = stage.id === 'bag-primary' ? primarySettings : secondarySettings;
+        const totalUnits = packing.items.reduce((sum, item) => sum + item.quantity, 0);
+        return <article className={`evacuation-stage-card ${stage.id === 'bag-primary' ? 'primary-stage' : 'secondary-stage'}`} key={stage.id}>
+          <header><span className="bag-stage-number">{stage.step}</span><div><small>{stage.label}</small><h2>{stage.title}</h2><p>{stage.timing}</p></div><Backpack /></header>
+          <p className="bag-stage-description">{stage.description}</p>
+          <div className="bag-plan-summary"><span><small>バッグ容量</small><b>{settings.capacityL}L</b></span><span><small>自動選定</small><b>{packing.items.length}<em>品目</em></b></span><span><small>収納単位</small><b>{totalUnits}<em>点</em></b></span><span><small>使用容量</small><b>{(packing.usedMl / 1000).toFixed(1)}<em>L</em></b></span></div>
+          <div className="bag-preview-list">{packing.items.length ? packing.items.slice(0, 4).map((item) => <span key={item.id}><b>{item.name}</b><small>{item.quantity}{item.unit}</small></span>) : <p><AlertTriangle />選定できる備蓄がありません</p>}{packing.items.length > 4 && <em>ほか {packing.items.length - 4}品目</em>}</div>
+          {stage.id === 'bag-secondary' && <p className="bag-reserved-summary">一時避難バッグの {primaryPacking.items.reduce((sum, item) => sum + item.quantity, 0)}点は重複させず確保済み</p>}
+          <button type="button" className="bag-open-planner" onClick={() => setActiveLoadout(stage.id)}><Sparkles /><span><b>自動選定結果を開く</b><small>容量変更・不足品・実物確認</small></span><ChevronRight /></button>
+        </article>;
+      })}
+    </div>
+
+    <p className="bag-safety-note"><ShieldCheck />自動選定は収納計画です。実際にバッグへ入れた後、画面内の「理想構成」で現物を一つずつ確認してください。</p>
+    {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} />}
+  </section>;
 }
 
 const pillarLabels = {
@@ -484,6 +641,7 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   return <section className="wrap page-section">
     <div className="page-title"><div><span className="kicker">MY STOCKPILE</span><h1>わが家の備蓄</h1><p>不足も期限も、ここでひと目に。</p></div><div className="page-actions"><button className="secondary-button" onClick={() => setPage('rolling')}><RefreshCw />ローリングストック計画</button><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
     <div className="summary-strip inventory-summary-strip"><div><span>備蓄力</span><b>{summary.score}%</b></div><div><span>不足品</span><b>{summary.shortageCount}品</b></div><div><span>期限間近</span><b>{summary.expiringCount}品</b></div><div><span>補充費用</span><b>¥{summary.replenishmentCost.toLocaleString()}</b></div><button type="button" className="calculation-help" aria-label="備蓄日数の計算方法を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />計算方法</button></div>
+    <ConcreteNeedsPanel items={state.inventory} household={state.household} targetDays={state.preparedness?.targetDays || 7} />
     <article className="card inventory-priority"><div className="section-heading compact"><div><span className="kicker">DO THIS FIRST</span><h2>最優先の補充</h2></div><ShoppingBasket /></div>{summary.replenishmentPlan.length ? <>{summary.replenishmentPlan.slice(0, 1).map((item) => <div className="priority-row" key={item.id}><button type="button" className="priority-row-main" onClick={() => setModal(item)}><span className={`priority priority-${item.replenishmentPriority}`}>{item.replenishmentPriority === 'high' ? '高' : item.replenishmentPriority === 'medium' ? '中' : '低'}</span><span><b>{item.name}</b><small>{item.shortage}{item.unit}不足・¥{item.replenishmentCost.toLocaleString()}</small></span><ChevronRight /></button><button type="button" className="priority-refill" onClick={() => adjust(item.id, item.shortage)}><Plus />不足分を補充</button></div>)}{summary.replenishmentPlan.length > 1 && <p className="priority-remaining">ほか{summary.replenishmentPlan.length - 1}品は下の在庫一覧で確認できます</p>}</> : <div className="empty-small"><Check />補充予定はありません</div>}</article>
     <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="備蓄品を検索" /></label><div className="filters"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>すべて</button>{Object.entries(CATEGORY_META).map(([key, value]) => <button className={filter === key ? 'active' : ''} key={key} onClick={() => setFilter(key)}>{value.label}</button>)}</div></div>
     <div className="inventory-list">
@@ -560,6 +718,7 @@ function EmergencyPlan({ state, summary, setState, setToast }) {
   const [draft, setDraft] = useState(state.contact);
   const [scenarioId, setScenarioId] = useState('earthquake');
   const [days, setDays] = useState(3);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
   const plan = useMemo(() => generateEmergencyPlan(state, summary), [state, summary]);
   const simulation = useMemo(() => simulateDisaster(state, summary, scenarioId, days), [state, summary, scenarioId, days]);
   useEffect(() => setDraft(state.contact), [state.contact]);
@@ -571,7 +730,7 @@ function EmergencyPlan({ state, summary, setState, setToast }) {
       <article><Phone /><span>緊急連絡先</span>{state.contact.phone ? <a href={`tel:${state.contact.phone.replace(/[^\d+]/g, '')}`}>{state.contact.phone}</a> : <b className="missing">未登録</b>}</article>
       <article><ClipboardList /><span>家族への伝言・連絡ルール</span><b>{state.contact.note || '未登録'}</b></article>
     </section>
-    <section className="generated-plan"><div className="section-heading compact"><div><span className="kicker">AUTO PLAN</span><h2>わが家の72時間行動計画</h2></div><ShieldCheck /></div><div className="plan-columns"><article><h3>発災直後</h3>{plan.immediate.map((item) => <p key={item}><Check />{item}</p>)}</article><article><h3>最初の72時間</h3>{plan.first72Hours.map((item) => <p key={item}><Check />{item}</p>)}</article></div>{plan.gaps.length ? <div className="plan-gaps"><b>先に埋めたい弱点</b>{plan.gaps.map((gap) => <span key={gap}><AlertTriangle />{gap}</span>)}</div> : <div className="stage-clear-message"><Check /><div><b>基礎条件は整っています</b><span>半年ごとに実物を使って見直してください。</span></div></div>}</section>
+    <section className="generated-plan"><div className="section-heading compact"><div><span className="kicker">AUTO PLAN</span><h2>わが家の72時間行動計画</h2></div><div className="benchmark-heading-actions"><button type="button" className="benchmark-help-button" aria-label="黄金の72時間の説明" onClick={() => setBenchmarkOpen(true)}><CircleHelp /></button><ShieldCheck /></div></div><div className="plan-columns"><article><h3>発災直後</h3>{plan.immediate.map((item) => <p key={item}><Check />{item}</p>)}</article><article><h3>最初の72時間</h3>{plan.first72Hours.map((item) => <p key={item}><Check />{item}</p>)}</article></div>{plan.gaps.length ? <div className="plan-gaps"><b>先に埋めたい弱点</b>{plan.gaps.map((gap) => <span key={gap}><AlertTriangle />{gap}</span>)}</div> : <div className="stage-clear-message"><Check /><div><b>基礎条件は整っています</b><span>半年ごとに実物を使って見直してください。</span></div></div>}</section>
     <details className="emergency-editor"><summary><span><Pencil /><b>緊急メモを編集する</b><small>集合場所・連絡先・家族ルールを変更</small></span><ChevronRight /></summary><form className="card plan-form" onSubmit={(e) => { e.preventDefault(); setState((old) => ({ ...old, contact: draft })); setToast('緊急メモを端末に保存しました'); }}>
       <label><span><Users />メモの名前</span><input value={draft.name} onChange={(e) => set('name', e.target.value)} /></label>
       <label><span><MapPin />避難・集合場所</span><input value={draft.shelter} onChange={(e) => set('shelter', e.target.value)} placeholder="例：〇〇小学校 体育館" /></label>
@@ -581,7 +740,32 @@ function EmergencyPlan({ state, summary, setState, setToast }) {
     </form></details>
     <section className="simulator"><div className="section-heading compact"><div><span className="kicker">DISASTER SIMULATOR</span><h2>もし今、災害が起きたら</h2></div><Radio /></div><div className="simulator-controls"><label><span>想定</span><select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>{DISASTER_SCENARIOS.map((scenario) => <option value={scenario.id} key={scenario.id}>{scenario.name}</option>)}</select></label><label><span>継続日数</span><input type="number" min="1" max="14" value={days} onChange={(event) => setDays(event.target.value)} /></label></div><div className={`simulation-result status-${simulation.status}`}><div><span>対応力</span><b>{simulation.score}<small>%</small></b><em>{simulation.status}</em></div><section><h3>{simulation.scenario.name}・{simulation.days}日間</h3><p>{simulation.scenario.opening}</p><strong>{simulation.advice}</strong><div className="gap-chips">{simulation.criticalGaps.map((gap) => <span key={gap.key}>{CATEGORY_META[gap.key]?.label || gap.key} {gap.score}%</span>)}</div></section></div></section>
     <div className="offline-note"><Zap /><div><b>初回表示後はオフラインでも確認できます</b><span>アプリ本体と入力済みデータをこの端末に保存します。商品情報の新規照会には通信が必要です。</span></div></div>
+    {benchmarkOpen && <PreparednessBenchmarkDialog kind="rescue" onClose={() => setBenchmarkOpen(false)} />}
   </section>;
+}
+
+const preparednessBenchmarks = {
+  rescue: {
+    kicker: 'GOLDEN 72 HOURS',
+    title: '命をつなぐ72時間',
+    target: '目標：72時間以上',
+    description: '発災後の人命救助では、最初の72時間が重要な目安とされ「黄金の72時間」と呼ばれます。救助や支援が届くまでを想定し、水・食料・携帯トイレ・常備薬などを少なくとも3日分備えましょう。',
+    note: '安全な場所への避難が最優先です。備蓄があっても、危険な自宅にはとどまらないでください。',
+  },
+  hygiene: {
+    kicker: 'WATER RECOVERY',
+    title: '衛生用品は1か月を目安に',
+    target: '目標：30日分',
+    description: '水道の復旧には、およそ1週間から1か月かかる場合があります。携帯トイレ、凝固剤、処理袋、ウェットティッシュ、生理用品、手指衛生用品などは1か月分を目標に備えましょう。',
+    note: '復旧期間は被害の規模や地域によって変わります。飲料水とは分けて、断水中の衛生維持に必要な物を確認してください。',
+  },
+};
+
+function PreparednessBenchmarkDialog({ kind, onClose }) {
+  const dialogRef = useRef(null);
+  const benchmark = preparednessBenchmarks[kind];
+  useDialogClose(onClose, dialogRef);
+  return <div className="modal-backdrop benchmark-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal compact-modal benchmark-dialog" role="dialog" aria-modal="true" aria-labelledby={`benchmark-${kind}-title`}><div className="modal-title"><div><span className="kicker">{benchmark.kicker}</span><h2 id={`benchmark-${kind}-title`}>{benchmark.title}</h2></div><button type="button" aria-label="目安の説明を閉じる" onClick={onClose}><X /></button></div><strong>{benchmark.target}</strong><p>{benchmark.description}</p><small>{benchmark.note}</small></section></div>;
 }
 
 function useDialogClose(onClose, dialogRef) {
@@ -749,6 +933,7 @@ function ItemModal({ item, inventory, onClose, onSave }) {
   const [detailsOpen, setDetailsOpen] = useState(Boolean(item));
   const set = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   const duplicate = !item && form.barcode ? inventory.find((entry) => entry.barcode === form.barcode) : null;
+  const categoryGuidance = itemCategoryGuidance[form.category];
   return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><form className="modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" onSubmit={(e) => { e.preventDefault(); onSave({ ...form, tier: Number(form.tier), quantity: Number(form.quantity), target: Number(form.target), price: Number(form.price), volumeMl: Number(form.volumeMl) || 0, foodWeightG: Number(form.foodWeightG) || 0, packingVolumeMl: Number(form.packingVolumeMl) || 0, rotationLeadDays: Number(form.rotationLeadDays) || 30 }); }}>
     <div className="modal-title"><div><span className="kicker">STOCK ITEM</span><h2 id="item-modal-title">{item ? '備蓄品を編集' : '備蓄品を追加'}</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div>
     {!item && <button className="optional-section-toggle" type="button" aria-expanded={scannerOpen} onClick={() => setScannerOpen((open) => !open)}><QrCode />バーコードから入力<span>{scannerOpen ? '閉じる' : 'カメラ・画像・番号'}</span><ChevronRight /></button>}
@@ -757,8 +942,9 @@ function ItemModal({ item, inventory, onClose, onSave }) {
     </div>}
     <label className="full"><span>品目名</span><input required autoFocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="例：飲料水 500ml" /></label>
     <div className="form-grid basic-category-grid"><label><span>カテゴリ</span><select value={form.category} onChange={(e) => set('category', e.target.value)}>{Object.entries(CATEGORY_META).map(([key, value]) => <option value={key} key={key}>{value.label}</option>)}</select></label><label><span>重要度</span><select value={form.tier} onChange={(e) => set('tier', e.target.value)}><option value="1">Tier 1・生存必須</option><option value="2">Tier 2・継続生活</option><option value="3">Tier 3・快適性</option></select></label></div>
+    <aside className={`item-benchmark item-benchmark-${form.category}`} aria-live="polite"><CategoryIcon category={form.category} /><div><small>{categoryGuidance.title}</small><b>{categoryGuidance.primary}</b><p>{categoryGuidance.detail}</p>{categoryGuidance.evidence && <a href={categoryGuidance.evidence.url} target="_blank" rel="noreferrer">根拠：{categoryGuidance.evidence.label}</a>}</div></aside>
     <div className="form-grid three quick-stock-grid"><label><span>在庫数</span><input required min="0" type="number" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} /></label><label><span>目標数</span><input required min="0" type="number" value={form.target} onChange={(e) => set('target', e.target.value)} /></label><label><span>単位</span><input required value={form.unit} onChange={(e) => set('unit', e.target.value)} /></label></div>
-    {form.category === 'food' && <label className="full amount-input"><span>1単位あたりの食料重量（g）</span><input min="0" type="number" value={form.foodWeightG} onChange={(e) => set('foodWeightG', e.target.value)} placeholder="例：アルファ米1食なら100" /><small>在庫数と掛け合わせ、1人1日450gとして備蓄日数を計算します。</small></label>}
+    {form.category === 'food' && <label className="full amount-input"><span>1単位あたりの食料重量（g）</span><input min="0" type="number" value={form.foodWeightG} onChange={(e) => set('foodWeightG', e.target.value)} placeholder="例：アルファ米1食なら100" /><small>在庫数と掛け、1食150g×1日3食で日数を簡易比較します。450gは公的な必要重量ではありません。</small></label>}
     {form.category === 'water' && <label className="full amount-input"><span>1単位あたりの水量（ml）</span><input min="0" type="number" value={form.volumeMl} onChange={(e) => set('volumeMl', e.target.value)} placeholder="例：500mlボトルなら500" /><small>在庫数と掛け合わせ、1人1日3Lとして備蓄日数を計算します。</small></label>}
     <button className="optional-section-toggle details-toggle" type="button" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><ClipboardList />詳細設定<span>期限・価格・保管場所など</span><ChevronRight /></button>
     {detailsOpen && <div className="optional-section details-section"><div className="form-grid"><label><span>期限（任意）</span><input type="date" value={form.expiry} onChange={(e) => set('expiry', e.target.value)} /></label><label><span>単価（円）</span><input min="0" type="number" value={form.price} onChange={(e) => set('price', e.target.value)} /></label></div>

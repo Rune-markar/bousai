@@ -123,11 +123,12 @@ export function autoPackInventory(inventory, taskId, capacityL, household = 1, o
   const targets = Object.fromEntries(Object.entries(baseTargets).map(([category, amount]) => [category, ['water', 'food', 'hygiene'].includes(category) ? amount * people : amount]));
   const capacityMl = Math.max(0, Number(capacityL) || 0) * 1000;
   const usableCapacityMl = Math.floor(capacityMl * PACKING_EFFICIENCY);
+  const today = String(options.today || new Date().toISOString().slice(0, 10));
   const reservedById = new Map((options.reservedItems || []).map((item) => [item.id, Math.max(0, Number(item.quantity) || 0)]));
   const candidates = (inventory || []).map((item) => ({
     ...item,
     quantity: Math.max(0, Number(item.quantity) || 0) - (reservedById.get(item.id) || 0),
-  })).filter((item) => Number(item.quantity) > 0 && targets[item.category] && item.category !== 'heat').map((item) => {
+  })).filter((item) => Number(item.quantity) > 0 && targets[item.category] && item.category !== 'heat' && (!item.expiry || item.expiry >= today)).map((item) => {
     const volume = packingVolumeForItem(item);
     const score = (4 - Math.min(3, Math.max(1, Number(item.tier) || 2))) * 100 + (BAG_CATEGORY_SCORE[taskId]?.[item.category] || 0);
     return { item, volume, score };

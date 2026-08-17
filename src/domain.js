@@ -12,6 +12,8 @@ export const MEALS_PER_PERSON_PER_DAY = 3;
 export const FOOD_GRAMS_PER_PERSON_DAY = FOOD_GRAMS_PER_MEAL * MEALS_PER_PERSON_PER_DAY;
 export const WATER_ML_PER_PERSON_DAY = 3000;
 export const TOILET_USES_PER_PERSON_DAY = 5;
+export const GAS_CANISTERS_PER_PERSON_WEEK = 6;
+export const WATER_BOTTLE_REFERENCE_ML = 2000;
 export const STOCKPILE_TARGET_DAYS = 3;
 
 export const daysFromNow = (amount) => {
@@ -25,6 +27,7 @@ export const createInitialInventory = () => [
   { id: 'water', name: '飲料水 500ml', category: 'water', tier: 1, unit: '本', quantity: 18, target: 24, price: 80, volumeMl: 500, expiry: daysFromNow(94), note: 'ケース単位で管理' },
   { id: 'rice', name: 'アルファ米', category: 'food', tier: 1, unit: '食', quantity: 9, target: 12, price: 360, foodWeightG: 150, expiry: daysFromNow(420), note: '味の違うものを混ぜる' },
   { id: 'gas', name: 'カセットボンベ', category: 'heat', tier: 2, unit: '本', quantity: 6, target: 9, price: 180, expiry: '', note: '高温を避けて保管' },
+  { id: 'stove', name: 'カセットコンロ', category: 'heat', tier: 1, unit: '台', quantity: 0, target: 1, price: 5000, expiry: '', note: '製造から10年を目安に点検・交換' },
   { id: 'toilet', name: '携帯トイレ', category: 'hygiene', tier: 1, unit: '回分', quantity: 20, target: 35, price: 110, expiry: '', note: '家族5人×7日分' },
   { id: 'battery', name: '乾電池（単3）', category: 'light', tier: 2, unit: '本', quantity: 8, target: 12, price: 90, expiry: daysFromNow(21), note: 'ライトとラジオ用' },
   { id: 'coffee', name: 'ドリップコーヒー', category: 'comfort', tier: 3, unit: '袋', quantity: 6, target: 6, price: 85, expiry: daysFromNow(180), note: '気持ちを落ち着けるもの' },
@@ -174,6 +177,34 @@ export function inventorySummary(items, household = 2) {
     rotationQueue,
     rotationDueCount: rotationQueue.filter((item) => item.daysToRotate <= 0).length,
   };
+}
+
+export function stockpileUnitNeeds(items, household = 1, targetDays = 7, today = new Date()) {
+  const people = Math.min(12, Math.max(1, Number(household) || 1));
+  const days = Math.min(180, Math.max(1, Number(targetDays) || 1));
+  const currentDate = new Date(today); currentDate.setHours(0, 0, 0, 0);
+  const usable = (items || []).filter((item) => {
+    if (!(Number(item.quantity) > 0) || !item.expiry) return Number(item.quantity) > 0;
+    return new Date(`${item.expiry}T00:00:00`) >= currentDate;
+  });
+  const amount = (predicate, unitAmount = () => 1) => usable.filter(predicate).reduce((sum, item) => sum + Number(item.quantity || 0) * unitAmount(item), 0);
+  const waterMl = amount((item) => item.category === 'water', (item) => Math.max(0, Number(item.volumeMl) || 0));
+  const foodGrams = amount((item) => item.category === 'food', (item) => Math.max(0, Number(item.foodWeightG) || 0));
+  const toiletUnits = amount((item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')));
+  const gasCanisters = amount((item) => item.category === 'heat' && /(カセット|ガス).*(ボンベ|ガス缶)|ボンベ/.test(String(item.name || '')));
+  const stoves = amount((item) => item.category === 'heat' && /(カセット|ガス).*(コンロ|こんろ)/.test(String(item.name || '')));
+  const waterTargetMl = people * WATER_ML_PER_PERSON_DAY * days;
+  const foodTargetGrams = people * FOOD_GRAMS_PER_PERSON_DAY * days;
+  const toiletTarget = people * TOILET_USES_PER_PERSON_DAY * days;
+  const gasTarget = Math.ceil(people * GAS_CANISTERS_PER_PERSON_WEEK * days / 7);
+  const gasShortage = Math.ceil(Math.max(0, gasTarget - gasCanisters));
+  return [
+    { key: 'water', label: '飲料水', reference: '2Lペットボトル', shortage: Math.ceil(Math.max(0, waterTargetMl - waterMl) / WATER_BOTTLE_REFERENCE_ML), unit: '本', current: `${(waterMl / 1000).toFixed(1)}L`, target: `${(waterTargetMl / 1000).toFixed(1)}L` },
+    { key: 'food', label: '主食・保存食', reference: '1食150g相当', shortage: Math.ceil(Math.max(0, foodTargetGrams - foodGrams) / FOOD_GRAMS_PER_MEAL), unit: '食', current: `${Math.floor(foodGrams / FOOD_GRAMS_PER_MEAL)}食相当`, target: `${Math.ceil(foodTargetGrams / FOOD_GRAMS_PER_MEAL)}食` },
+    { key: 'toilet', label: '携帯トイレ', reference: '1回分', shortage: Math.ceil(Math.max(0, toiletTarget - toiletUnits)), unit: '回分', current: `${toiletUnits}回分`, target: `${toiletTarget}回分` },
+    { key: 'gas', label: 'カセットボンベ', reference: '一般的なカセットボンベ', shortage: gasShortage, unit: '本', current: `${gasCanisters}本`, target: `${gasTarget}本` },
+    { key: 'stove', label: 'カセットコンロ', reference: '家庭用1台', shortage: Math.ceil(Math.max(0, 1 - stoves)), unit: '台', current: `${stoves}台`, target: '1台' },
+  ];
 }
 
 export function stockpileBudgetProjection(items, household = 1, targetDays = 7, annualBudget = 0) {

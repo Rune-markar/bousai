@@ -5,20 +5,26 @@ describe('state migration', () => {
   it('migrates a v1 inventory while preserving user data', () => {
     const state = normalizeState({ inventory: [{ id: 'old', name: '水', category: 'water', quantity: 2, target: 3, unit: '本' }], household: 4 });
     expect(state.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(state.onboarding.completed).toBe(true);
     expect(state.inventory[0]).toMatchObject({ id: 'old', name: '水', quantity: 2 });
     expect(state.inventory[0].productId).toBe('legacy:old');
-    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, targetDays: 7, annualBudget: 0, updatedAt: '' });
+    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, disasterChecks: {}, targetDays: 7, annualBudget: 0, updatedAt: '' });
     expect(state.inventory[0].packingVolumeMl).toBe(0);
     expect(state.inventory[0].foodWeightG).toBe(0);
     expect(state.transactions).toEqual([]);
     expect(state.inventory[0].replenishmentPriority).toBe('medium');
     expect(state.powerPlan.devices.phone.quantity).toBe(2);
+    expect(state.inventory).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'カセットコンロ', category: 'heat', quantity: 0, target: 1 })]));
   });
 
   it('normalizes the preparedness target duration', () => {
     expect(normalizeState({ preparedness: { targetDays: 14 } }).preparedness.targetDays).toBe(14);
     expect(normalizeState({ preparedness: { targetDays: 999 } }).preparedness.targetDays).toBe(180);
     expect(normalizeState({ preparedness: { targetDays: 0 } }).preparedness.targetDays).toBe(7);
+  });
+
+  it('preserves valid disaster checklist state', () => {
+    expect(normalizeState({ preparedness: { disasterChecks: { earthquake: ['furniture-brace', 'furniture-brace', 42] } } }).preparedness.disasterChecks).toEqual({ earthquake: ['furniture-brace'] });
   });
 
   it('migrates food weight from an existing package label', () => {
@@ -30,5 +36,6 @@ describe('state migration', () => {
     const state = loadState({ getItem: () => '{broken' });
     expect(state.inventory.length).toBeGreaterThan(0);
     expect(state.contact.name).toBeTruthy();
+    expect(state.onboarding.completed).toBe(false);
   });
 });

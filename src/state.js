@@ -3,7 +3,7 @@ import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
 import { parseWeightGrams } from '../shared/productLookup.mjs';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 13;
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -46,11 +46,12 @@ export function normalizeInventoryItem(item = {}, index = 0) {
 export function createDefaultState() {
   return {
     schemaVersion: SCHEMA_VERSION,
+    onboarding: { completed: false, completedAt: '' },
     inventory: createInitialInventory().map(normalizeInventoryItem),
     household: 2,
-    contact: { name: '家族の集合場所', phone: '', shelter: '〇〇小学校 体育館', note: '災害用伝言ダイヤル 171' },
+    contact: { name: '家族の緊急メモ', phone: '', shelter: '', note: '災害用伝言ダイヤル 171' },
     completedTips: [],
-    preparedness: { completed: [], loadouts: {}, bagSettings: {}, targetDays: 7, annualBudget: 0, updatedAt: '' },
+    preparedness: { completed: [], loadouts: {}, bagSettings: {}, disasterChecks: {}, targetDays: 7, annualBudget: 0, updatedAt: '' },
     transactions: [],
     lastVisitAt: '',
     selectedCharacter: 'hikari',
@@ -64,15 +65,23 @@ export function normalizeState(input) {
   const fallback = createDefaultState();
   if (!input || typeof input !== 'object') return fallback;
   const inventory = Array.isArray(input.inventory) ? input.inventory.map(normalizeInventoryItem) : fallback.inventory;
+  if ((Number(input.schemaVersion) || 0) < 12 && !inventory.some((item) => item.category === 'heat' && /(カセット|ガス).*(コンロ|こんろ)/.test(item.name))) {
+    inventory.push(normalizeInventoryItem(createInitialInventory().find((item) => item.id === 'stove'), inventory.length));
+  }
   const contact = input.contact && typeof input.contact === 'object' ? input.contact : {};
   return {
     schemaVersion: SCHEMA_VERSION,
+    // States saved before onboarding existed belong to current users, so do not
+    // interrupt them with the first-run flow after an update.
+    onboarding: input.onboarding && typeof input.onboarding === 'object'
+      ? { completed: Boolean(input.onboarding.completed), completedAt: String(input.onboarding.completedAt || '') }
+      : { completed: true, completedAt: '' },
     inventory,
     household: Math.min(12, Math.max(1, Number(input.household) || fallback.household)),
     contact: {
       name: String(contact.name || fallback.contact.name),
       phone: String(contact.phone || ''),
-      shelter: String(contact.shelter || ''),
+      shelter: String(contact.shelter === '〇〇小学校 体育館' ? '' : contact.shelter || ''),
       note: String(contact.note || ''),
     },
     completedTips: Array.isArray(input.completedTips) ? input.completedTips.filter((value) => typeof value === 'string') : [],
@@ -80,6 +89,7 @@ export function normalizeState(input) {
       completed: Array.isArray(input.preparedness?.completed) ? input.preparedness.completed.filter((value) => typeof value === 'string') : [],
       loadouts: Object.fromEntries(Object.entries(input.preparedness?.loadouts || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
       bagSettings: Object.fromEntries(Object.entries(input.preparedness?.bagSettings || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, { mode: value.mode === 'custom' ? 'custom' : 'standard', customCapacityL: Math.min(100, Math.max(1, Number(value.customCapacityL) || 20)) }])),
+      disasterChecks: Object.fromEntries(Object.entries(input.preparedness?.disasterChecks || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
       targetDays: Math.min(180, Math.max(1, Number(input.preparedness?.targetDays) || fallback.preparedness.targetDays)),
       annualBudget: Math.min(10000000, Math.max(0, Number(input.preparedness?.annualBudget) || 0)),
       updatedAt: String(input.preparedness?.updatedAt || ''),

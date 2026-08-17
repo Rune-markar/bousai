@@ -55,7 +55,7 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
     <div className="page-title power-page-title"><div><span className="kicker">POWER PLANNER</span><h1 id="power-page-title" ref={headingRef} tabIndex="-1">停電時の電力設計</h1></div><button type="button" className="secondary-button" onClick={onBack}>ホームへ戻る</button></div>
 
     <div className="power-settings" aria-label="計算条件">
-      <label><span>電気を保ちたい日数</span><select value={result.plan.autonomyDays} onChange={(event) => updatePlan({ autonomyDays: Number(event.target.value) })}>{[1, 2, 3, 4, 5, 6, 7].map((day) => <option value={day} key={day}>{day}日</option>)}</select></label>
+      <div><span className="power-setting-label">電気を保ちたい日数 <HelpButton label="電気備蓄1週間の目安" helpId="power-recovery" onClick={(event) => openHelp('power-recovery', event)} /></span><select aria-label="電気を保ちたい日数" value={result.plan.autonomyDays} onChange={(event) => updatePlan({ autonomyDays: Number(event.target.value) })}>{[1, 2, 3, 4, 5, 6, 7].map((day) => <option value={day} key={day}>{day}日</option>)}</select></div>
       <label><span>1日の有効日照</span><select value={result.plan.sunHours} onChange={(event) => updatePlan({ sunHours: Number(event.target.value) })}>{[1, 2, 3, 4, 5, 6].map((hour) => <option value={hour} key={hour}>{hour}時間</option>)}</select></label>
       <div><span>計算モード</span><div className="power-mode"><button type="button" className={result.plan.mode === 'simple' ? 'active' : ''} aria-pressed={result.plan.mode === 'simple'} onClick={() => updatePlan({ mode: 'simple' })}>簡易</button><button type="button" className={result.plan.mode === 'detail' ? 'active' : ''} aria-pressed={result.plan.mode === 'detail'} onClick={() => updatePlan({ mode: 'detail' })}>詳細</button></div></div>
     </div>
@@ -129,6 +129,7 @@ function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp,
     'battery-price': '蓄電池の価格比較',
     'solar-generation': '太陽光の発電条件',
     'solar-price': '太陽光パネルの価格比較',
+    'power-recovery': '電気は1週間を目安に',
     'device-detail': row ? `${row.name}の使用条件` : '機器の使用条件',
   };
   const isLoad = help.id === 'load-devices';
@@ -163,6 +164,7 @@ function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp,
     <section ref={dialogRef} className={`power-modal power-help-sheet ${isLoad ? 'power-load-sheet' : ''}`} role="dialog" aria-modal="true" aria-labelledby="power-help-title" data-help-id={help.id} onKeyDown={trapFocus}>
       <div className="power-modal-head"><div>{isLoad && <span className="kicker">LOAD SETTINGS</span>}<h2 id="power-help-title">{titles[help.id]}</h2></div><button ref={closeRef} type="button" aria-label={isLoad ? '負荷の調整を閉じる' : '補足を閉じる'} onClick={onClose}><X /></button></div>
       {isLoad && <LoadEditor result={result} setQuantity={setQuantity} openHelp={openHelp} deviceDetailRefs={deviceDetailRefs} />}
+      {help.id === 'power-recovery' && <div className="power-help-copy benchmark-help-copy"><strong>目標：7日分</strong><p>災害時の電気の復旧は、およそ1週間かかる場合があります。照明・通信・情報収集など、最低限必要な電気関係の備えは7日分を目標にしましょう。</p><small>被害の規模や地域、設備の状況によって復旧期間は変わります。</small></div>}
       {help.id === 'battery-capacity' && <div className="power-help-copy"><p><b>変換損失</b> 蓄電池の直流を家庭用ACやUSBへ変える際、熱や回路動作として一部が失われます。本計算はインバーター効率88%を採用しています。</p><p><b>使用可能容量と予備</b> 電池を空まで使わないため使用可能率90%、天候や機器差に備えて20%を残します。表示容量と実際に取り出せる量が同じとは限りません。</p></div>}
       {help.id === 'battery-output' && <div className="power-help-copy"><p>同時最大負荷に25%を加えた {result.recommendedOutputW}W以上を目安にします。冷蔵庫などモーター機器は定格より大きい起動電力も確認してください。</p><p>医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。この結果は購入確定ではなく、見積もり前の容量判断です。</p></div>}
       {help.id === 'battery-price' && <PriceHelp result={result} kind="battery" />}

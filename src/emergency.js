@@ -25,7 +25,7 @@ export function generateEmergencyPlan(state, summary) {
   const formatDays = (value) => (Math.floor(Math.max(0, Number(value) || 0) * 10) / 10).toFixed(1);
   const foodDays = Math.max(0, Number(summary.foodDays) || 0);
   const gaps = [];
-  if (foodDays < 3) gaps.push(`食料は約${formatDays(foodDays)}日分。1人1日450gで3日分まで増やす`);
+  if (foodDays < 3) gaps.push(`食料は簡易換算で約${formatDays(foodDays)}日分。1人1日3食で3日分まで増やす`);
   if (summary.waterDays < 3) gaps.push(`飲料水は約${formatDays(summary.waterDays)}日分。まず3日分まで増やす`);
   if (toiletDays < 3) gaps.push(`携帯トイレは約${toiletDays}日分。断水前提で追加する`);
   if (!contactReady) gaps.push('集合場所・緊急連絡先・171などの連絡ルールを家族で決める');
@@ -36,7 +36,7 @@ export function generateEmergencyPlan(state, summary) {
     waterDays: summary.waterDays,
     toiletDays,
     immediate: ['身の安全を確保し、火元と出口を確認', `家族の集合場所：${state.contact?.shelter || '未登録'}`, '安全なら在宅避難、危険なら指定避難先へ移動'],
-    first72Hours: [`食料を1人1日450gで計画配分（現在 約${formatDays(foodDays)}日分）`, `水を1人1日3L以内で計画配分（現在 約${formatDays(summary.waterDays)}日分）`, `携帯トイレを1人1日5回で配分（現在 約${toiletDays}日分）`, '期限の近い食品から開封し、入出庫を記録'],
+    first72Hours: [`食料を1人1日3食で計画配分（重量による現在日数は簡易換算で約${formatDays(foodDays)}日分）`, `水を1人1日3L以内で計画配分（現在 約${formatDays(summary.waterDays)}日分）`, `携帯トイレを1人1日5回で配分（現在 約${toiletDays}日分）`, '期限の近い食品から開封し、入出庫を記録'],
     gaps,
   };
 }

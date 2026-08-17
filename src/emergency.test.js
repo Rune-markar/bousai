@@ -10,7 +10,7 @@ describe('emergency planning', () => {
     expect(plan.foodDays).toBe(2);
     expect(plan.toiletDays).toBe(1);
     expect(plan.gaps).toContain('集合場所・緊急連絡先・171などの連絡ルールを家族で決める');
-    expect(plan.gaps).toContain('食料は約2.0日分。1人1日450gで3日分まで増やす');
+    expect(plan.gaps).toContain('食料は簡易換算で約2.0日分。1人1日3食で3日分まで増やす');
   });
 
   it('scores a scenario and penalizes a longer outage', () => {
