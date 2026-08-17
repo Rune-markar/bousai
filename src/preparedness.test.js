@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { inventorySummary } from './domain.js';
-import { defensePower, preparednessProgress, targetRequirement, togglePreparednessTask } from './preparedness.js';
+import { defensePower, essentialPreparednessGates, preparednessProgress, targetRequirement, togglePreparednessTask } from './preparedness.js';
 
 const base = {
   household: 2,
@@ -79,5 +79,32 @@ describe('preparedness roadmap', () => {
   it('supports long-term targets up to 180 days', () => {
     const summary = inventorySummary(base.inventory, base.household);
     expect(defensePower({ ...base, preparedness: { completed: [], targetDays: 180 } }, summary).targetDays).toBe(180);
+  });
+
+  it('requires seven life-and-hygiene gates without treating a power calculation as an achievement', () => {
+    const state = {
+      ...base,
+      preparedness: { completed: ['hazard-map', 'furniture', 'medicine', 'light-fire'] },
+      powerPlan: { autonomyDays: 7 },
+    };
+    const plan = essentialPreparednessGates(state, inventorySummary(state.inventory, state.household));
+
+    expect(plan.gates.map(({ key }) => key)).toEqual(['home', 'risk', 'contact', 'medicine', 'water', 'toilet', 'light']);
+    expect(plan.gates.find((gate) => gate.key === 'power')).toBeUndefined();
+    expect(plan.complete).toBe(true);
+    expect(plan.completeCount).toBe(7);
+  });
+
+  it('keeps missing safety checks visible even when stockpile day counts are sufficient', () => {
+    const state = {
+      ...base,
+      inventory: [...base.inventory, { name: '乾電池', category: 'light', quantity: 12, expiry: '' }],
+      contact: { shelter: '', phone: '', note: '' },
+    };
+    const plan = essentialPreparednessGates(state, inventorySummary(state.inventory, state.household));
+
+    expect(plan.gates.filter((gate) => gate.complete).map((gate) => gate.key)).toEqual(['water', 'toilet']);
+    expect(plan.completeCount).toBe(2);
+    expect(plan.complete).toBe(false);
   });
 });

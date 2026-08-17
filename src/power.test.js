@@ -6,7 +6,7 @@ describe('power ecosystem sizing', () => {
     const result = calculatePowerSystem(createDefaultPowerPlan());
     expect(result.dailyLoadWh).toBe(384);
     expect(result.conversionLossWh).toBe(52);
-    expect(result.requiredBatteryWh).toBe(1850);
+    expect(result.requiredBatteryWh).toBe(4250);
     expect(result.requiredSolarW).toBe(200);
     expect(result.recommendedOutputW).toBe(100);
     expect(result.totalEstimateYen).toBeGreaterThan(200000);

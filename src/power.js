@@ -32,7 +32,7 @@ const roundPrice = (value) => Math.round(value / 1000) * 1000;
 export function createDefaultPowerPlan() {
   return {
     mode: 'simple',
-    autonomyDays: 3,
+    autonomyDays: 7,
     sunHours: 3,
     devices: Object.fromEntries(POWER_DEVICES.map((device) => [device.id, {
       quantity: device.defaultQuantity,

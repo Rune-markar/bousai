@@ -15,6 +15,17 @@ export const TOILET_USES_PER_PERSON_DAY = 5;
 export const GAS_CANISTERS_PER_PERSON_WEEK = 6;
 export const WATER_BOTTLE_REFERENCE_ML = 2000;
 export const STOCKPILE_TARGET_DAYS = 3;
+export const FIRST_GOAL_CATEGORY_PRIORITY = Object.freeze({ light: 0, food: 1, hygiene: 2 });
+
+function isUnexpiredInventoryItem(item, today = new Date()) {
+  const currentDate = new Date(today);
+  currentDate.setHours(0, 0, 0, 0);
+  return !item.expiry || new Date(`${item.expiry}T00:00:00`) >= currentDate;
+}
+
+export function usableInventory(items = [], today = new Date()) {
+  return items.filter((item) => Number(item.quantity) > 0 && isUnexpiredInventoryItem(item, today));
+}
 
 export const daysFromNow = (amount) => {
   const date = new Date();
@@ -118,12 +129,14 @@ export function consumeByRotation(items, key, amount = 1, today = new Date()) {
   };
 }
 
-export function inventorySummary(items, household = 2) {
-  const rows = items.map((item) => ({ ...item, ...itemStats(item) }));
+export function inventorySummary(items, household = 2, today = new Date()) {
+  const rows = items.map((item) => ({ ...item, ...itemStats(item, today) }));
+  const usableItems = new Set(usableInventory(items, today));
+  const readinessRows = rows.map((item, index) => usableItems.has(items[index]) ? item : { ...item, ratio: 0 });
   const notificationRows = rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue || item.isRotationReminderDue);
   const tierWeight = (tier) => ({ 1: 3, 2: 2, 3: 1 }[tier] || 1);
   const categoryScores = Object.keys(CATEGORY_META).map((key) => {
-    const categoryRows = rows.filter((item) => item.category === key);
+    const categoryRows = readinessRows.filter((item) => item.category === key);
     if (!categoryRows.length) return { key, score: 0 };
     const weights = categoryRows.reduce((total, item) => total + tierWeight(item.tier), 0);
     const sum = categoryRows.reduce((total, item) => total + Math.min(item.ratio, 1) * tierWeight(item.tier), 0);
@@ -133,9 +146,10 @@ export function inventorySummary(items, household = 2) {
   const totalCategoryWeight = categoryScores.reduce((sum, item) => sum + categoryWeight[item.key], 0);
   const score = totalCategoryWeight ? Math.round(categoryScores.reduce((sum, item) => sum + item.score * categoryWeight[item.key], 0) / totalCategoryWeight) : 0;
   const people = Math.max(1, Number(household) || 1);
-  const foodRows = rows.filter((item) => item.category === 'food');
-  const waterRows = rows.filter((item) => item.category === 'water');
-  const toiletRows = rows.filter((item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')));
+  const usableRows = rows.filter((item, index) => usableItems.has(items[index]));
+  const foodRows = usableRows.filter((item) => item.category === 'food');
+  const waterRows = usableRows.filter((item) => item.category === 'water');
+  const toiletRows = usableRows.filter((item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')));
   const foodGrams = foodRows.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.foodWeightG) || 0), 0);
   const waterMl = waterRows.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.volumeMl) || 0), 0);
   const foodDays = foodGrams / (people * FOOD_GRAMS_PER_PERSON_DAY);
@@ -144,7 +158,7 @@ export function inventorySummary(items, household = 2) {
   const toiletDays = toiletUnits / (people * TOILET_USES_PER_PERSON_DAY);
   const foodTargetGrams = people * FOOD_GRAMS_PER_PERSON_DAY * STOCKPILE_TARGET_DAYS;
   const waterTargetMl = people * WATER_ML_PER_PERSON_DAY * STOCKPILE_TARGET_DAYS;
-  const rotationQueue = buildRotationQueue(items);
+  const rotationQueue = buildRotationQueue(items, today);
 
   return {
     rows,
@@ -170,7 +184,8 @@ export function inventorySummary(items, household = 2) {
     replenishmentCost: rows.reduce((sum, item) => sum + item.replenishmentCost, 0),
     replenishmentPlan: rows.filter((item) => item.shortage > 0).sort((a, b) => {
       const priority = { high: 0, medium: 1, low: 2 };
-      return (priority[a.replenishmentPriority] ?? a.tier) - (priority[b.replenishmentPriority] ?? b.tier)
+      return (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3)
+        || (priority[a.replenishmentPriority] ?? a.tier) - (priority[b.replenishmentPriority] ?? b.tier)
         || String(a.replenishBy || '9999-12-31').localeCompare(String(b.replenishBy || '9999-12-31'))
         || a.ratio - b.ratio;
     }),
@@ -182,11 +197,7 @@ export function inventorySummary(items, household = 2) {
 export function stockpileUnitNeeds(items, household = 1, targetDays = 7, today = new Date()) {
   const people = Math.min(12, Math.max(1, Number(household) || 1));
   const days = Math.min(180, Math.max(1, Number(targetDays) || 1));
-  const currentDate = new Date(today); currentDate.setHours(0, 0, 0, 0);
-  const usable = (items || []).filter((item) => {
-    if (!(Number(item.quantity) > 0) || !item.expiry) return Number(item.quantity) > 0;
-    return new Date(`${item.expiry}T00:00:00`) >= currentDate;
-  });
+  const usable = usableInventory(items, today);
   const amount = (predicate, unitAmount = () => 1) => usable.filter(predicate).reduce((sum, item) => sum + Number(item.quantity || 0) * unitAmount(item), 0);
   const waterMl = amount((item) => item.category === 'water', (item) => Math.max(0, Number(item.volumeMl) || 0));
   const foodGrams = amount((item) => item.category === 'food', (item) => Math.max(0, Number(item.foodWeightG) || 0));
@@ -207,26 +218,60 @@ export function stockpileUnitNeeds(items, household = 1, targetDays = 7, today =
   ];
 }
 
-export function stockpileBudgetProjection(items, household = 1, targetDays = 7, annualBudget = 0) {
+export function stockpileBudgetProjection(items, household = 1, targetDays = 7, annualBudget = 0, today = new Date()) {
   const people = Math.max(1, Number(household) || 1);
   const target = Math.max(1, Number(targetDays) || 1);
   const budget = Math.max(0, Number(annualBudget) || 0);
-  const resources = [
-    { key: 'water', label: '水', daily: people * WATER_ML_PER_PERSON_DAY, amount: (item) => item.category === 'water' ? Number(item.volumeMl) || 0 : 0 },
-    { key: 'food', label: '食料', daily: people * FOOD_GRAMS_PER_PERSON_DAY, amount: (item) => item.category === 'food' ? Number(item.foodWeightG) || 0 : 0 },
-    { key: 'toilet', label: '携帯トイレ', daily: people * TOILET_USES_PER_PERSON_DAY, amount: (item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')) ? 1 : 0 },
-  ].map((resource) => {
-    const applicable = items.filter((item) => resource.amount(item) > 0);
+  const definitions = [
+    { key: 'water', label: '水', priority: 0, daily: people * WATER_ML_PER_PERSON_DAY, amount: (item) => item.category === 'water' ? Number(item.volumeMl) || 0 : 0 },
+    { key: 'food', label: '食料', priority: 1, daily: people * FOOD_GRAMS_PER_PERSON_DAY, amount: (item) => item.category === 'food' ? Number(item.foodWeightG) || 0 : 0 },
+    { key: 'toilet', label: '携帯トイレ', priority: 2, daily: people * TOILET_USES_PER_PERSON_DAY, amount: (item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')) ? 1 : 0 },
+  ];
+  const resources = definitions.map((resource) => {
+    const applicable = items.filter((item) => isUnexpiredInventoryItem(item, today) && resource.amount(item) > 0);
     const stocked = applicable.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0) * resource.amount(item), 0);
-    const pricedAmount = applicable.reduce((sum, item) => sum + resource.amount(item), 0);
-    const pricedCost = applicable.reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0), 0);
     const missing = Math.max(0, target * resource.daily - stocked);
-    const unitCost = pricedAmount ? pricedCost / pricedAmount : 0;
-    return { key: resource.key, label: resource.label, currentDays: stocked / resource.daily, estimatedCost: Math.ceil(missing * unitCost), hasPrice: unitCost > 0 };
+    const candidate = applicable.filter((item) => Number(item.price) > 0).sort((a, b) => {
+      const tierGap = (Number(a.tier) || 3) - (Number(b.tier) || 3);
+      return tierGap || Number(a.price) / resource.amount(a) - Number(b.price) / resource.amount(b);
+    })[0];
+    const purchaseQuantity = candidate && missing > 0 ? Math.ceil(missing / resource.amount(candidate)) : 0;
+    const estimatedCost = candidate ? purchaseQuantity * Number(candidate.price) : 0;
+    return {
+      key: resource.key,
+      label: resource.label,
+      priority: resource.priority,
+      currentDays: stocked / resource.daily,
+      missing,
+      estimatedCost,
+      hasPrice: Boolean(candidate),
+      recommendation: candidate ? { itemId: candidate.id, name: candidate.name, unit: candidate.unit || '個', quantity: purchaseQuantity, unitPrice: Number(candidate.price), estimatedCost } : null,
+    };
   });
   const totalCost = resources.reduce((sum, item) => sum + item.estimatedCost, 0);
+  const purchasePlan = resources.filter((item) => item.missing > 0).sort((a, b) => a.currentDays - b.currentDays || a.priority - b.priority);
+  let remainingAnnualBudget = budget;
+  const annualPlan = purchasePlan.map((resource, index) => {
+    const recommendation = resource.recommendation;
+    const plannedQuantity = recommendation ? Math.min(recommendation.quantity, Math.floor(remainingAnnualBudget / recommendation.unitPrice)) : 0;
+    const plannedCost = recommendation ? plannedQuantity * recommendation.unitPrice : 0;
+    remainingAnnualBudget -= plannedCost;
+    return { ...resource, order: index + 1, plannedQuantity, plannedCost, deferredQuantity: recommendation ? recommendation.quantity - plannedQuantity : 0 };
+  });
   const months = totalCost === 0 ? 0 : budget > 0 ? Math.ceil(totalCost / budget * 12) : null;
-  return { resources, totalCost, months, targetDays: target, annualBudget: budget, complete: resources.every((item) => item.currentDays >= target) };
+  return {
+    resources,
+    purchasePlan,
+    annualPlan,
+    totalCost,
+    months,
+    targetDays: target,
+    annualBudget: budget,
+    plannedThisYear: annualPlan.reduce((sum, item) => sum + item.plannedCost, 0),
+    remainingAnnualBudget,
+    costComplete: purchasePlan.every((item) => item.hasPrice),
+    complete: resources.every((item) => item.currentDays >= target),
+  };
 }
 
 export const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

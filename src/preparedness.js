@@ -141,6 +141,35 @@ export function defensePower(state, inventorySummary) {
   };
 }
 
+export function essentialPreparednessGates(state, inventorySummary) {
+  const completed = new Set(state.preparedness?.completed || []);
+  const contact = state.contact || {};
+  const shelterReady = Boolean(String(contact.shelter || '').trim());
+  const hazardReady = completed.has('hazard-map');
+  const contactReady = Boolean(String(contact.phone || '').trim() && String(contact.note || '').trim());
+  const lightReady = completed.has('light-fire') || inventorySummary.rows.some((item) => (
+    item.category === 'light'
+    && Number(item.quantity) > 0
+    && !item.isExpired
+    && /(ライト|懐中電灯|ランタン|ヘッドライト)/.test(String(item.name || ''))
+  ));
+  const formatDays = (value) => `${Math.floor(Math.max(0, Number(value) || 0) * 10) / 10}日分`;
+  const gates = [
+    { key: 'home', label: '住まいの安全', detail: '寝室と避難路', statusLabel: completed.has('furniture') ? '実地確認済み' : '家具・出口を確認', complete: completed.has('furniture'), page: 'roadmap' },
+    { key: 'risk', label: '危険と避難先', detail: shelterReady ? String(contact.shelter) : '災害別の候補', statusLabel: hazardReady && shelterReady ? '確認済み' : hazardReady ? '避難先を登録' : 'ハザードを確認', complete: hazardReady && shelterReady, page: hazardReady ? 'plan' : 'roadmap' },
+    { key: 'contact', label: '家族の連絡', detail: '電話・集合ルール', statusLabel: contactReady ? '確認済み' : '連絡方法を登録', complete: contactReady, page: 'plan' },
+    { key: 'medicine', label: '薬・健康情報', detail: '常用薬と処方情報', statusLabel: completed.has('medicine') ? '実物確認済み' : '実物を確認', complete: completed.has('medicine'), page: 'roadmap' },
+    { key: 'water', label: '飲料・調理用水', detail: '最低3日分', statusLabel: formatDays(inventorySummary.waterDays), complete: inventorySummary.waterDays >= 3, page: 'inventory' },
+    { key: 'toilet', label: '携帯トイレ', detail: '最低3日、推奨7日', statusLabel: formatDays(inventorySummary.toiletDays), complete: inventorySummary.toiletDays >= 3, page: 'inventory' },
+    { key: 'light', label: '停電時の灯り', detail: '点灯できる実物', statusLabel: lightReady ? '実物確認済み' : 'ライトを点検', complete: lightReady, page: lightReady ? 'roadmap' : 'inventory' },
+  ];
+  return {
+    gates,
+    completeCount: gates.filter((gate) => gate.complete).length,
+    complete: gates.every((gate) => gate.complete),
+  };
+}
+
 export function togglePreparednessTask(state, taskId, inventorySummary) {
   const task = ALL_PREPAREDNESS_TASKS.find((item) => item.id === taskId);
   if (!task || task.auto) return state;

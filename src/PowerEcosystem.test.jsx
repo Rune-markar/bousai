@@ -44,8 +44,8 @@ describe('停電時の電力設計', () => {
     expect(within(breakdown).getByText('蓄電池入力')).toBeInTheDocument();
     expect(within(breakdown).getByText('436 Wh / 日')).toBeInTheDocument();
     expect(within(breakdown).getByText('予備・使用可能域')).toBeInTheDocument();
-    expect(within(breakdown).getByText('541 Wh')).toBeInTheDocument();
-    expect(within(breakdown).getByText('1.85 kWh')).toBeInTheDocument();
+    expect(within(breakdown).getByText('1.20 kWh')).toBeInTheDocument();
+    expect(within(breakdown).getByText('4.25 kWh')).toBeInTheDocument();
     expect(within(breakdown).getByText('200 W')).toBeInTheDocument();
   });
 

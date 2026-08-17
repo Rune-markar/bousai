@@ -27,6 +27,33 @@ describe('stockpileBudgetProjection', () => {
     expect(result.resources.map((item) => item.currentDays)).toEqual([1, 3, 3]);
     expect(result.totalCost).toBe(4000);
     expect(result.months).toBe(4);
+    expect(result.purchasePlan.map((item) => item.label)).toEqual(['水', '食料', '携帯トイレ']);
+    expect(result.annualPlan.map((item) => item.recommendation && `${item.recommendation.name} ${item.recommendation.quantity}${item.recommendation.unit}`)).toEqual(['水 18個', '食料 4個', '携帯トイレ 20個']);
+    expect(result.plannedThisYear).toBe(4000);
+    expect(result.remainingAnnualBudget).toBe(8000);
+    expect(result.costComplete).toBe(true);
+  });
+
+  it('年間予算内で優先順に購入数量を割り当てる', () => {
+    const result = stockpileBudgetProjection([
+      { id: 'water', name: '2L水', category: 'water', tier: 1, unit: '本', quantity: 0, volumeMl: 2000, price: 100 },
+      { id: 'food', name: '保存食', category: 'food', tier: 1, unit: '食', quantity: 0, foodWeightG: 150, price: 300 },
+      { id: 'toilet', name: '携帯トイレ', category: 'hygiene', tier: 1, unit: '回分', quantity: 0, price: 50 },
+    ], 1, 3, 1000);
+    expect(result.annualPlan.map((item) => [item.label, item.plannedQuantity])).toEqual([['水', 5], ['食料', 1], ['携帯トイレ', 4]]);
+    expect(result.plannedThisYear).toBe(1000);
+    expect(result.remainingAnnualBudget).toBe(0);
+  });
+
+  it('期限切れ品を在庫にも購入候補にも含めず、未期限の登録商品を提案する', () => {
+    const result = stockpileBudgetProjection([
+      { id: 'expired', name: '期限切れ水', category: 'water', tier: 1, unit: '本', quantity: 10, volumeMl: 2000, price: 50, expiry: '2026-08-16' },
+      { id: 'fresh', name: '補充用の水', category: 'water', tier: 1, unit: '本', quantity: 0, volumeMl: 2000, price: 100, expiry: '' },
+    ], 1, 1, 1000, new Date('2026-08-17T12:00:00'));
+
+    const water = result.resources.find((item) => item.key === 'water');
+    expect(water.currentDays).toBe(0);
+    expect(water.recommendation).toMatchObject({ itemId: 'fresh', quantity: 2 });
   });
 });
 
@@ -134,6 +161,19 @@ describe('inventorySummary', () => {
     expect(summary.waterDays).toBe(0);
     expect(summary.foodItemsMissingWeight).toBe(1);
     expect(summary.waterItemsMissingVolume).toBe(1);
+  });
+
+  it('excludes expired food, water, and portable toilets from usable day counts and readiness', () => {
+    const summary = inventorySummary([
+      { name: '期限切れ水', category: 'water', tier: 1, quantity: 6, target: 6, volumeMl: 500, expiry: '2026-08-16' },
+      { name: '期限切れ保存食', category: 'food', tier: 1, quantity: 6, target: 6, foodWeightG: 150, expiry: '2026-08-16' },
+      { name: '期限切れ携帯トイレ', category: 'hygiene', tier: 1, quantity: 10, target: 10, expiry: '2026-08-16' },
+    ], 1, new Date('2026-08-17T12:00:00'));
+
+    expect(summary.waterDays).toBe(0);
+    expect(summary.foodDays).toBe(0);
+    expect(summary.toiletDays).toBe(0);
+    expect(summary.score).toBe(0);
   });
 
   it('counts one notification per item even when multiple alerts overlap', () => {

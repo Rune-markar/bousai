@@ -1,3 +1,5 @@
+import { FIRST_GOAL_CATEGORY_PRIORITY } from './domain.js';
+
 export const CHARACTERS = [
   { id: 'akane', name: '風守アカネ', short: 'アカネ', disaster: '強風・台風', tone: '元気でおせっかい', color: '#d86b52', mark: '風', image: 'characters/kazemori-akane.webp', imageAlt: '防災ラジオと固定用ロープを持つ風守アカネ' },
   { id: 'yui', name: '水瀬ユイ', short: 'ユイ', disaster: '雨・洪水', tone: '優しく穏やか', color: '#4d91bd', mark: '水', image: 'characters/minase-yui.webp', imageAlt: 'レインポンチョと防水ポーチを持つ水瀬ユイ' },
@@ -20,7 +22,7 @@ export function getCharacter(id) {
 
 export function buildCharacterAdvice(state, summary) {
   const character = getCharacter(state.selectedCharacter);
-  const rows = [...summary.rows].sort((a, b) => ({ high: 0, medium: 1, low: 2, ok: 3 }[a.priority] - ({ high: 0, medium: 1, low: 2, ok: 3 }[b.priority])));
+  const rows = [...summary.rows].sort((a, b) => (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3) || ({ high: 0, medium: 1, low: 2, ok: 3 }[a.priority] - ({ high: 0, medium: 1, low: 2, ok: 3 }[b.priority])));
   const expiring = rows.find((item) => item.isExpired || item.isExpiring);
   const shortage = rows.find((item) => item.shortage > 0);
   if (expiring) return { kind: 'expiry', itemId: expiring.id, text: voices[character.id].expiry(expiring), action: '期限を記録する', page: 'inventory' };
