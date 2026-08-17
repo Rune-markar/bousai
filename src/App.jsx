@@ -425,8 +425,8 @@ function RadarChart({ values }) {
 }
 
 const evacuationBagStages = [
-  { id: 'bag-primary', step: '01', label: '一時避難', title: 'まず持ち出すバッグ', timing: '発災直後〜安全な場所への移動', description: '命・移動・服薬を優先し、すぐ背負える軽さに絞ります。' },
-  { id: 'bag-secondary', step: '02', label: '二次避難', title: '避難生活を続けるバッグ', timing: '安全確保後〜避難生活', description: '一時避難分を確保した残りから、衛生・情報・生活用品を補います。' },
+  { id: 'bag-primary', step: '01', label: '一時避難', title: 'まず持ち出すバッグ', timing: '危険が迫ったら、すぐに持つ', description: '自宅から最寄りの安全な避難場所まで、即座に逃げるためのバッグです。命・移動・服薬を優先し、すぐ背負える軽さに絞ります。' },
+  { id: 'bag-secondary', step: '02', label: '二次避難', title: '避難生活を続けるバッグ', timing: '危険が落ち着き、安全を確認できた後', description: '安全を確認して自宅へ戻れる場合に追加で持ち出し、避難所などで数日過ごすためのバッグです。衛生・情報・生活用品を補います。' },
 ];
 
 function EvacuationBags({ state, setState, setToast, setPage }) {
@@ -447,6 +447,15 @@ function EvacuationBags({ state, setState, setToast, setPage }) {
 
   return <section className="wrap page-section evacuation-bags-page">
     <div className="page-title bag-page-title"><div><span className="kicker">EVACUATION BAG PLANNER</span><h1>避難バッグを自動で準備</h1><p>現在の備蓄・家族人数・バッグ容量から、その時点の最適な内容物を自動選定します。</p></div><button type="button" className="secondary-button" onClick={() => setPage('inventory')}><Box />備蓄を確認・追加</button></div>
+
+    <section className="bag-purpose-guide" aria-labelledby="bag-purpose-title">
+      <header><span className="kicker">PURPOSE FIRST</span><h2 id="bag-purpose-title">2つのバッグは、持ち出すタイミングとゴールが違います</h2><p>先に「何のためのバッグか」を決めると、詰めすぎや必需品の抜けを防げます。</p></header>
+      <div className="bag-purpose-steps">
+        <article className="primary-purpose"><span>01</span><div><small>一時避難（一次持ち出し）</small><h3>危険から即座に逃げる</h3><p>災害が発生した、または危険が迫ったとき、自宅から最寄りの安全な避難場所まで移動するために持ちます。</p><b>目安：迷わず背負って、すぐ出発できる量</b></div></article>
+        <article className="secondary-purpose"><span>02</span><div><small>二次避難（二次持ち出し）</small><h3>避難先で数日を過ごす</h3><p>緊急性が落ち着き、自宅と移動経路の安全を確認できた場合に追加で持ち出し、避難所などで生活するために使います。</p><b>目安：水・食料・衛生品など数日分の生活用品</b></div></article>
+      </div>
+      <p className="bag-return-warning"><AlertTriangle /><span><b>荷物を取りに危険な場所へ戻らない</b>自宅や経路の安全を確認できない場合は帰宅せず、一時避難バッグで避難を続けてください。</span></p>
+    </section>
 
     <aside className="bag-auto-note" aria-label="自動選定の仕組み"><Sparkles /><div><b>在庫を更新すると、バッグの中身も自動で再計算</b><span>一時避難を先に確保し、二次避難には残りの在庫を割り当てます。期限が近く、重要度の高い備蓄を優先します。</span></div></aside>
 

@@ -110,6 +110,10 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(screen.getByRole('button', { name: '避難バッグを自動で準備' }));
     expect(window.location.hash).toBe('#/bags');
     expect(screen.getByRole('heading', { name: '避難バッグを自動で準備' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '2つのバッグは、持ち出すタイミングとゴールが違います' })).toBeInTheDocument();
+    expect(screen.getByText('危険から即座に逃げる')).toBeInTheDocument();
+    expect(screen.getByText('避難先で数日を過ごす')).toBeInTheDocument();
+    expect(screen.getByText(/自宅や経路の安全を確認できない場合は帰宅せず/)).toBeInTheDocument();
     expect(screen.getByText('一時避難を先に確保し、二次避難には残りの在庫を割り当てます。期限が近く、重要度の高い備蓄を優先します。')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /自動選定結果を開く/ })).toHaveLength(2);
 
