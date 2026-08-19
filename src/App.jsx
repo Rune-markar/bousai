@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, ArrowRight, Award, Backpack, BadgeCheck, Bell, BookOpen, Box, CalendarDays,
+  AlertTriangle, ArrowRight, Award, Backpack, Bell, BookOpen, Box, CalendarDays,
   Check, ChevronDown, ChevronRight, CircleHelp, ClipboardList, Copy, Droplets, Flame, Heart,
   Download, History, Home, Lightbulb, MapPin, Minus, PackagePlus, Pencil, Phone,
   Plus, QrCode, Radio, RefreshCw, Route, Search, Settings, ShieldAlert, ShieldCheck, ShoppingBasket, Sparkles, Sun, Trash2, Trophy, Upload, Users, WifiOff, X, Zap,
@@ -303,31 +303,98 @@ function OptionsPanel({ state, setState, onClose, setToast }) {
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal compact-modal options-panel" role="dialog" aria-modal="true" aria-labelledby="options-title"><div className="modal-title"><div><span className="kicker">OPTIONS</span><h2 id="options-title">オプション</h2></div><button type="button" aria-label="オプションを閉じる" onClick={onClose}><X /></button></div><div className="option-household"><div><Users /><span><b>家族人数</b><small>備蓄日数の計算に使用します</small></span></div><div className="setup-stepper"><button autoFocus type="button" aria-label="家族人数を1人減らす" disabled={household <= 1} onClick={() => setHousehold((value) => Math.max(1, value - 1))}><Minus /></button><b>{household}<small>人</small></b><button type="button" aria-label="家族人数を1人増やす" disabled={household >= 12} onClick={() => setHousehold((value) => Math.min(12, value + 1))}><Plus /></button></div></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="button" className="primary-button" onClick={save}><Check />保存する</button></div></section></div>;
 }
 
+function SceneHouseGraphic() {
+  return <svg className="scene-illustration scene-house-graphic" viewBox="0 0 180 150" aria-hidden="true" focusable="false">
+    <ellipse className="scene-shadow" cx="90" cy="138" rx="70" ry="8" />
+    <rect className="house-chimney" x="119" y="25" width="18" height="38" rx="3" />
+    <path className="house-roof" d="M15 67 87 12l78 55-13 19-65-46-59 46Z" />
+    <path className="house-wall" d="M34 68h108v68H34z" />
+    <rect className="house-door" x="77" y="91" width="28" height="45" rx="4" />
+    <circle className="house-handle" cx="98" cy="114" r="2.5" />
+    <g className="house-window"><rect x="47" y="84" width="22" height="22" rx="4" /><path d="M58 84v22M47 95h22" /></g>
+    <g className="house-window"><rect x="114" y="84" width="18" height="22" rx="4" /><path d="M123 84v22M114 95h18" /></g>
+    <path className="house-step" d="M69 136h44l8 7H61Z" />
+  </svg>;
+}
+
+function SceneTravelerGraphic() {
+  return <svg className="scene-illustration scene-traveler-graphic" viewBox="0 0 150 180" aria-hidden="true" focusable="false">
+    <ellipse className="scene-shadow" cx="76" cy="167" rx="43" ry="7" />
+    <circle className="traveler-head" cx="77" cy="34" r="18" />
+    <path className="traveler-hair" d="M61 34c0-14 7-23 19-23 12 0 19 9 19 22-7-5-11-12-13-17-5 8-13 14-25 18Z" />
+    <path className="traveler-body" d="M61 54c7-5 26-5 33 0l8 60H53Z" />
+    <path className="traveler-leg" d="m64 109-8 47M91 109l9 47" />
+    <path className="traveler-arm" d="m58 65-19 40M96 65l18 39" />
+    <g className="traveler-backpack">
+      <path className="backpack-strap" d="M58 62c-9 3-12 13-12 28M94 62c9 3 12 13 12 28" />
+      <path className="backpack-body" d="M91 56c11 3 17 12 17 24v37c0 8-6 14-14 14H78V66c0-7 6-12 13-10Z" />
+      <path className="backpack-pocket" d="M84 97h24v22H84c-4 0-7-3-7-7v-8c0-4 3-7 7-7Z" />
+      <path className="backpack-glint" d="m92 66 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z" />
+    </g>
+  </svg>;
+}
+
+function SceneShelterGraphic() {
+  return <svg className="scene-illustration scene-shelter-graphic" viewBox="0 0 180 150" aria-hidden="true" focusable="false">
+    <ellipse className="scene-shadow" cx="90" cy="138" rx="70" ry="8" />
+    <path className="shelter-roof" d="M18 67 88 21l75 46-12 19-63-39-58 39Z" />
+    <path className="shelter-wall" d="M34 68h112v68H34z" />
+    <rect className="shelter-door" x="75" y="91" width="30" height="45" rx="4" />
+    <g className="shelter-window"><rect x="47" y="85" width="18" height="19" rx="3" /><path d="M56 85v19M47 94.5h18" /></g>
+    <g className="shelter-window"><rect x="116" y="85" width="18" height="19" rx="3" /><path d="M125 85v19M116 94.5h18" /></g>
+    <path className="shelter-sign" d="M72 57h35v23H72z" />
+    <g className="shelter-mark"><circle cx="82" cy="64" r="2.5" /><path d="M82 68v7m0-4 6 2m-6 2-5 3m5-3 5 4M91 68h10m-4-4 4 4-4 4" /></g>
+    <path className="shelter-flagpole" d="M143 23v43" />
+    <path className="shelter-flag" d="M144 25h23l-6 9 6 9h-23Z" />
+  </svg>;
+}
+
 function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef }) {
   const [targetOpen, setTargetOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [budgetOpen, setBudgetOpen] = useState(false);
-  const [calculationOpen, setCalculationOpen] = useState(false);
-  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const [shelterOpen, setShelterOpen] = useState(false);
   const defense = useMemo(() => defensePower(state, summary), [state, summary]);
   const essentialGates = useMemo(() => essentialPreparednessGates(state, summary), [state, summary]);
-  const unitNeeds = useMemo(() => stockpileUnitNeeds(state.inventory, state.household, defense.targetDays), [state.inventory, state.household, defense.targetDays]);
-  const foodNeeds = useMemo(() => stockpileUnitNeeds(state.inventory, state.household, 3), [state.inventory, state.household]);
-  const hygieneNeeds = useMemo(() => stockpileUnitNeeds(state.inventory, state.household, 7), [state.inventory, state.household]);
-  const waterNeed = unitNeeds.find((item) => item.key === 'water');
-  const foodNeed = foodNeeds.find((item) => item.key === 'food');
-  const toiletNeed = hygieneNeeds.find((item) => item.key === 'toilet');
-  const gasNeed = unitNeeds.find((item) => item.key === 'gas');
-  const stoveNeed = unitNeeds.find((item) => item.key === 'stove');
   const nextEssentialGate = essentialGates.gates.find((gate) => !gate.complete) || essentialGates.gates[0];
   const setTargetDays = (targetDays) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, targetDays: Math.min(180, Math.max(1, Number(targetDays) || 1)) } }));
   const stockpileDays = Number.isFinite(summary.householdStockpileDays) ? summary.householdStockpileDays : summary.survivalDays;
   const targetGap = Math.max(0, defense.targetDays - stockpileDays);
-  return <section className={`home-dashboard wrap${detailsOpen ? ' details-expanded' : ''}`} aria-label="防災ホーム">
+  const targetStatus = targetGap ? `目標まであと${formatDays(targetGap)}日分` : `${defense.targetDays}日目標を達成`;
+  const unmeasuredStock = [summary.waterItemsMissingVolume ? '内容量未登録の水' : '', summary.foodItemsMissingWeight ? '重量未登録の食料' : ''].filter(Boolean);
+  const calculationCaveat = unmeasuredStock.length ? `${unmeasuredStock.join('・')}は日数に含みません` : '';
+  const stockpileDescription = `生活継続の目安 ${formatDays(stockpileDays)}日分。${targetStatus}。水・食料・携帯トイレのうち最短${calculationCaveat ? `。${calculationCaveat}` : ''}`;
+  const shelterName = String(state.contact?.shelter || '').trim();
+  return <section className="home-dashboard wrap" aria-label="防災ホーム">
     <header className="home-heading">
       <div><span className="kicker">TODAY'S READINESS</span><h1>わが家の防災状況</h1></div>
       <div className="home-heading-actions"><button type="button" className="home-target-summary" aria-label={`備蓄日数の目標 ${defense.targetDays}日。変更する`} onClick={() => setTargetOpen(true)}><CalendarDays /><span><small>備蓄目標</small><b>{defense.targetDays}日</b></span><ChevronRight /></button><div className="household-summary" aria-label={`家族${state.household}人`}><Users /><b>{state.household}<small>人</small></b></div></div>
     </header>
+
+    <section className="readiness-scene" aria-labelledby="readiness-scene-title">
+      <header>
+        <div><span className="kicker">HOME TO SHELTER</span><h2 id="readiness-scene-title">自宅から避難先までの備え</h2></div>
+        <p>確認したい絵を選んでください</p>
+      </header>
+      <div className="readiness-route">
+        <span className="visually-hidden" id="home-stockpile-description">{stockpileDescription}</span>
+        <button type="button" className="scene-stop scene-home" aria-label="自宅の備蓄情報を開く" aria-describedby="home-stockpile-description" onClick={() => setPage('inventory')}>
+          <span className="home-stockpile-bubble"><small>生活継続の目安</small><strong>{formatDays(stockpileDays)}<em>日分</em></strong><span>{targetGap ? `目標まで あと${formatDays(targetGap)}日分` : `${defense.targetDays}日目標を達成`}</span><i>水・食料・携帯トイレのうち最短</i>{calculationCaveat && <u>{calculationCaveat}</u>}</span>
+          <SceneHouseGraphic />
+          <span className="scene-label"><b>わが家</b><small>備蓄を見る</small></span>
+        </button>
+        <span className="scene-route-line" aria-hidden="true"><i /><i /><ArrowRight /></span>
+        <button type="button" className="scene-stop scene-traveler" aria-label="避難バッグを自動で準備" onClick={() => setPage('bags')}>
+          <span className="bag-emphasis">BAG</span>
+          <SceneTravelerGraphic />
+          <span className="scene-label"><b>持ち出す備え</b><small>バッグを見る</small></span>
+        </button>
+        <span className="scene-route-line" aria-hidden="true"><i /><i /><ArrowRight /></span>
+        <button type="button" className="scene-stop scene-shelter" aria-label={shelterName ? `避難先の情報を開く。登録先 ${shelterName}` : '避難先の情報を開く。未登録'} onClick={() => setShelterOpen(true)}>
+          <SceneShelterGraphic />
+          <span className="scene-label"><b>{shelterName || '避難先候補'}</b><small>{shelterName ? '登録情報を見る' : '候補を登録する'}</small></span>
+        </button>
+      </div>
+      <p className="scene-safety-note"><ShieldAlert />危険時は備蓄より身の安全と、自治体などの公的情報を優先してください。</p>
+    </section>
 
     <details className={`priority-goals ${essentialGates.complete ? 'complete' : ''}`}>
       <summary><span className="priority-summary-copy"><span className="kicker">ESSENTIAL SAFETY GATES</span><b id="priority-goals-title">命と衛生の必須確認</b><small>{essentialGates.complete ? '必須条件は確認済み。定期的に見直せます' : `次は「${nextEssentialGate.label}」を確認`}</small></span><span className="priority-goals-count">{essentialGates.completeCount}<small> / {essentialGates.gates.length}</small></span><span className="disclosure-label">すべて見る<ChevronDown /></span></summary>
@@ -338,36 +405,32 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
       <p>{essentialGates.complete ? '必須条件を確認済みです。季節・家族構成・期限の変化に合わせて再点検してください。' : '平均点より先に、未確認の必須条件を一つずつ確認してください。'}</p>
     </details>
 
-    <div className="home-metrics">
-      <article className="survival-card">
-        <div className="metric-title"><span><Droplets />食料・水の備蓄</span><span className="metric-title-actions"><button type="button" onClick={() => setCalculationOpen(true)}><CircleHelp />計算方法</button><button onClick={() => setPage('inventory')}>備蓄を確認 <ArrowRight /></button></span></div>
-        <div className="survival-main"><div><small>生活継続の目安</small><strong>{formatDays(stockpileDays)}<em>日分</em></strong><p>{targetGap ? `目標まで あと${formatDays(targetGap)}日分` : `${defense.targetDays}日目標を達成`}</p></div><ShieldCheck /></div>
-        <button type="button" className="stockpile-detail-toggle" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><span><ClipboardList /><b>内訳と不足を確認</b><small>水・食料・トイレ・熱源・電源</small></span><ChevronDown /></button>
-        {detailsOpen && <div className="home-stockpile-details"><div className="supply-days">
-          <div><span><Droplets />水<small>1人1日3L</small></span><b>{formatDays(summary.waterDays)}<small>日分</small></b><em className={waterNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{waterNeed.shortage ? `2Lボトル あと${waterNeed.shortage}本` : '目標量を確保'}</em><i><u style={{ width: `${defense.waterCoverage * 100}%` }} /></i></div>
-          <div><span><ShoppingBasket />食料<small>1人1日3食（重量日数は簡易換算）</small></span><b>{formatDays(summary.foodDays)}<small>日分</small></b><em className={foodNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{foodNeed.shortage ? `あと${foodNeed.shortage}食` : '目標量を確保'}</em><i><u style={{ width: `${defense.foodCoverage * 100}%` }} /></i></div>
-        </div><div className="home-stockpile-inline"><button type="button" aria-label="携帯トイレ7日分の目安" onClick={() => setBenchmarkOpen(true)}><Sparkles /><span><small>携帯トイレ</small><b>{formatDays(summary.toiletDays)}日分</b><em className={toiletNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{toiletNeed.shortage ? `7日目標まであと${toiletNeed.shortage}回分` : '7日分を確保'}</em></span><CircleHelp /></button><div className="heat-stock-summary"><Flame /><span><small>調理用熱源</small><b>ボンベ {gasNeed.current}</b><em className={gasNeed.shortage || stoveNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{gasNeed.shortage ? `あと${gasNeed.shortage}本` : 'ボンベ確保'}{stoveNeed.shortage ? '・コンロあと1台' : ''}</em></span></div><button type="button" onClick={() => setPage('power')}><Zap /><span><small>非常用電源</small><b>{state.powerPlan?.autonomyDays || 3}日条件で試算</b></span><ChevronRight /></button><p>主要備蓄の参考日数は水・食料・携帯トイレのうち最短の日数です。</p></div></div>}
-        <div className="home-stockpile-actions"><button type="button" onClick={() => setBudgetOpen(true)}><CalendarDays />備蓄計画を立てる</button></div>
-        {summary.foodItemsMissingWeight > 0 && <button className="food-weight-notice" onClick={() => setPage('inventory')}>重量未登録の食料が{summary.foodItemsMissingWeight}件あります <ChevronRight /></button>}
-      </article>
-
-      <article className="defense-card">
-        <div className="metric-title"><span><BadgeCheck />備えの進捗（参考）</span><button onClick={() => setPage('roadmap')}>詳細 <ArrowRight /></button></div>
-        <div className="defense-score"><div className="compact-score-ring" style={{ '--score': `${defense.score * 3.6}deg` }}><strong>{defense.score}<small>%</small></strong></div><div><span>目標 {defense.targetDays}日基準</span><h2>{defense.requiredStage.label}</h2><p>{defense.fulfilled} / {defense.requirementCount} 要件達成</p></div></div>
-        <div className="defense-next"><span>次の要件</span><b>{defense.nextTask?.title || (targetGap ? '水・食料を目標日数まで確保' : '登録項目を確認済み')}</b></div>
-      </article>
+    <div className="home-support-row">
+      <button type="button" className="home-progress-card" aria-label={`備えの進捗 ${defense.score}% の詳細を開く`} onClick={() => setPage('roadmap')}>
+        <span className="home-progress-ring" style={{ '--score': `${defense.score * 3.6}deg` }}><b>{defense.score}<small>%</small></b></span>
+        <span><small>備えの進捗（参考）</small><b>{defense.requiredStage.label}</b><em>次：{defense.nextTask?.title || (targetGap ? '水・食料を目標日数まで確保' : '登録項目を再確認')}</em></span><ArrowRight />
+      </button>
+      <nav className="home-utility-actions" aria-label="ホームのクイック操作">
+        <button ref={powerEntryRef} aria-label="停電時の電力を設計" onClick={() => setPage('power')}><Zap /><span><b>電力設計</b><small>蓄電池・太陽光</small></span><ChevronRight /></button>
+        <button className="quick-add" onClick={() => setModal('new')}><PackagePlus /><span><b>備蓄を追加</b><small>すぐに登録</small></span><Plus /></button>
+      </nav>
     </div>
-
-    <nav className="home-shortcuts" aria-label="ホームのクイック操作">
-      <button className="quick-bag" aria-label="避難バッグを自動で準備" onClick={() => setPage('bags')}><Backpack /><span><b>避難バッグ</b><small>在庫から自動選定</small></span><ChevronRight /></button>
-      <button ref={powerEntryRef} aria-label="停電時の電力を設計" onClick={() => setPage('power')}><Zap /><span><b>電力設計</b><small>蓄電池・太陽光</small></span><ChevronRight /></button>
-      <button className="quick-add" onClick={() => setModal('new')}><PackagePlus /><span><b>備蓄を追加</b><small>すぐに登録</small></span><Plus /></button>
-    </nav>
     {targetOpen && <TargetDaysDialog value={defense.targetDays} onClose={() => setTargetOpen(false)} onSave={(value) => { setTargetDays(value); setTargetOpen(false); }} />}
-    {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
-    {calculationOpen && <StockpileCalculationDialog summary={summary} items={state.inventory} household={state.household} targetDays={defense.targetDays} onClose={() => setCalculationOpen(false)} onAction={() => { setCalculationOpen(false); setPage('inventory'); }} />}
-    {benchmarkOpen && <PreparednessBenchmarkDialog kind="hygiene" onClose={() => setBenchmarkOpen(false)} />}
+    {shelterOpen && <ShelterInfoDialog contact={state.contact} onClose={() => setShelterOpen(false)} onOpenPlan={() => { setShelterOpen(false); setPage('plan'); }} />}
   </section>;
+}
+
+function ShelterInfoDialog({ contact, onClose, onOpenPlan }) {
+  const dialogRef = useRef(null);
+  const shelterName = String(contact?.shelter || '').trim();
+  useDialogClose(onClose, dialogRef);
+  return <div className="modal-backdrop shelter-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal compact-modal shelter-dialog" role="dialog" aria-modal="true" aria-labelledby="shelter-dialog-title">
+    <div className="modal-title"><div><span className="kicker">EVACUATION PLACE</span><h2 id="shelter-dialog-title">避難先候補の情報</h2></div><button type="button" aria-label="避難先情報を閉じる" onClick={onClose}><X /></button></div>
+    <div className={`shelter-dialog-readout${shelterName ? '' : ' missing'}`}><span><MapPin /></span><div><small>登録している避難・集合場所</small><strong>{shelterName || 'まだ登録されていません'}</strong></div></div>
+    <p><ShieldAlert />災害の種類や開設状況によって適切な避難先は変わります。この登録だけで判断せず、自治体などの最新情報を確認してください。</p>
+    {contact?.phone && <div className="shelter-contact"><Phone /><span><small>緊急連絡先</small><b>{contact.phone}</b></span></div>}
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>閉じる</button><button type="button" className="primary-button" onClick={onOpenPlan}><ClipboardList />緊急メモで確認・編集</button></div>
+  </section></div>;
 }
 
 function CharacterBubble({ state, summary, setState, setPage }) {
@@ -650,9 +713,34 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   const [consumeItem, setConsumeItem] = useState(null);
   const [calculationOpen, setCalculationOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
   const importRef = useRef(null);
   const insights = useMemo(() => transactionInsights(transactions), [transactions]);
   const budgetProjection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, state.preparedness?.annualBudget || 0), [state.inventory, state.household, state.preparedness?.targetDays, state.preparedness?.annualBudget]);
+  const inventoryDefense = useMemo(() => defensePower(state, summary), [state, summary]);
+  const dayGoalCoverage = {
+    water: inventoryDefense.waterCoverage,
+    food: inventoryDefense.foodCoverage,
+    hygiene: inventoryDefense.toiletCoverage,
+  };
+  const categories = Object.entries(CATEGORY_META).map(([key, meta]) => {
+    const categoryRows = summary.rows.filter((item) => item.category === key);
+    if (Object.hasOwn(dayGoalCoverage, key)) {
+      const score = dayGoalCoverage[key] >= 1 ? 100 : Math.min(99, Math.round(dayGoalCoverage[key] * 100));
+      const progressBasis = key === 'hygiene' ? `${inventoryDefense.targetDays}日目標（携帯トイレ）` : `${inventoryDefense.targetDays}日目標`;
+      return { key, ...meta, itemCount: categoryRows.length, targetConfigured: true, score, progressBasis };
+    }
+    const targetRows = categoryRows.filter((item) => Number(item.target) > 0);
+    const tierWeight = (tier) => ({ 1: 3, 2: 2, 3: 1 }[tier] || 1);
+    const totalWeight = targetRows.reduce((sum, item) => sum + tierWeight(item.tier), 0);
+    const scoreRatio = totalWeight ? targetRows.reduce((sum, item) => {
+      const coverage = item.isExpired ? 0 : Math.min(1, Math.max(0, Number(item.quantity) || 0) / Number(item.target));
+      return sum + coverage * tierWeight(item.tier);
+    }, 0) / totalWeight : 0;
+    const score = scoreRatio >= 1 ? 100 : Math.min(99, Math.round(scoreRatio * 100));
+    return { key, ...meta, itemCount: categoryRows.length, targetConfigured: targetRows.length > 0, score, progressBasis: '登録目標' };
+  });
+  const selectedCategory = categories.find((category) => category.key === filter) || null;
   const rows = summary.rows.filter((item) => (filter === 'all' || item.category === filter) && item.name.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3) || a.tier - b.tier || a.ratio - b.ratio);
   const rawRows = () => summary.rows.map(({ shortage, ratio, replenishmentCost, daysToExpiry, isExpiring, isExpired, daysToCheck, isCheckDue, priority, ...item }) => item);
   const adjust = (id, delta) => {
@@ -700,7 +788,21 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   return <section className="wrap page-section inventory-page">
     <div className="page-title"><h1>わが家の備蓄</h1><div className="page-actions"><button className="secondary-button" onClick={() => setPage('rolling')}><RefreshCw />ローリングストック計画</button><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
     <div className="summary-strip inventory-summary-strip"><div><span>主要備蓄の参考日数</span><b>{formatDays(summary.householdStockpileDays ?? summary.survivalDays)}日</b></div><div><span>{state.preparedness?.targetDays || 7}日目標まで</span><b>{budgetProjection.costComplete ? `約¥${budgetProjection.totalCost.toLocaleString()}` : '単価確認中'}</b></div><div><span>年間予算</span><b>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}</b></div><div className="inventory-summary-actions"><button type="button" aria-label="主要備蓄の参考日数と実物不足を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />日数と不足</button><button type="button" aria-label="年間購入計画を開く" onClick={() => setBudgetOpen(true)}><CalendarDays />購入計画</button></div></div>
-    <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="備蓄品を検索" /></label><div className="filters"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>すべて</button>{Object.entries(CATEGORY_META).map(([key, value]) => <button className={filter === key ? 'active' : ''} key={key} onClick={() => setFilter(key)}>{value.label}</button>)}</div></div>
+    <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
+      <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>水・食料・携帯トイレは設定日数への達成度、その他は期限切れ品を在庫量に数えない登録目標への達成度です。</p></div><button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><Box />全分類を表示</button></header>
+      <div className="inventory-category-grid" role="group" aria-label="備蓄カテゴリ">
+        {categories.map((category) => {
+          const progressLabel = category.targetConfigured ? `${category.score}%` : '目標未設定';
+          return <button type="button" className={filter === category.key ? 'active' : ''} aria-pressed={filter === category.key} aria-label={category.targetConfigured ? `${category.label}の備蓄を表示。${category.progressBasis}の達成度 ${category.score}%` : `${category.label}の備蓄を表示。目標未設定`} key={category.key} onClick={() => setFilter(category.key)}>
+            <LiquidCategoryIcon category={category.key} score={category.score} configured={category.targetConfigured} />
+            <span><b>{category.label}</b><small>{category.itemCount}品目</small></span>
+            <strong>{progressLabel}</strong>
+          </button>;
+        })}
+      </div>
+    </section>
+    {selectedCategory && <aside className="inventory-category-guidance" aria-live="polite"><span className="guidance-category-icon" style={{ '--category': selectedCategory.color }}><CategoryIcon category={selectedCategory.key} /></span><div><small>選択中・{selectedCategory.label}</small><b>{itemCategoryGuidance[selectedCategory.key].title}</b><p>{itemCategoryGuidance[selectedCategory.key].primary}</p></div>{selectedCategory.key === 'hygiene' && <button type="button" aria-label="携帯トイレ7日分の目安" onClick={() => setBenchmarkOpen(true)}><CircleHelp />目安を確認</button>}</aside>}
+    <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={selectedCategory ? `${selectedCategory.label}から検索` : '備蓄品を検索'} /></label>{selectedCategory && <button type="button" className="clear-category-filter" onClick={() => setFilter('all')}><X />分類選択を解除</button>}</div>
     <div className="inventory-list">
       {rows.map((item) => <article className="inventory-item" key={item.id}>
         {item.imageUrl ? <div className="product-thumb"><img src={item.imageUrl} alt="" /></div> : <div className="category-badge" style={{ '--category': CATEGORY_META[item.category]?.color }}><CategoryIcon category={item.category} /></div>}
@@ -716,6 +818,7 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     {consumeItem && <ConsumptionModal item={consumeItem} onClose={() => setConsumeItem(null)} onSave={consume} />}
     {calculationOpen && <StockpileCalculationDialog summary={summary} items={state.inventory} household={state.household} targetDays={state.preparedness?.targetDays || 7} onClose={() => setCalculationOpen(false)} onAction={() => { setFilter(summary.foodItemsMissingWeight ? 'food' : 'water'); setCalculationOpen(false); }} />}
     {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
+    {benchmarkOpen && <PreparednessBenchmarkDialog kind="hygiene" onClose={() => setBenchmarkOpen(false)} />}
   </section>;
 }
 
@@ -771,6 +874,35 @@ function BudgetPlannerDialog({ state, summary, setState, onClose }) {
 
 function CategoryIcon({ category }) {
   return category === 'water' ? <Droplets /> : category === 'heat' ? <Flame /> : category === 'light' ? <Zap /> : category === 'comfort' ? <Heart /> : category === 'hygiene' ? <Sparkles /> : <ShoppingBasket />;
+}
+
+const LIQUID_CATEGORY_GLYPHS = {
+  water: { shape: 'M32 5C25 17 14 29 14 40a18 18 0 0 0 36 0C50 29 39 17 32 5Z', details: ['M24 42c2 5 6 7 11 7'] },
+  food: { shape: 'M13 16h38l5 40H8l5-40Z', details: ['M17 25h30', 'M26 11h12l4 5H22l4-5Z', 'M27 37c3-5 7-5 10 0-3 5-7 5-10 0Z'] },
+  heat: { shape: 'M35 5c2 10-5 14-3 23 3-5 8-8 11-12 7 8 11 16 8 25-3 10-12 17-22 17S10 51 11 40c1-10 8-18 17-27 0 7 2 11 7 14 2-7 3-14 0-22Z', details: ['M33 35c6 7 5 15-1 19-6-3-8-9-5-15 1 4 3 5 6 6 1-4 1-7 0-10Z'] },
+  hygiene: { shape: 'M22 9h20v9h4a6 6 0 0 1 6 6v32H12V24a6 6 0 0 1 6-6h4V9Z', details: ['M22 18h20', 'M32 29v17', 'M23.5 37.5h17'] },
+  light: { shape: 'M32 5a20 20 0 0 0-12 36c3 2 4 5 4 8h16c0-3 1-6 4-8A20 20 0 0 0 32 5Z', details: ['M24 49h16', 'M26 55h12', 'M32 17v6', 'M19 24l5 3', 'M45 24l-5 3'] },
+  comfort: { shape: 'M32 56 10 35C-2 23 5 8 18 8c7 0 12 4 14 9 2-5 7-9 14-9 13 0 20 15 8 27L32 56Z', details: ['M19 19c4-3 8-2 10 1'] },
+};
+
+function LiquidCategoryIcon({ category, score, configured }) {
+  const fillLevel = configured ? Math.min(100, Math.max(0, Number(score) || 0)) : 0;
+  const glyph = LIQUID_CATEGORY_GLYPHS[category] || LIQUID_CATEGORY_GLYPHS.food;
+  const fillHeight = Number((fillLevel * 0.53).toFixed(1));
+  const fillY = Number((58 - fillHeight).toFixed(1));
+  const clipId = `liquid-category-${category}`;
+  return <span className={`liquid-category-icon${fillLevel === 0 ? ' empty' : ''}`} data-liquid-fill style={{ '--fill-level': `${fillLevel}%`, '--category': CATEGORY_META[category]?.color }} aria-hidden="true">
+    <svg viewBox="0 0 64 64" focusable="false">
+      <defs><clipPath id={clipId}><path d={glyph.shape} /></clipPath></defs>
+      <path className="liquid-glyph-base" d={glyph.shape} />
+      <g clipPath={`url(#${clipId})`}>
+        <rect className="liquid-glyph-fill" x="4" y={fillY} width="56" height={fillHeight} />
+        {fillLevel > 0 && <ellipse className="liquid-glyph-wave" cx="32" cy={fillY} rx="29" ry="2.5" />}
+      </g>
+      <path className="liquid-glyph-outline" d={glyph.shape} />
+      {glyph.details.map((detail) => <path className="liquid-glyph-detail" d={detail} key={detail} />)}
+    </svg>
+  </span>;
 }
 
 function ConsumptionModal({ item, onClose, onSave }) {

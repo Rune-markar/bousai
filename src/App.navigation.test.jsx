@@ -105,7 +105,7 @@ describe('電力設計ページの導線', () => {
     expect(within(priorities).getByRole('button', { name: '携帯トイレを確認する' })).toBeInTheDocument();
     expect(within(priorities).queryByText(/電気7日/)).not.toBeInTheDocument();
     expect(within(priorityDisclosure).getByText(/平均点より先に/)).toBeInTheDocument();
-    const referenceScore = screen.getByText('備えの進捗（参考）').closest('article');
+    const referenceScore = screen.getByText('備えの進捗（参考）').closest('.home-progress-card');
     expect(priorities.compareDocumentPosition(referenceScore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(within(priorities).getByRole('button', { name: '住まいの安全を確認する' }));
@@ -115,6 +115,115 @@ describe('電力設計ページの導線', () => {
     const furnitureMission = within(focusedCard).getByRole('heading', { name: '寝室と避難路の安全化' });
     expect(within(focusedCard).queryByRole('heading', { name: '地域の災害リスクを確認' })).not.toBeInTheDocument();
     await waitFor(() => expect(furnitureMission).toHaveFocus());
+  });
+
+  it('家・バッグ・避難先を一続きのグラフィックで案内し、避難先候補をその場で確認できる', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.contact = { ...saved.contact, shelter: '市立青葉小学校 体育館', phone: '090-0000-0000' };
+    saved.inventory = saved.inventory.map((item) => item.id === 'toilet' ? { ...item, quantity: 1 } : item);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+
+    const scene = screen.getByRole('region', { name: '自宅から避難先までの備え' });
+    const house = within(scene).getByRole('button', { name: '自宅の備蓄情報を開く' });
+    const bag = within(scene).getByRole('button', { name: '避難バッグを自動で準備' });
+    const shelter = within(scene).getByRole('button', { name: '避難先の情報を開く。登録先 市立青葉小学校 体育館' });
+    expect(house).toHaveAccessibleDescription('生活継続の目安 0.1日分。目標まであと6.9日分。水・食料・携帯トイレのうち最短');
+    expect(house.compareDocumentPosition(bag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bag.compareDocumentPosition(shelter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    shelter.focus();
+    fireEvent.click(shelter);
+    const dialog = screen.getByRole('dialog', { name: '避難先候補の情報' });
+    expect(within(dialog).getByText('市立青葉小学校 体育館')).toBeInTheDocument();
+    expect(within(dialog).getByText(/開設状況/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '避難先情報を閉じる' }));
+    expect(shelter).toHaveFocus();
+  });
+
+  it('内容量を計算できない備蓄があると生活継続日数の注意を吹き出し内に表示する', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = saved.inventory.map((item) => item.id === 'water' ? { ...item, volumeMl: 0 } : item);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+
+    expect(screen.getByText('内容量未登録の水は日数に含みません')).toBeVisible();
+  });
+
+  it('家から備蓄を開き、水位つき分類アイコンで一覧を絞り込める', async () => {
+    render(<App />);
+    const house = screen.getByRole('button', { name: '自宅の備蓄情報を開く' });
+    fireEvent.click(house);
+
+    expect(window.location.hash).toBe('#/inventory');
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'わが家の備蓄' })).toHaveFocus());
+    const categories = screen.getByRole('group', { name: '備蓄カテゴリ' });
+    expect(within(categories).getAllByRole('button')).toHaveLength(6);
+    const water = within(categories).getByRole('button', { name: '水分の備蓄を表示。7日目標の達成度 21%' });
+    expect(water).toHaveAttribute('aria-pressed', 'false');
+    expect(within(water).getByText('21%')).toBeInTheDocument();
+    expect(water.querySelector('[data-liquid-fill]').style.getPropertyValue('--fill-level')).toBe('21%');
+    expect(water.querySelector('.liquid-glyph-fill')).toHaveAttribute('y', '46.9');
+
+    const food = within(categories).getByRole('button', { name: '食料の備蓄を表示。7日目標の達成度 21%' });
+    fireEvent.click(food);
+    expect(food).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { name: 'アルファ米' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '飲料水 500ml' })).not.toBeInTheDocument();
+  });
+
+  it('数量目標がない分類は在庫があっても水位を0%として目標未設定と伝える', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = saved.inventory.map((item) => item.category === 'comfort' ? { ...item, target: 0 } : item);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+
+    const comfort = screen.getByRole('button', { name: '快適の備蓄を表示。目標未設定' });
+    expect(within(comfort).getByText('目標未設定')).toBeInTheDocument();
+    expect(comfort.querySelector('[data-liquid-fill]').style.getPropertyValue('--fill-level')).toBe('0%');
+    expect(comfort.querySelector('[data-liquid-fill]')).toHaveClass('empty');
+  });
+
+  it('期限切れ在庫だけの分類は登録目標があっても達成率と水位を0%にする', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = saved.inventory.map((item) => item.category === 'water' ? { ...item, expiry: '2020-01-01' } : item);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+
+    const water = screen.getByRole('button', { name: '水分の備蓄を表示。7日目標の達成度 0%' });
+    expect(within(water).getByText('0%')).toBeInTheDocument();
+    expect(water.querySelector('[data-liquid-fill]').style.getPropertyValue('--fill-level')).toBe('0%');
+    expect(water.querySelector('[data-liquid-fill]')).toHaveClass('empty');
+  });
+
+  it('設定日数にわずかでも未達なら分類水位を100%に丸めない', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = saved.inventory.map((item) => item.id === 'water' ? { ...item, quantity: 83.9 } : item);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+
+    const water = screen.getByRole('button', { name: '水分の備蓄を表示。7日目標の達成度 99%' });
+    expect(water.querySelector('[data-liquid-fill]').style.getPropertyValue('--fill-level')).toBe('99%');
+  });
+
+  it('目標未設定の品目を同じ分類の達成率へ混ぜない', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = saved.inventory.map((item) => item.id === 'gas' ? { ...item, target: 0 } : item);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+
+    const heat = screen.getByRole('button', { name: '燃料の備蓄を表示。登録目標の達成度 0%' });
+    expect(heat.querySelector('[data-liquid-fill]').style.getPropertyValue('--fill-level')).toBe('0%');
   });
 
   it('ホームから専用ページを開き、戻るとホームへ戻る', () => {
@@ -166,7 +275,8 @@ describe('電力設計ページの導線', () => {
   it('ホームと常設ナビから避難バッグの自動選定へ直接移動できる', () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: '避難バッグを自動で準備' }));
+    const scene = screen.getByRole('region', { name: '自宅から避難先までの備え' });
+    fireEvent.click(within(scene).getByRole('button', { name: '避難バッグを自動で準備' }));
     expect(window.location.hash).toBe('#/bags');
     expect(screen.getByRole('heading', { name: '避難バッグを自動で準備' })).toBeInTheDocument();
     const purposeGuide = screen.getByText('2つのバッグの使い分け').closest('details');
@@ -364,7 +474,8 @@ describe('電力設計ページの導線', () => {
   it('72時間と携帯トイレ1週間の目安を関連箇所の補足で確認できる', () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: /内訳と不足を確認/ }));
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: /衛生の備蓄を表示/ }));
     fireEvent.click(screen.getByRole('button', { name: '携帯トイレ7日分の目安' }));
     let dialog = screen.getByRole('dialog', { name: '携帯トイレはまず1週間分' });
     expect(within(dialog).getByText('目標：1人35回分／週')).toBeInTheDocument();
