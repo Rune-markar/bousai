@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowRight, Award, Backpack, BadgeCheck, Bell, BookOpen, Box, CalendarDays,
-  Check, ChevronRight, CircleHelp, ClipboardList, Copy, Droplets, Flame, Heart,
+  Check, ChevronDown, ChevronRight, CircleHelp, ClipboardList, Copy, Droplets, Flame, Heart,
   Download, History, Home, Lightbulb, MapPin, Minus, PackagePlus, Pencil, Phone,
   Plus, QrCode, Radio, RefreshCw, Route, Search, Settings, ShieldAlert, ShieldCheck, ShoppingBasket, Sparkles, Sun, Trash2, Trophy, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
@@ -278,39 +278,35 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
   const toiletNeed = hygieneNeeds.find((item) => item.key === 'toilet');
   const gasNeed = unitNeeds.find((item) => item.key === 'gas');
   const stoveNeed = unitNeeds.find((item) => item.key === 'stove');
+  const nextEssentialGate = essentialGates.gates.find((gate) => !gate.complete) || essentialGates.gates[0];
   const setTargetDays = (targetDays) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, targetDays: Math.min(180, Math.max(1, Number(targetDays) || 1)) } }));
   const stockpileDays = Number.isFinite(summary.householdStockpileDays) ? summary.householdStockpileDays : summary.survivalDays;
   const targetGap = Math.max(0, defense.targetDays - stockpileDays);
   return <section className={`home-dashboard wrap${detailsOpen ? ' details-expanded' : ''}`} aria-label="防災ホーム">
     <header className="home-heading">
       <div><span className="kicker">TODAY'S READINESS</span><h1>わが家の防災状況</h1></div>
-      <div className="household-summary" aria-label={`家族${state.household}人`}><Users /><b>{state.household}<small>人</small></b></div>
+      <div className="home-heading-actions"><button type="button" className="home-target-summary" aria-label={`備蓄日数の目標 ${defense.targetDays}日。変更する`} onClick={() => setTargetOpen(true)}><CalendarDays /><span><small>備蓄目標</small><b>{defense.targetDays}日</b></span><ChevronRight /></button><div className="household-summary" aria-label={`家族${state.household}人`}><Users /><b>{state.household}<small>人</small></b></div></div>
     </header>
 
-    <section className={`priority-goals ${essentialGates.complete ? 'complete' : ''}`} aria-labelledby="priority-goals-title">
-      <header><div><span className="kicker">ESSENTIAL SAFETY GATES</span><h2 id="priority-goals-title">命と衛生の必須確認</h2></div><span className="priority-goals-count">{essentialGates.completeCount}<small> / {essentialGates.gates.length} 確認</small></span></header>
-      <div className="priority-goal-grid">{essentialGates.gates.map((gate) => {
+    <details className={`priority-goals ${essentialGates.complete ? 'complete' : ''}`}>
+      <summary><span className="priority-summary-copy"><span className="kicker">ESSENTIAL SAFETY GATES</span><b id="priority-goals-title">命と衛生の必須確認</b><small>{essentialGates.complete ? '必須条件は確認済み。定期的に見直せます' : `次は「${nextEssentialGate.label}」を確認`}</small></span><span className="priority-goals-count">{essentialGates.completeCount}<small> / {essentialGates.gates.length}</small></span><span className="disclosure-label">すべて見る<ChevronDown /></span></summary>
+      <div className="priority-goal-grid" role="region" aria-labelledby="priority-goals-title">{essentialGates.gates.map((gate) => {
         const Icon = gate.key === 'home' ? ShieldCheck : gate.key === 'risk' ? MapPin : gate.key === 'contact' ? Phone : gate.key === 'medicine' ? Heart : gate.key === 'water' ? Droplets : gate.key === 'toilet' ? Sparkles : Lightbulb;
         return <button type="button" className={gate.complete ? 'complete' : ''} key={gate.key} aria-label={`${gate.label}を確認する`} onClick={() => setPage(gate.page)}><span className={`priority-goal-icon ${gate.key}`}><Icon /></span><span><small>{gate.label}</small><b>{gate.detail}</b><em>{gate.statusLabel}</em></span><strong>{gate.complete ? <Check /> : <ArrowRight />}{gate.complete ? '確認済み' : '確認する'}</strong></button>;
       })}</div>
       <p>{essentialGates.complete ? '必須条件を確認済みです。季節・家族構成・期限の変化に合わせて再点検してください。' : '平均点より先に、未確認の必須条件を一つずつ確認してください。'}</p>
-    </section>
-
-    <div className="target-day-control secondary-target-control">
-      <span><CalendarDays />備蓄日数の目標</span>
-      <button type="button" className="target-day-open" onClick={() => setTargetOpen(true)}><b>{defense.targetDays}</b>日 <span>変更</span><ChevronRight /></button>
-    </div>
+    </details>
 
     <div className="home-metrics">
       <article className="survival-card">
         <div className="metric-title"><span><Droplets />食料・水の備蓄</span><span className="metric-title-actions"><button type="button" onClick={() => setCalculationOpen(true)}><CircleHelp />計算方法</button><button onClick={() => setPage('inventory')}>備蓄を確認 <ArrowRight /></button></span></div>
         <div className="survival-main"><div><small>生活継続の目安</small><strong>{formatDays(stockpileDays)}<em>日分</em></strong><p>{targetGap ? `目標まで あと${formatDays(targetGap)}日分` : `${defense.targetDays}日目標を達成`}</p></div><ShieldCheck /></div>
-        <div className="supply-days">
+        <button type="button" className="stockpile-detail-toggle" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><span><ClipboardList /><b>内訳と不足を確認</b><small>水・食料・トイレ・熱源・電源</small></span><ChevronDown /></button>
+        {detailsOpen && <div className="home-stockpile-details"><div className="supply-days">
           <div><span><Droplets />水<small>1人1日3L</small></span><b>{formatDays(summary.waterDays)}<small>日分</small></b><em className={waterNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{waterNeed.shortage ? `2Lボトル あと${waterNeed.shortage}本` : '目標量を確保'}</em><i><u style={{ width: `${defense.waterCoverage * 100}%` }} /></i></div>
           <div><span><ShoppingBasket />食料<small>1人1日3食（重量日数は簡易換算）</small></span><b>{formatDays(summary.foodDays)}<small>日分</small></b><em className={foodNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{foodNeed.shortage ? `あと${foodNeed.shortage}食` : '目標量を確保'}</em><i><u style={{ width: `${defense.foodCoverage * 100}%` }} /></i></div>
-        </div>
-        <div className="home-stockpile-actions"><button type="button" onClick={() => setBudgetOpen(true)}><CalendarDays />備蓄計画を立てる</button><button type="button" onClick={() => setDetailsOpen((open) => !open)}>トイレ・非常用電源も確認 <ChevronRight /></button></div>
-        {detailsOpen && <div className="home-stockpile-inline"><button type="button" aria-label="携帯トイレ7日分の目安" onClick={() => setBenchmarkOpen(true)}><Sparkles /><span><small>携帯トイレ</small><b>{formatDays(summary.toiletDays)}日分</b><em className={toiletNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{toiletNeed.shortage ? `7日目標まであと${toiletNeed.shortage}回分` : '7日分を確保'}</em></span><CircleHelp /></button><div className="heat-stock-summary"><Flame /><span><small>調理用熱源</small><b>ボンベ {gasNeed.current}</b><em className={gasNeed.shortage || stoveNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{gasNeed.shortage ? `あと${gasNeed.shortage}本` : 'ボンベ確保'}{stoveNeed.shortage ? '・コンロあと1台' : ''}</em></span></div><button type="button" onClick={() => setPage('power')}><Zap /><span><small>非常用電源</small><b>{state.powerPlan?.autonomyDays || 3}日条件で試算</b></span><ChevronRight /></button><p>主要備蓄の参考日数は水・食料・携帯トイレのうち最短の日数です。</p></div>}
+        </div><div className="home-stockpile-inline"><button type="button" aria-label="携帯トイレ7日分の目安" onClick={() => setBenchmarkOpen(true)}><Sparkles /><span><small>携帯トイレ</small><b>{formatDays(summary.toiletDays)}日分</b><em className={toiletNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{toiletNeed.shortage ? `7日目標まであと${toiletNeed.shortage}回分` : '7日分を確保'}</em></span><CircleHelp /></button><div className="heat-stock-summary"><Flame /><span><small>調理用熱源</small><b>ボンベ {gasNeed.current}</b><em className={gasNeed.shortage || stoveNeed.shortage ? 'resource-shortage' : 'resource-ready'}>{gasNeed.shortage ? `あと${gasNeed.shortage}本` : 'ボンベ確保'}{stoveNeed.shortage ? '・コンロあと1台' : ''}</em></span></div><button type="button" onClick={() => setPage('power')}><Zap /><span><small>非常用電源</small><b>{state.powerPlan?.autonomyDays || 3}日条件で試算</b></span><ChevronRight /></button><p>主要備蓄の参考日数は水・食料・携帯トイレのうち最短の日数です。</p></div></div>}
+        <div className="home-stockpile-actions"><button type="button" onClick={() => setBudgetOpen(true)}><CalendarDays />備蓄計画を立てる</button></div>
         {summary.foodItemsMissingWeight > 0 && <button className="food-weight-notice" onClick={() => setPage('inventory')}>重量未登録の食料が{summary.foodItemsMissingWeight}件あります <ChevronRight /></button>}
       </article>
 
@@ -450,14 +446,15 @@ function EvacuationBags({ state, setState, setToast, setPage }) {
   return <section className="wrap page-section evacuation-bags-page">
     <div className="page-title bag-page-title"><div><span className="kicker">EVACUATION BAG PLANNER</span><h1>避難バッグを自動で準備</h1><p>登録済みの備蓄・家族人数・バッグ容量から、持出品の参考案を作ります。</p></div><button type="button" className="secondary-button" onClick={() => setPage('inventory')}><Box />備蓄を確認・追加</button></div>
 
-    <section className="bag-purpose-guide" aria-labelledby="bag-purpose-title">
-      <header><span className="kicker">PURPOSE FIRST</span><h2 id="bag-purpose-title">2つのバッグは、持ち出すタイミングとゴールが違います</h2><p>先に「何のためのバッグか」を決めると、詰めすぎや必需品の抜けを防げます。</p></header>
-      <div className="bag-purpose-steps">
+    <details className="bag-purpose-guide">
+      <summary><span><span className="kicker">PURPOSE FIRST</span><b id="bag-purpose-title">2つのバッグの使い分け</b><small>一時避難はすぐ逃げる軽さ、二次避難は安全確認後の生活用品</small></span><span className="disclosure-label">詳しく見る<ChevronDown /></span></summary>
+      <div className="bag-purpose-content" role="region" aria-labelledby="bag-purpose-title"><div className="bag-purpose-steps">
         <article className="primary-purpose"><span>01</span><div><small>一時避難（一次持ち出し）</small><h3>危険から即座に逃げる</h3><p>災害が発生した、または危険が迫ったとき、自宅から最寄りの安全な避難場所まで移動するために持ちます。</p><b>目安：迷わず背負って、すぐ出発できる量</b></div></article>
         <article className="secondary-purpose"><span>02</span><div><small>二次避難（二次持ち出し）</small><h3>避難先で数日を過ごす</h3><p>緊急性が落ち着き、自宅と移動経路の安全を確認できた場合に追加で持ち出し、避難所などで生活するために使います。</p><b>目安：水・食料・衛生品など数日分の生活用品</b></div></article>
       </div>
       <p className="bag-return-warning"><AlertTriangle /><span><b>荷物を取りに危険な場所へ戻らない</b>自宅や経路の安全を確認できない場合は帰宅せず、一時避難バッグで避難を続けてください。</span></p>
-    </section>
+      </div>
+    </details>
 
     <aside className="bag-auto-note" aria-label="自動選定の仕組み"><Sparkles /><div><b>在庫を更新すると、バッグの中身も自動で再計算</b><span>一時避難を先に確保し、二次避難には残りの在庫を割り当てます。期限が近く、重要度の高い備蓄を優先します。</span></div></aside>
 
@@ -573,8 +570,8 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
       {focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).length > 0 && <details className="stage-more"><summary>この段階の全項目を見る <span>{focusedStage.total}項目</span></summary><div className="mission-list">{focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).map((task) => missionCard(task))}</div></details>}
     </section>
 
-    <section className="roadmap-overview" aria-labelledby="roadmap-overview-title">
-      <header className="roadmap-overview-head"><span><Route /><b id="roadmap-overview-title">6段階の防災マップ</b><small>現在地と、この先に必要な備えを一度に確認できます</small></span><em>{completedStages} / 6 段階達成</em></header>
+    <details className="roadmap-overview">
+      <summary className="roadmap-overview-head"><span><Route /><b id="roadmap-overview-title">6段階の防災マップ</b><small>現在地と、この先に必要な備えを確認</small></span><em>{completedStages} / 6 段階達成</em><span className="disclosure-label">全体を見る<ChevronDown /></span></summary>
       <div className="roadmap-overview-body">
         <div className="stage-flow" role="list" aria-label="防災力の段階">
           {progress.stages.map((stage, index) => <div className="stage-flow-unit" key={stage.id}>
@@ -593,7 +590,7 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
         </section>
         <section className="achievement-section"><div className="section-heading compact"><div><span className="kicker">ACHIEVEMENTS</span><h2>獲得した防災章</h2></div><Trophy /></div><div className="achievement-row">{progress.stages.map((stage) => <div className={`achievement ${stage.gateClear ? 'earned' : ''}`} key={stage.id}><span><StageIcon name={stage.icon} /></span><b>{stage.title}</b><small>{stage.gateClear ? '獲得済み' : '未獲得'}</small></div>)}</div></section>
       </div>
-    </section>
+    </details>
     {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} />}
   </section>;
 }
@@ -748,7 +745,7 @@ function EmergencyPlan({ state, summary, setState, setToast }) {
       <article><Phone /><span>緊急連絡先</span>{state.contact.phone ? <a href={`tel:${state.contact.phone.replace(/[^\d+]/g, '')}`}>{state.contact.phone}</a> : <b className="missing">未登録</b>}</article>
       <article><ClipboardList /><span>家族への伝言・連絡ルール</span><b>{state.contact.note || '未登録'}</b></article>
     </section>
-    <section className="generated-plan"><div className="section-heading compact"><div><span className="kicker">OFFLINE PLAN</span><h2>備蓄と連絡の72時間計画</h2></div><div className="benchmark-heading-actions"><button type="button" className="benchmark-help-button" aria-label="72時間と家庭備蓄の説明" onClick={() => setBenchmarkOpen(true)}><CircleHelp /></button><ShieldCheck /></div></div><div className="plan-columns"><article><h3>発災直後</h3>{plan.immediate.map((item) => <p key={item}><Check />{item}</p>)}</article><article><h3>最初の72時間</h3>{plan.first72Hours.map((item) => <p key={item}><Check />{item}</p>)}</article></div>{plan.gaps.length ? <div className="plan-gaps"><b>先に埋めたい弱点</b>{plan.gaps.map((gap) => <span key={gap}><AlertTriangle />{gap}</span>)}</div> : <div className="stage-clear-message"><Check /><div><b>登録上の基礎条件を確認済み</b><span>実物と地域の最新情報を定期的に見直してください。</span></div></div>}</section>
+    <details className="generated-plan compact-disclosure"><summary><span><span className="kicker">OFFLINE PLAN</span><b>備蓄と連絡の72時間計画</b><small>{plan.gaps.length ? `先に埋めたい弱点 ${plan.gaps.length}件` : '登録上の基礎条件を確認済み'}</small></span><span className="disclosure-label">計画を見る<ChevronDown /></span></summary><div className="generated-plan-content"><div className="section-heading compact"><div><h2>端末に保存された行動計画</h2></div><div className="benchmark-heading-actions"><button type="button" className="benchmark-help-button" aria-label="72時間と家庭備蓄の説明" onClick={() => setBenchmarkOpen(true)}><CircleHelp /></button><ShieldCheck /></div></div><div className="plan-columns"><article><h3>発災直後</h3>{plan.immediate.map((item) => <p key={item}><Check />{item}</p>)}</article><article><h3>最初の72時間</h3>{plan.first72Hours.map((item) => <p key={item}><Check />{item}</p>)}</article></div>{plan.gaps.length ? <div className="plan-gaps"><b>先に埋めたい弱点</b>{plan.gaps.map((gap) => <span key={gap}><AlertTriangle />{gap}</span>)}</div> : <div className="stage-clear-message"><Check /><div><b>登録上の基礎条件を確認済み</b><span>実物と地域の最新情報を定期的に見直してください。</span></div></div>}</div></details>
     <details className="emergency-editor"><summary><span><Pencil /><b>緊急メモを編集する</b><small>集合場所・連絡先・家族ルールを変更</small></span><ChevronRight /></summary><form className="card plan-form" onSubmit={(e) => { e.preventDefault(); setState((old) => ({ ...old, contact: draft })); setToast('緊急メモを端末に保存しました'); }}>
       <label><span><Users />メモの名前</span><input value={draft.name} onChange={(e) => set('name', e.target.value)} /></label>
       <label><span><MapPin />避難・集合場所</span><input value={draft.shelter} onChange={(e) => set('shelter', e.target.value)} placeholder="例：〇〇小学校 体育館" /></label>
@@ -756,7 +753,7 @@ function EmergencyPlan({ state, summary, setState, setToast }) {
       <label><span><ClipboardList />家族への伝言・連絡ルール</span><textarea value={draft.note} onChange={(e) => set('note', e.target.value)} rows="5" /></label>
       <button className="primary-button" type="submit"><Check />この端末に保存</button>
     </form></details>
-    <section className="simulator"><div className="section-heading compact"><div><span className="kicker">STOCKPILE REFERENCE</span><h2>災害別の登録備蓄を確認</h2></div><Radio /></div><p className="simulation-disclaimer">地域リスク・建物安全・警報は評価していません。安全可否ではなく、登録済み備蓄の不足を探す参考表示です。</p><div className="simulator-controls"><label><span>想定</span><select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>{DISASTER_SCENARIOS.map((scenario) => <option value={scenario.id} key={scenario.id}>{scenario.name}</option>)}</select></label><label><span>継続日数</span><input type="number" min="1" max="14" value={days} onChange={(event) => setDays(event.target.value)} /></label></div><div className={`simulation-result status-${simulation.statusKey}`}><div><span>登録備蓄の参考充足度</span><b>{simulation.score}<small>%</small></b><em>{simulation.status}</em></div><section><h3>{simulation.scenario.name}・{simulation.days}日間</h3><p>{simulation.scenario.opening}</p><strong>{simulation.advice}</strong><div className="gap-chips">{simulation.criticalGaps.map((gap) => <span key={gap.key}>{CATEGORY_META[gap.key]?.label || gap.key} {gap.score}%</span>)}</div></section></div></section>
+    <details className="simulator compact-disclosure"><summary><span><span className="kicker">STOCKPILE REFERENCE</span><b>災害別の登録備蓄を確認</b><small>{simulation.scenario.name}・{simulation.days}日間は参考充足度 {simulation.score}%</small></span><span className="disclosure-label">条件を変える<ChevronDown /></span></summary><div className="simulator-content"><p className="simulation-disclaimer">地域リスク・建物安全・警報は評価していません。安全可否ではなく、登録済み備蓄の不足を探す参考表示です。</p><div className="simulator-controls"><label><span>想定</span><select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>{DISASTER_SCENARIOS.map((scenario) => <option value={scenario.id} key={scenario.id}>{scenario.name}</option>)}</select></label><label><span>継続日数</span><input type="number" min="1" max="14" value={days} onChange={(event) => setDays(event.target.value)} /></label></div><div className={`simulation-result status-${simulation.statusKey}`}><div><span>登録備蓄の参考充足度</span><b>{simulation.score}<small>%</small></b><em>{simulation.status}</em></div><section><h3>{simulation.scenario.name}・{simulation.days}日間</h3><p>{simulation.scenario.opening}</p><strong>{simulation.advice}</strong><div className="gap-chips">{simulation.criticalGaps.map((gap) => <span key={gap.key}>{CATEGORY_META[gap.key]?.label || gap.key} {gap.score}%</span>)}</div></section></div></div></details>
     <div className="offline-note"><Zap /><div><b>初回表示後はオフラインでも確認できます</b><span>アプリ本体と入力済みデータをこの端末に保存します。商品情報の新規照会には通信が必要です。</span></div></div>
     {benchmarkOpen && <PreparednessBenchmarkDialog kind="rescue" onClose={() => setBenchmarkOpen(false)} />}
   </section>;
@@ -939,7 +936,7 @@ function Learn({ completed, setState }) {
   const total = knowledgeSections.reduce((sum, section) => sum + section.tips.length, 0);
   return <section className="wrap page-section knowledge-page"><div className="page-title"><div><span className="kicker">PRACTICAL KNOWLEDGE</span><h1>備える前・災害時・被災後</h1><p>状況ごとに、迷わず確認できる知識へ整理しました。</p></div><span className="learn-count">{completed.length} / {total} 読了</span></div>
     <aside className="knowledge-sources"><b>公的な最新情報も確認</b><a href="https://www.bousai.go.jp/" target="_blank" rel="noreferrer">内閣府 防災情報</a><a href="https://www.bousai.metro.tokyo.lg.jp/1028747/" target="_blank" rel="noreferrer">東京都防災アプリ</a><a href="https://www.tfd.metro.tokyo.lg.jp/inf/youtube.html" target="_blank" rel="noreferrer">東京消防庁 防災動画</a></aside>
-    {knowledgeSections.map((section) => <section className="knowledge-section" key={section.id}><header><span className="kicker">{section.id.toUpperCase()}</span><h2>{section.title}</h2><p>{section.description}</p></header><div className="tips-grid">{section.tips.map(({ id, icon: Icon, title, text }, index) => { const done = completed.includes(id); return <article className={`tip-card ${done ? 'done' : ''}`} key={id}><div className="tip-number">{String(index + 1).padStart(2, '0')}</div><span className="tip-icon"><Icon /></span><h3>{title}</h3><p>{text}</p><button onClick={() => setState((old) => ({ ...old, completedTips: done ? old.completedTips.filter((x) => x !== id) : [...old.completedTips, id] }))}>{done ? <><Check /> 読了済み</> : <>読んだ <ArrowRight /></>}</button></article>; })}</div></section>)}
+    <div className="knowledge-sections">{knowledgeSections.map((section) => { const sectionDone = section.tips.filter((tip) => completed.includes(tip.id)).length; return <details className="knowledge-section" key={section.id}><summary><span><span className="kicker">{section.id.toUpperCase()}</span><b>{section.title}</b><small>{section.description}</small></span><em>{sectionDone} / {section.tips.length} 読了</em><span className="disclosure-label">開く<ChevronDown /></span></summary><div className="tips-grid">{section.tips.map(({ id, icon: Icon, title, text }, index) => { const done = completed.includes(id); return <article className={`tip-card ${done ? 'done' : ''}`} key={id}><div className="tip-number">{String(index + 1).padStart(2, '0')}</div><span className="tip-icon"><Icon /></span><h3>{title}</h3><p>{text}</p><button onClick={() => setState((old) => ({ ...old, completedTips: done ? old.completedTips.filter((x) => x !== id) : [...old.completedTips, id] }))}>{done ? <><Check /> 読了済み</> : <>読んだ <ArrowRight /></>}</button></article>; })}</div></details>; })}</div>
   </section>;
 }
 

@@ -65,13 +65,18 @@ describe('電力設計ページの導線', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
 
+    const priorityDisclosure = screen.getByText('すべて見る').closest('details');
+    expect(priorityDisclosure).not.toHaveAttribute('open');
+    expect(within(priorityDisclosure).getByText(/次は「住まいの安全」/)).toBeInTheDocument();
+    fireEvent.click(priorityDisclosure.querySelector('summary'));
+    expect(priorityDisclosure).toHaveAttribute('open');
     const priorities = screen.getByRole('region', { name: '命と衛生の必須確認' });
     expect(within(priorities).getAllByRole('button')).toHaveLength(7);
     expect(within(priorities).getByRole('button', { name: '住まいの安全を確認する' })).toBeInTheDocument();
     expect(within(priorities).getByRole('button', { name: '危険と避難先を確認する' })).toBeInTheDocument();
     expect(within(priorities).getByRole('button', { name: '携帯トイレを確認する' })).toBeInTheDocument();
     expect(within(priorities).queryByText(/電気7日/)).not.toBeInTheDocument();
-    expect(within(priorities).getByText(/平均点より先に/)).toBeInTheDocument();
+    expect(within(priorityDisclosure).getByText(/平均点より先に/)).toBeInTheDocument();
     const referenceScore = screen.getByText('備えの進捗（参考）').closest('article');
     expect(priorities.compareDocumentPosition(referenceScore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
@@ -131,7 +136,10 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(screen.getByRole('button', { name: '避難バッグを自動で準備' }));
     expect(window.location.hash).toBe('#/bags');
     expect(screen.getByRole('heading', { name: '避難バッグを自動で準備' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '2つのバッグは、持ち出すタイミングとゴールが違います' })).toBeInTheDocument();
+    const purposeGuide = screen.getByText('2つのバッグの使い分け').closest('details');
+    expect(purposeGuide).not.toHaveAttribute('open');
+    fireEvent.click(purposeGuide.querySelector('summary'));
+    expect(purposeGuide).toHaveAttribute('open');
     expect(screen.getByText('危険から即座に逃げる')).toBeInTheDocument();
     expect(screen.getByText('避難先で数日を過ごす')).toBeInTheDocument();
     expect(screen.getByText(/自宅や経路の安全を確認できない場合は帰宅せず/)).toBeInTheDocument();
@@ -140,6 +148,25 @@ describe('電力設計ページの導線', () => {
 
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     expect(within(desktopNavigation).getByRole('button', { name: '避難バッグ' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('情報量の多い主要ページは要点から詳細を段階的に開ける', () => {
+    render(<App />);
+    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
+
+    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '防災力' }));
+    const roadmap = screen.getByText('6段階の防災マップ').closest('details');
+    expect(roadmap).not.toHaveAttribute('open');
+    expect(screen.getByRole('heading', { name: 'いまは、これだけ' })).toBeInTheDocument();
+    fireEvent.click(roadmap.querySelector('summary'));
+    expect(roadmap).toHaveAttribute('open');
+
+    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '知る' }));
+    const prepare = screen.getByText('事前に整える').closest('details');
+    expect(prepare).not.toHaveAttribute('open');
+    fireEvent.click(prepare.querySelector('summary'));
+    expect(prepare).toHaveAttribute('open');
+    expect(within(prepare).getByText('水は1人1日3リットル')).toBeInTheDocument();
   });
 
   it('災害ごとの個別対策を確認し、地震の家具固定を保存できる', () => {
@@ -220,7 +247,7 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '緊急メモ' }));
     const flow = screen.getByRole('region', { name: '緊急時に確認する順序' });
     const readout = screen.getByRole('region', { name: '登録済みの緊急連絡情報' });
-    const actionPlan = screen.getByRole('heading', { name: '備蓄と連絡の72時間計画' }).closest('section');
+    const actionPlan = screen.getByText('備蓄と連絡の72時間計画').closest('details');
     const editor = screen.getByText('緊急メモを編集する').closest('details');
     expect(within(flow).getByText('身の安全を確保')).toBeInTheDocument();
     expect(within(flow).getByRole('link', { name: '気象庁 防災情報' })).toBeInTheDocument();
@@ -234,7 +261,7 @@ describe('電力設計ページの導線', () => {
   it('72時間と携帯トイレ1週間の目安を関連箇所の補足で確認できる', () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'トイレ・非常用電源も確認' }));
+    fireEvent.click(screen.getByRole('button', { name: /内訳と不足を確認/ }));
     fireEvent.click(screen.getByRole('button', { name: '携帯トイレ7日分の目安' }));
     let dialog = screen.getByRole('dialog', { name: '携帯トイレはまず1週間分' });
     expect(within(dialog).getByText('目標：1人35回分／週')).toBeInTheDocument();
@@ -243,6 +270,7 @@ describe('電力設計ページの導線', () => {
 
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '緊急メモ' }));
+    fireEvent.click(screen.getByText('備蓄と連絡の72時間計画').closest('summary'));
     fireEvent.click(screen.getByRole('button', { name: '72時間と家庭備蓄の説明' }));
     dialog = screen.getByRole('dialog', { name: '命をつなぐ72時間' });
     expect(within(dialog).getByText('目標：72時間以上')).toBeInTheDocument();
