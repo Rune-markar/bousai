@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
 import { createDefaultState, STORAGE_KEY } from './state.js';
@@ -27,6 +27,7 @@ describe('電力設計ページの導線', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -172,6 +173,36 @@ describe('電力設計ページの導線', () => {
     expect(food).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('heading', { name: 'アルファ米' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '飲料水 500ml' })).not.toBeInTheDocument();
+  });
+
+  it('水・食料・衛生を重点表示し、分類カードの長押しで意味を確認できる', () => {
+    vi.useFakeTimers();
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+    const categories = screen.getByRole('group', { name: '備蓄カテゴリ' });
+    const water = within(categories).getByRole('button', { name: '水分の備蓄を表示。7日目標の達成度 21%' });
+    const food = within(categories).getByRole('button', { name: '食料の備蓄を表示。7日目標の達成度 21%' });
+    const hygiene = within(categories).getByRole('button', { name: /衛生の備蓄を表示/ });
+    const heat = within(categories).getByRole('button', { name: /燃料の備蓄を表示/ });
+
+    for (const priority of [water, food, hygiene]) {
+      expect(priority).toHaveAttribute('data-priority', 'true');
+      expect(within(priority).getByText('重点')).toBeInTheDocument();
+      expect(within(priority).getByText('長押しで意味')).toBeInTheDocument();
+    }
+    expect(heat).not.toHaveAttribute('data-priority');
+
+    act(() => vi.runOnlyPendingTimers());
+    fireEvent.pointerDown(water, { pointerType: 'touch', button: 0 });
+    act(() => vi.advanceTimersByTime(600));
+    const dialog = screen.getByRole('dialog', { name: '水分の意味' });
+    expect(within(dialog).getByText('3L / 人・日')).toBeInTheDocument();
+    expect(within(dialog).getByText('飲料＋調理用')).toBeInTheDocument();
+    expect(within(dialog).getByText('生活用水')).toBeInTheDocument();
+    expect(within(dialog).getByText(/生活用水は3Lに含まれない/)).toBeInTheDocument();
+    expect(water).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(within(dialog).getByRole('button', { name: '確認しました' }));
+    expect(water).toHaveFocus();
   });
 
   it('数量目標がない分類は在庫があっても水位を0%として目標未設定と伝える', () => {
@@ -362,13 +393,19 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByText('未設定')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
-    const dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    const dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     expect(within(dialog).getByRole('heading', { name: '今年、何から買うか' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: '予算を変えると、到達時期がすぐ変わります' })).toBeInTheDocument();
     expect(within(dialog).getByText('飲料水 500ml')).toBeInTheDocument();
     expect(within(dialog).getByText('アルファ米')).toBeInTheDocument();
     const annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
+    const initialChartPath = dialog.querySelector('.budget-line').getAttribute('d');
+    expect(within(dialog).getByRole('img', { name: /年間予算0円/ })).toBeInTheDocument();
     fireEvent.change(annualBudget, { target: { value: '10000' } });
     expect(annualBudget).toHaveValue(10000);
+    expect(within(dialog).getByRole('img', { name: /年間予算10,000円/ })).toBeInTheDocument();
+    expect(dialog.querySelector('.budget-line').getAttribute('d')).not.toBe(initialChartPath);
+    expect(within(dialog).getByText('1年後・水')).toBeInTheDocument();
     expect(within(dialog).getAllByText('今年買う').length).toBeGreaterThan(0);
   });
 
@@ -377,7 +414,7 @@ describe('電力設計ページの導線', () => {
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
     fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
-    let dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    let dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     let annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
 
     annualBudget.focus();
@@ -386,10 +423,10 @@ describe('電力設計ページの導線', () => {
     await waitFor(() => expect(annualBudget).toHaveFocus());
     fireEvent.keyDown(window, { key: 'Escape' });
 
-    expect(screen.queryByRole('dialog', { name: '年間予算で購入順を決める' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '予算で、いつ何を揃えるか' })).not.toBeInTheDocument();
     expect(screen.getByText('未設定')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
-    dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
     expect(annualBudget).toHaveValue(0);
   });
@@ -399,14 +436,14 @@ describe('電力設計ページの導線', () => {
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
     fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
-    let dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    let dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     fireEvent.change(within(dialog).getByLabelText(/毎年の備蓄予算/), { target: { value: '12000' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'この年間予算で保存' }));
 
-    expect(screen.queryByRole('dialog', { name: '年間予算で購入順を決める' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '予算で、いつ何を揃えるか' })).not.toBeInTheDocument();
     expect(screen.getByText('¥12,000')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
-    dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     expect(within(dialog).getByLabelText(/毎年の備蓄予算/)).toHaveValue(12000);
   });
 

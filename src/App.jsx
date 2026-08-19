@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle, ArrowRight, Award, Backpack, Bell, BookOpen, Box, CalendarDays,
+  AlertTriangle, ArrowLeft, ArrowRight, Award, Backpack, Bell, BookOpen, Box, CalendarDays,
   Check, ChevronDown, ChevronRight, CircleHelp, ClipboardList, Copy, Droplets, Flame, Heart,
   Download, History, Home, Lightbulb, MapPin, Minus, PackagePlus, Pencil, Phone,
   Plus, QrCode, Radio, RefreshCw, Route, Search, Settings, ShieldAlert, ShieldCheck, ShoppingBasket, Sparkles, Sun, Trash2, Trophy, Upload, Users, WifiOff, X, Zap,
@@ -306,13 +306,17 @@ function OptionsPanel({ state, setState, onClose, setToast }) {
 function SceneHouseGraphic() {
   return <svg className="scene-illustration scene-house-graphic" viewBox="0 0 180 150" aria-hidden="true" focusable="false">
     <ellipse className="scene-shadow" cx="90" cy="138" rx="70" ry="8" />
+    <path className="house-garden" d="M17 132c8-13 20-14 29 0m88 0c8-14 20-14 29 0" />
     <rect className="house-chimney" x="119" y="25" width="18" height="38" rx="3" />
     <path className="house-roof" d="M15 67 87 12l78 55-13 19-65-46-59 46Z" />
+    <path className="house-roof-highlight" d="M29 66 87 22l62 44" />
     <path className="house-wall" d="M34 68h108v68H34z" />
+    <path className="house-siding" d="M36 79h104M36 114h104" />
     <rect className="house-door" x="77" y="91" width="28" height="45" rx="4" />
+    <path className="house-door-panel" d="M83 98h16v11H83z" />
     <circle className="house-handle" cx="98" cy="114" r="2.5" />
-    <g className="house-window"><rect x="47" y="84" width="22" height="22" rx="4" /><path d="M58 84v22M47 95h22" /></g>
-    <g className="house-window"><rect x="114" y="84" width="18" height="22" rx="4" /><path d="M123 84v22M114 95h18" /></g>
+    <g className="house-window"><rect x="47" y="84" width="22" height="22" rx="4" /><path d="M58 84v22M47 95h22m3-7 9-4" /></g>
+    <g className="house-window"><rect x="114" y="84" width="18" height="22" rx="4" /><path d="M123 84v22M114 95h18m3-7 7-3" /></g>
     <path className="house-step" d="M69 136h44l8 7H61Z" />
   </svg>;
 }
@@ -320,6 +324,7 @@ function SceneHouseGraphic() {
 function SceneTravelerGraphic() {
   return <svg className="scene-illustration scene-traveler-graphic" viewBox="0 0 150 180" aria-hidden="true" focusable="false">
     <ellipse className="scene-shadow" cx="76" cy="167" rx="43" ry="7" />
+    <path className="traveler-motion" d="M109 75h17m-12 15h19m-22 15h13" />
     <circle className="traveler-head" cx="77" cy="34" r="18" />
     <path className="traveler-hair" d="M61 34c0-14 7-23 19-23 12 0 19 9 19 22-7-5-11-12-13-17-5 8-13 14-25 18Z" />
     <path className="traveler-body" d="M61 54c7-5 26-5 33 0l8 60H53Z" />
@@ -337,9 +342,13 @@ function SceneTravelerGraphic() {
 function SceneShelterGraphic() {
   return <svg className="scene-illustration scene-shelter-graphic" viewBox="0 0 180 150" aria-hidden="true" focusable="false">
     <ellipse className="scene-shadow" cx="90" cy="138" rx="70" ry="8" />
+    <path className="shelter-tree" d="M18 130V91m-13 20 13-28 13 28Z" />
     <path className="shelter-roof" d="M18 67 88 21l75 46-12 19-63-39-58 39Z" />
+    <path className="shelter-roof-highlight" d="M31 67 88 31l61 37" />
     <path className="shelter-wall" d="M34 68h112v68H34z" />
+    <path className="shelter-foundation" d="M29 136h122l7 8H22Z" />
     <rect className="shelter-door" x="75" y="91" width="30" height="45" rx="4" />
+    <path className="shelter-door-line" d="M90 92v44" />
     <g className="shelter-window"><rect x="47" y="85" width="18" height="19" rx="3" /><path d="M56 85v19M47 94.5h18" /></g>
     <g className="shelter-window"><rect x="116" y="85" width="18" height="19" rx="3" /><path d="M125 85v19M116 94.5h18" /></g>
     <path className="shelter-sign" d="M72 57h35v23H72z" />
@@ -371,7 +380,7 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
 
     <section className="readiness-scene" aria-labelledby="readiness-scene-title">
       <header>
-        <div><span className="kicker">HOME TO SHELTER</span><h2 id="readiness-scene-title">自宅から避難先までの備え</h2></div>
+        <div><span className="kicker">SHELTER ← HOME</span><h2 id="readiness-scene-title">自宅から避難先までの備え</h2></div>
         <p>確認したい絵を選んでください</p>
       </header>
       <div className="readiness-route">
@@ -381,13 +390,13 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
           <SceneHouseGraphic />
           <span className="scene-label"><b>わが家</b><small>備蓄を見る</small></span>
         </button>
-        <span className="scene-route-line" aria-hidden="true"><i /><i /><ArrowRight /></span>
+        <span className="scene-route-line route-home-to-bag" aria-hidden="true"><ArrowLeft /><i /><i /></span>
         <button type="button" className="scene-stop scene-traveler" aria-label="避難バッグを自動で準備" onClick={() => setPage('bags')}>
           <span className="bag-emphasis">BAG</span>
           <SceneTravelerGraphic />
           <span className="scene-label"><b>持ち出す備え</b><small>バッグを見る</small></span>
         </button>
-        <span className="scene-route-line" aria-hidden="true"><i /><i /><ArrowRight /></span>
+        <span className="scene-route-line route-bag-to-shelter" aria-hidden="true"><ArrowLeft /><i /><i /></span>
         <button type="button" className="scene-stop scene-shelter" aria-label={shelterName ? `避難先の情報を開く。登録先 ${shelterName}` : '避難先の情報を開く。未登録'} onClick={() => setShelterOpen(true)}>
           <SceneShelterGraphic />
           <span className="scene-label"><b>{shelterName || '避難先候補'}</b><small>{shelterName ? '登録情報を見る' : '候補を登録する'}</small></span>
@@ -714,6 +723,7 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   const [calculationOpen, setCalculationOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const [meaningCategory, setMeaningCategory] = useState(null);
   const importRef = useRef(null);
   const insights = useMemo(() => transactionInsights(transactions), [transactions]);
   const budgetProjection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, state.preparedness?.annualBudget || 0), [state.inventory, state.household, state.preparedness?.targetDays, state.preparedness?.annualBudget]);
@@ -791,13 +801,17 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
       <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>水・食料・携帯トイレは設定日数への達成度、その他は期限切れ品を在庫量に数えない登録目標への達成度です。</p></div><button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><Box />全分類を表示</button></header>
       <div className="inventory-category-grid" role="group" aria-label="備蓄カテゴリ">
+        <span className="visually-hidden" id="category-long-press-instruction">長押しすると分類の意味と備蓄目安を表示します。キーボードではIキーでも開けます。</span>
         {categories.map((category) => {
           const progressLabel = category.targetConfigured ? `${category.score}%` : '目標未設定';
-          return <button type="button" className={filter === category.key ? 'active' : ''} aria-pressed={filter === category.key} aria-label={category.targetConfigured ? `${category.label}の備蓄を表示。${category.progressBasis}の達成度 ${category.score}%` : `${category.label}の備蓄を表示。目標未設定`} key={category.key} onClick={() => setFilter(category.key)}>
-            <LiquidCategoryIcon category={category.key} score={category.score} configured={category.targetConfigured} />
-            <span><b>{category.label}</b><small>{category.itemCount}品目</small></span>
-            <strong>{progressLabel}</strong>
-          </button>;
+          return <InventoryCategoryButton
+            active={filter === category.key}
+            category={category}
+            key={category.key}
+            progressLabel={progressLabel}
+            onExplain={() => setMeaningCategory(category)}
+            onSelect={() => setFilter(category.key)}
+          />;
         })}
       </div>
     </section>
@@ -819,7 +833,93 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     {calculationOpen && <StockpileCalculationDialog summary={summary} items={state.inventory} household={state.household} targetDays={state.preparedness?.targetDays || 7} onClose={() => setCalculationOpen(false)} onAction={() => { setFilter(summary.foodItemsMissingWeight ? 'food' : 'water'); setCalculationOpen(false); }} />}
     {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
     {benchmarkOpen && <PreparednessBenchmarkDialog kind="hygiene" onClose={() => setBenchmarkOpen(false)} />}
+    {meaningCategory && <StockpileMeaningDialog category={meaningCategory} onClose={() => setMeaningCategory(null)} />}
   </section>;
+}
+
+const CATEGORY_LONG_PRESS_MS = 600;
+
+function InventoryCategoryButton({ active, category, progressLabel, onExplain, onSelect }) {
+  const timerRef = useRef(null);
+  const longPressedRef = useRef(false);
+  const isPriority = ['water', 'food', 'hygiene'].includes(category.key);
+  const clearLongPress = () => {
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  };
+  useEffect(() => () => {
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+  }, []);
+  const startLongPress = (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.currentTarget.focus({ preventScroll: true });
+    clearLongPress();
+    longPressedRef.current = false;
+    timerRef.current = window.setTimeout(() => {
+      longPressedRef.current = true;
+      onExplain();
+    }, CATEGORY_LONG_PRESS_MS);
+  };
+  const select = (event) => {
+    if (longPressedRef.current) {
+      event.preventDefault();
+      longPressedRef.current = false;
+      return;
+    }
+    onSelect();
+  };
+  const openFromKeyboard = (event) => {
+    if (event.key.toLowerCase() !== 'i' && event.key !== 'F1') return;
+    event.preventDefault();
+    clearLongPress();
+    onExplain();
+  };
+  const label = category.targetConfigured ? `${category.label}の備蓄を表示。${category.progressBasis}の達成度 ${category.score}%` : `${category.label}の備蓄を表示。目標未設定`;
+  return <button
+    type="button"
+    className={`${active ? 'active ' : ''}${isPriority ? `priority-category priority-${category.key}` : ''}`.trim()}
+    data-category={category.key}
+    data-priority={isPriority ? 'true' : undefined}
+    aria-pressed={active}
+    aria-label={label}
+    aria-describedby="category-long-press-instruction"
+    aria-haspopup="dialog"
+    aria-keyshortcuts="I F1"
+    onClick={select}
+    onContextMenu={(event) => { event.preventDefault(); clearLongPress(); onExplain(); }}
+    onKeyDown={openFromKeyboard}
+    onPointerDown={startLongPress}
+    onPointerUp={clearLongPress}
+    onPointerCancel={clearLongPress}
+    onPointerLeave={clearLongPress}
+  >
+    {isPriority && <em className="priority-category-mark">重点</em>}
+    <LiquidCategoryIcon category={category.key} score={category.score} configured={category.targetConfigured} />
+    <span><b>{category.label}</b><small>{category.itemCount}品目</small></span>
+    <strong>{progressLabel}</strong>
+    <em className="category-meaning-hint"><CircleHelp />長押しで意味</em>
+  </button>;
+}
+
+function StockpileMeaningDialog({ category, onClose }) {
+  const dialogRef = useRef(null);
+  const guidance = itemCategoryGuidance[category.key];
+  useDialogClose(onClose, dialogRef);
+  return <div className="modal-backdrop category-meaning-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section ref={dialogRef} className={`modal compact-modal category-meaning-dialog meaning-${category.key}`} role="dialog" aria-modal="true" aria-labelledby="category-meaning-title">
+      <div className="modal-title"><div><span className="kicker">WHY THIS MATTERS</span><h2 id="category-meaning-title">{category.label}の意味</h2></div><button type="button" aria-label="備蓄の意味を閉じる" onClick={onClose}><X /></button></div>
+      <div className="category-meaning-hero" style={{ '--category': category.color }}><span><CategoryIcon category={category.key} /></span><div><small>{guidance.title}</small><strong>{guidance.primary}</strong></div></div>
+      {category.key === 'water' && <div className="water-meaning-split" aria-label="1人1日3リットルと生活用水の区別">
+        <div><span>3L / 人・日</span><b>飲料＋調理用</b><small>命と食事に使う備蓄水</small></div>
+        <i aria-hidden="true">＋</i>
+        <div><span>別枠</span><b>生活用水</b><small>トイレ・洗濯・食品や食器の洗浄など</small></div>
+      </div>}
+      <p>{guidance.detail}</p>
+      {guidance.evidence && <a className="category-meaning-source" href={guidance.evidence.url} target="_blank" rel="noreferrer">根拠を確認：{guidance.evidence.label}<ArrowRight /></a>}
+      <small className="category-meaning-note">通常のタップではこの分類に絞り込みます。登録した内容量・数量・期限を基に達成度を計算します。</small>
+      <div className="modal-actions"><button type="button" className="primary-button" onClick={onClose}><Check />確認しました</button></div>
+    </section>
+  </div>;
 }
 
 function RollingStock({ state, summary, transactions, updateInventory, onBack }) {
@@ -859,6 +959,58 @@ function StockpileCalculationDialog({ summary, items, household, targetDays, onC
   return <div className="modal-backdrop calculation-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal calculation-dialog" role="dialog" aria-modal="true" aria-labelledby="calculation-title"><div className="modal-title"><div><span className="kicker">STOCKPILE REFERENCE</span><h2 id="calculation-title">主要備蓄の参考日数と不足</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><StockpileDaysPanel summary={summary} items={items} household={household} targetDays={targetDays} onAction={onAction} actionLabel="対象を絞り込む" /></section></div>;
 }
 
+function BudgetForecastChart({ projection, budget, duration }) {
+  const chart = { width: 480, height: 205, left: 58, right: 20, top: 30, bottom: 38 };
+  const plotWidth = chart.width - chart.left - chart.right;
+  const plotHeight = chart.height - chart.top - chart.bottom;
+  const completionMonths = projection.months || 0;
+  const horizonMonths = Math.max(12, completionMonths ? Math.ceil(completionMonths / 12) * 12 : 12);
+  const totalCost = Math.max(0, projection.totalCost);
+  const fundedAt = (month) => totalCost === 0 ? 0 : Math.min(totalCost, budget / 12 * month);
+  const pointAt = (month) => ({
+    x: chart.left + month / horizonMonths * plotWidth,
+    y: chart.top + plotHeight - (totalCost ? fundedAt(month) / totalCost * plotHeight : plotHeight),
+  });
+  const samples = Array.from({ length: 25 }, (_, index) => horizonMonths * index / 24).map(pointAt);
+  const linePath = samples.map((point, index) => `${index ? 'L' : 'M'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L${chart.left + plotWidth} ${chart.top + plotHeight} L${chart.left} ${chart.top + plotHeight} Z`;
+  const ticks = [0, horizonMonths / 2, horizonMonths];
+  const timeLabel = (months) => months === 0 ? '現在' : months < 12 ? `${Math.round(months)}か月` : Number.isInteger(months / 12) ? `${months / 12}年` : `${(months / 12).toFixed(1)}年`;
+  const yearFunding = Math.min(totalCost, budget);
+  const ariaLabel = !projection.costComplete
+    ? '備蓄予算の見通し。単価未登録の商品があるため、必要額と到達時期は未確定です。'
+    : totalCost === 0
+      ? `備蓄予算の見通し。${projection.targetDays}日分の目標を達成済みです。`
+      : `備蓄予算の見通し。必要額${totalCost.toLocaleString()}円、年間予算${budget.toLocaleString()}円、1年後の予算投入${Math.round(yearFunding).toLocaleString()}円、到達目安${duration}。`;
+  return <section className="budget-forecast" aria-labelledby="budget-forecast-title">
+    <header><div><span className="kicker">LIVE BUDGET FORECAST</span><h3 id="budget-forecast-title">予算を変えると、到達時期がすぐ変わります</h3></div><strong>{duration}</strong></header>
+    <div className="budget-chart-wrap">
+      <svg className="budget-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={ariaLabel}>
+        <defs><linearGradient id="budget-area-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#e4b84f" stopOpacity=".55" /><stop offset="1" stopColor="#e4b84f" stopOpacity=".08" /></linearGradient></defs>
+        <line className="budget-grid-line goal" x1={chart.left} x2={chart.left + plotWidth} y1={chart.top} y2={chart.top} />
+        <line className="budget-grid-line" x1={chart.left} x2={chart.left + plotWidth} y1={chart.top + plotHeight / 2} y2={chart.top + plotHeight / 2} />
+        <line className="budget-grid-line axis" x1={chart.left} x2={chart.left + plotWidth} y1={chart.top + plotHeight} y2={chart.top + plotHeight} />
+        {ticks.map((month) => { const x = chart.left + month / horizonMonths * plotWidth; return <g className="budget-axis-tick" key={month}><line x1={x} x2={x} y1={chart.top + plotHeight} y2={chart.top + plotHeight + 5} /><text x={x} y={chart.height - 9}>{timeLabel(month)}</text></g>; })}
+        <text className="budget-y-label goal" x={chart.left - 8} y={chart.top + 4}>{projection.costComplete ? `¥${totalCost.toLocaleString()}` : '未確定'}</text>
+        <text className="budget-y-label" x={chart.left - 8} y={chart.top + plotHeight + 4}>¥0</text>
+        {projection.costComplete && totalCost > 0 && <><path className="budget-area" d={areaPath} /><path className="budget-line" d={linePath} />{completionMonths > 0 && <g className="budget-completion-point"><circle cx={pointAt(completionMonths).x} cy={pointAt(completionMonths).y} r="6" /><text x={Math.min(pointAt(completionMonths).x, chart.left + plotWidth - 4)} y={pointAt(completionMonths).y - 11}>目標到達</text></g>}</>}
+      </svg>
+      {!projection.costComplete && <p className="budget-chart-empty"><AlertTriangle />不足商品の内容量・単価を登録するとグラフを表示できます</p>}
+      {projection.costComplete && totalCost === 0 && <p className="budget-chart-empty complete"><Check />設定した備蓄日数を達成済みです</p>}
+      {projection.costComplete && totalCost > 0 && budget === 0 && <p className="budget-chart-empty"><CalendarDays />年間予算を入力すると到達時期を描画します</p>}
+    </div>
+    <div className="budget-year-outcomes" aria-label="1年後の主要備蓄見込み">
+      {projection.resources.map((resource) => {
+        const plan = projection.annualPlan.find((item) => item.key === resource.key);
+        const quantityRatio = plan?.recommendation?.quantity ? plan.plannedQuantity / plan.recommendation.quantity : 0;
+        const projectedDays = Math.min(projection.targetDays, resource.currentDays + Math.max(0, projection.targetDays - resource.currentDays) * quantityRatio);
+        const status = resource.currentDays >= projection.targetDays ? '目標達成済み' : !resource.hasPrice ? '単価登録待ち' : budget === 0 ? '予算入力待ち' : `${formatDays(projectedDays)}日分へ`;
+        return <span key={resource.key}><small>1年後・{resource.label}</small><b>{formatDays(resource.currentDays)}日分 <ArrowRight /> {status}</b></span>;
+      })}
+    </div>
+  </section>;
+}
+
 function BudgetPlannerDialog({ state, summary, setState, onClose }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
@@ -869,7 +1021,7 @@ function BudgetPlannerDialog({ state, summary, setState, onClose }) {
     setState((old) => ({ ...old, preparedness: { ...old.preparedness, annualBudget: budget } }));
     onClose();
   };
-  return <div className="modal-backdrop budget-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal budget-dialog" role="dialog" aria-modal="true" aria-labelledby="budget-title"><div className="modal-title"><div><span className="kicker">ANNUAL PURCHASE PLAN</span><h2 id="budget-title">年間予算で購入順を決める</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><label className="annual-budget-input"><span>毎年の備蓄予算（円）<small>この金額の範囲で、優先度の高い物から割り当てます。</small></span><input autoFocus type="number" min="0" max="10000000" step="1000" value={budget} onChange={(event) => setBudget(Math.min(10000000, Math.max(0, Number(event.target.value) || 0)))} /></label><div className="budget-result"><span>備蓄目標<strong>{projection.targetDays}日分</strong></span><span>目標までの概算<strong>{projection.costComplete ? `¥${projection.totalCost.toLocaleString()}` : '単価登録が必要'}</strong></span><span>今年の購入予定<strong>¥{projection.plannedThisYear.toLocaleString()}</strong></span><span>到達目安<strong>{duration}</strong></span></div><section className="annual-purchase-plan" aria-labelledby="purchase-order-title"><header><div><span className="kicker">WHAT TO BUY FIRST</span><h3 id="purchase-order-title">今年、何から買うか</h3></div>{budget > 0 && <span>残り予算 ¥{projection.remainingAnnualBudget.toLocaleString()}</span>}</header>{projection.annualPlan.length ? <ol>{projection.annualPlan.map((item) => <li className={!item.hasPrice ? 'needs-price' : item.plannedQuantity === 0 ? 'deferred' : ''} key={item.key}><span className="purchase-order">{item.order}</span><span><small>{item.label}・現在 {formatDays(item.currentDays)}日分</small><b>{item.recommendation?.name || `${item.label}の商品`}</b><em>{item.recommendation ? `目標まで ${item.recommendation.quantity}${item.recommendation.unit}・単価 ¥${item.recommendation.unitPrice.toLocaleString()}` : '商品に内容量と単価を登録してください'}</em></span><strong>{budget === 0 ? '予算入力後に割当' : item.plannedQuantity > 0 ? <><small>今年買う</small>{item.plannedQuantity}{item.recommendation.unit}<em>¥{item.plannedCost.toLocaleString()}</em></> : item.hasPrice ? '翌年以降' : '単価未登録'}</strong></li>)}</ol> : <div className="empty-small"><Check />目標日数分を確保済みです</div>}</section><p className="dialog-note">主要備蓄の参考日数が短い分野を先にし、同じ場合は水・食料・携帯トイレの順で提案します。価格は登録済み商品の単価による概算です。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={save}><Check />この年間予算で保存</button></div></section></div>;
+  return <div className="modal-backdrop budget-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal budget-dialog" role="dialog" aria-modal="true" aria-labelledby="budget-title"><div className="modal-title"><div><span className="kicker">ANNUAL PURCHASE PLAN</span><h2 id="budget-title">予算で、いつ何を揃えるか</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><div className="budget-planner-top"><label className="annual-budget-input"><span>毎年の備蓄予算（円）<small>入力と同時に、グラフと1年後の見込みを更新します。</small></span><input autoFocus type="number" min="0" max="10000000" step="1000" value={budget} onChange={(event) => setBudget(Math.min(10000000, Math.max(0, Number(event.target.value) || 0)))} /></label><BudgetForecastChart projection={projection} budget={budget} duration={duration} /></div><div className="budget-result"><span>備蓄目標<strong>{projection.targetDays}日分</strong></span><span>目標までの概算<strong>{projection.costComplete ? `¥${projection.totalCost.toLocaleString()}` : '単価登録が必要'}</strong></span><span>今年の購入予定<strong>¥{projection.plannedThisYear.toLocaleString()}</strong></span><span>到達目安<strong>{duration}</strong></span></div><section className="annual-purchase-plan" aria-labelledby="purchase-order-title"><header><div><span className="kicker">WHAT TO BUY FIRST</span><h3 id="purchase-order-title">今年、何から買うか</h3></div>{budget > 0 && <span>残り予算 ¥{projection.remainingAnnualBudget.toLocaleString()}</span>}</header>{projection.annualPlan.length ? <ol>{projection.annualPlan.map((item) => <li className={!item.hasPrice ? 'needs-price' : item.plannedQuantity === 0 ? 'deferred' : ''} key={item.key}><span className="purchase-order">{item.order}</span><span><small>{item.label}・現在 {formatDays(item.currentDays)}日分</small><b>{item.recommendation?.name || `${item.label}の商品`}</b><em>{item.recommendation ? `目標まで ${item.recommendation.quantity}${item.recommendation.unit}・単価 ¥${item.recommendation.unitPrice.toLocaleString()}` : '商品に内容量と単価を登録してください'}</em></span><strong>{budget === 0 ? '予算入力後に割当' : item.plannedQuantity > 0 ? <><small>今年買う</small>{item.plannedQuantity}{item.recommendation.unit}<em>¥{item.plannedCost.toLocaleString()}</em></> : item.hasPrice ? '翌年以降' : '単価未登録'}</strong></li>)}</ol> : <div className="empty-small"><Check />目標日数分を確保済みです</div>}</section><p className="dialog-note">主要備蓄の参考日数が短い分野を先にし、同じ場合は水・食料・携帯トイレの順で提案します。グラフは登録済みの内容量・単価と一定の予算投入を前提にした概算で、価格変動や購入単位により実績は変わります。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={save}><Check />この年間予算で保存</button></div></section></div>;
 }
 
 function CategoryIcon({ category }) {

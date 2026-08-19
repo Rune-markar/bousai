@@ -23,12 +23,26 @@ describe('停電時の電力設計', () => {
     const { container } = render(<Planner />);
 
     const flow = screen.getByLabelText('太陽光から蓄電池を経由して負荷へ流れる電力');
-    expect(within(flow).getByText('太陽光パネル')).toBeInTheDocument();
-    expect(within(flow).getByText('蓄電池')).toBeInTheDocument();
-    expect(within(flow).getByRole('button', { name: /負荷を調整/ })).toBeInTheDocument();
+    const load = within(flow).getByRole('article', { name: '負荷' });
+    const battery = within(flow).getByRole('article', { name: '蓄電池' });
+    const solar = within(flow).getByRole('article', { name: '太陽光パネル' });
+    expect(Array.from(flow.querySelectorAll('.power-flow-node'))).toEqual([load, battery, solar]);
+    expect(within(load).getByRole('button', { name: /負荷を調整/ })).toBeInTheDocument();
+    expect(flow).toHaveAccessibleDescription(/左に電気を使う負荷.*中央に蓄電池.*右に太陽光パネル.*右から左へ流れます/);
+    expect(container.querySelector('.power-wire-pulse.solar-to-battery')).toHaveAttribute('d', 'M823 105 H500');
+    expect(container.querySelector('.power-wire-pulse.battery-to-load')).toHaveAttribute('d', 'M500 105 H177');
     expect(container.querySelectorAll('.power-wire-pulse')).toHaveLength(2);
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     expect(container.querySelector('.power-device-rail')).not.toBeInTheDocument();
+  });
+
+  it('電気の流れと主要値を黄色で重点表示する', () => {
+    const stylesheet = readFileSync('src/styles.css', 'utf8');
+
+    expect(stylesheet).toContain('--power-electric:#c47f00');
+    expect(stylesheet).toMatch(/\.power-wire-pulse\{[^}]*stroke:var\(--power-electric\)/s);
+    expect(stylesheet).toMatch(/\.power-flow-direction\{[^}]*background:var\(--power-electric-soft\)[^}]*color:var\(--power-electric-ink\)/s);
+    expect(stylesheet).toMatch(/\.power-results-dock b\{[^}]*color:var\(--power-electric-highlight\)/s);
   });
 
   it('各ノード直下に負荷、損失、入力、予備、必要容量と太陽光出力を具体値で示す', () => {
@@ -165,5 +179,6 @@ describe('停電時の電力設計', () => {
     expect(stylesheet).not.toMatch(/\.power-node-actions\s*\{[^}]*display\s*:\s*none/s);
     expect(stylesheet).toMatch(/\.power-node-actions button\s*\{[^}]*min-height\s*:\s*44px/s);
     expect(stylesheet).toMatch(/\.power-node-value \.power-help-button\s*\{[^}]*width\s*:\s*44px[^}]*height\s*:\s*44px/s);
+    expect(stylesheet).toMatch(/\.power-page \.power-settings \.power-setting-label \.power-help-button\s*\{[^}]*width\s*:\s*44px[^}]*height\s*:\s*44px/s);
   });
 });

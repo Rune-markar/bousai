@@ -61,33 +61,34 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
     </div>
 
     <div className="power-flow-viewport">
-      <section className="power-flow-stage" aria-label="太陽光から蓄電池を経由して負荷へ流れる電力">
+      <section className="power-flow-stage" aria-label="太陽光から蓄電池を経由して負荷へ流れる電力" aria-describedby="power-flow-layout-description">
+        <p className="visually-hidden" id="power-flow-layout-description">画面では、左に電気を使う負荷、中央に蓄電池、右に太陽光パネルを配置しています。電気は右から左へ流れます。</p>
         <div className="power-flow-line" aria-hidden="true">
           <svg viewBox="0 0 1000 210" preserveAspectRatio="none">
             <path className="power-wire-base" d="M177 105 H500 H823" />
-            <path className="power-wire-pulse pulse-one" d="M177 105 H500" />
-            <path className="power-wire-pulse pulse-two" d="M500 105 H823" />
+            <path className="power-wire-pulse solar-to-battery" d="M823 105 H500" />
+            <path className="power-wire-pulse battery-to-load" d="M500 105 H177" />
           </svg>
-          <span className="power-flow-direction"><Zap />発電した電気を充電して使う</span>
+          <span className="power-flow-direction"><Zap />負荷 ← 蓄電池 ← 太陽光</span>
         </div>
 
-        <article className="power-flow-node power-solar-node">
-          <div className="power-node-visual"><span><Sun /></span><div><small>つくる</small><h2>太陽光パネル</h2></div></div>
-          <div className="power-node-value"><span>必要な定格出力 <HelpButton label="太陽光発電条件の補足" helpId="solar-generation" onClick={(event) => openHelp('solar-generation', event)} /></span><b>{result.requiredSolarW} W</b><small>日照{result.plan.sunHours}時間・効率75%</small></div>
-          <button className="power-node-link" type="button" aria-label="太陽光価格の補足" onClick={(event) => openHelp('solar-price', event)}>価格の目安を見る <ChevronRight /></button>
+        <article className="power-flow-node power-load-node" aria-labelledby="power-load-title">
+          <button type="button" className="power-load-button" aria-label={`負荷を調整、現在${result.selected.length}種類`} onClick={(event) => openHelp('load-devices', event)}>
+            <span className="power-load-icon"><PlugZap /></span><span><small>つかう</small><strong id="power-load-title">負荷</strong><em>{result.selected.length}種類</em></span><ChevronRight />
+          </button>
+          <div className="power-node-value"><span>1日の使用電力量</span><b>{energy(result.dailyLoadWh)}</b><small>同時最大 {result.peakLoadW} W</small></div>
         </article>
 
-        <article className="power-flow-node power-battery-node">
-          <div className="power-node-visual"><span><BatteryCharging /></span><div><small>ためる</small><h2>蓄電池</h2></div></div>
+        <article className="power-flow-node power-battery-node" aria-labelledby="power-battery-title">
+          <div className="power-node-visual"><span><BatteryCharging /></span><div><small>ためる</small><h2 id="power-battery-title">蓄電池</h2></div></div>
           <div className="power-node-value"><span>必要な表示容量 <HelpButton label="蓄電池容量の補足" helpId="battery-capacity" onClick={(event) => openHelp('battery-capacity', event)} /></span><b>{energy(result.requiredBatteryWh)}</b><small>{result.plan.autonomyDays}日分・損失と予備を含む</small></div>
           <div className="power-node-actions"><button type="button" aria-label="蓄電池出力の補足" onClick={(event) => openHelp('battery-output', event)}>出力の確認</button><button type="button" aria-label="蓄電池価格の補足" onClick={(event) => openHelp('battery-price', event)}>価格の目安</button></div>
         </article>
 
-        <article className="power-flow-node power-load-node">
-          <button type="button" className="power-load-button" aria-label={`負荷を調整、現在${result.selected.length}種類`} onClick={(event) => openHelp('load-devices', event)}>
-            <span className="power-load-icon"><PlugZap /></span><span><small>つかう</small><strong>負荷</strong><em>{result.selected.length}種類</em></span><ChevronRight />
-          </button>
-          <div className="power-node-value"><span>1日の使用電力量</span><b>{energy(result.dailyLoadWh)}</b><small>同時最大 {result.peakLoadW} W</small></div>
+        <article className="power-flow-node power-solar-node" aria-labelledby="power-solar-title">
+          <div className="power-node-visual"><span><Sun /></span><div><small>つくる</small><h2 id="power-solar-title">太陽光パネル</h2></div></div>
+          <div className="power-node-value"><span>必要な定格出力 <HelpButton label="太陽光発電条件の補足" helpId="solar-generation" onClick={(event) => openHelp('solar-generation', event)} /></span><b>{result.requiredSolarW} W</b><small>日照{result.plan.sunHours}時間・効率75%</small></div>
+          <button className="power-node-link" type="button" aria-label="太陽光価格の補足" onClick={(event) => openHelp('solar-price', event)}>価格の目安を見る <ChevronRight /></button>
         </article>
       </section>
 
