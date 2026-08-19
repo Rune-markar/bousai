@@ -8,8 +8,8 @@ import { readFileSync } from 'node:fs';
 import PowerEcosystem from './PowerEcosystem.jsx';
 import { createDefaultPowerPlan } from './power.js';
 
-function Planner({ onChange = vi.fn() }) {
-  const [plan, setPlan] = useState(createDefaultPowerPlan());
+function Planner({ onChange = vi.fn(), initialPlan = createDefaultPowerPlan() }) {
+  const [plan, setPlan] = useState(initialPlan);
   return <PowerEcosystem plan={plan} onChange={(nextPlan) => {
     onChange(nextPlan);
     setPlan(nextPlan);
@@ -26,14 +26,73 @@ describe('停電時の電力設計', () => {
     const load = within(flow).getByRole('article', { name: '負荷' });
     const battery = within(flow).getByRole('article', { name: '蓄電池' });
     const solar = within(flow).getByRole('article', { name: '太陽光パネル' });
-    expect(Array.from(flow.querySelectorAll('.power-flow-node'))).toEqual([load, battery, solar]);
+    expect(Array.from(flow.querySelectorAll('.power-flow-node'))).toEqual([solar, battery, load]);
     expect(within(load).getByRole('button', { name: /負荷を調整/ })).toBeInTheDocument();
-    expect(flow).toHaveAccessibleDescription(/左に電気を使う負荷.*中央に蓄電池.*右に太陽光パネル.*右から左へ流れます/);
-    expect(container.querySelector('.power-wire-pulse.solar-to-battery')).toHaveAttribute('d', 'M823 105 H500');
-    expect(container.querySelector('.power-wire-pulse.battery-to-load')).toHaveAttribute('d', 'M500 105 H177');
+    expect(flow).toHaveAccessibleDescription(/左に太陽光パネル.*中央に蓄電池.*右に電気を使う負荷.*左から右へ流れます/);
+    expect(container.querySelector('.power-wire-pulse.solar-to-battery')).toHaveAttribute('d', 'M177 105 H500');
+    expect(container.querySelector('.power-wire-pulse.battery-to-load')).toHaveAttribute('d', 'M500 105 H823');
     expect(container.querySelectorAll('.power-wire-pulse')).toHaveLength(2);
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
     expect(container.querySelector('.power-device-rail')).not.toBeInTheDocument();
+  });
+
+  it('簡易と詳細で計算に使う値を明示し、選択状態を支援技術へ伝える', () => {
+    render(<Planner />);
+
+    const modeGroup = screen.getByRole('group', { name: '計算モード' });
+    const simple = within(modeGroup).getByRole('button', { name: '簡易' });
+    const detail = within(modeGroup).getByRole('button', { name: '詳細' });
+    const description = document.getElementById('power-mode-description');
+    expect(simple).toHaveAttribute('aria-pressed', 'true');
+    expect(detail).toHaveAttribute('aria-pressed', 'false');
+    expect(simple).toHaveAttribute('aria-controls', 'power-mode-description power-usage-summary');
+    expect(description).toHaveAttribute('data-mode', 'simple');
+    expect(description).toHaveAttribute('aria-live', 'polite');
+    expect(description).toHaveTextContent('簡易計算');
+    expect(description).toHaveTextContent('想定W・台数・1日の使用時間');
+    expect(description).toHaveTextContent('実測Wは使いません');
+
+    fireEvent.click(detail);
+    expect(simple).toHaveAttribute('aria-pressed', 'false');
+    expect(detail).toHaveAttribute('aria-pressed', 'true');
+    expect(description).toHaveAttribute('data-mode', 'detail');
+    expect(description).toHaveTextContent('詳細計算');
+    expect(description).toHaveTextContent('実測Wを優先');
+    expect(description).toHaveTextContent('未入力の機器は想定Wで補完');
+  });
+
+  it('機器別の1日使用量と全体比を可視化し、詳細値を保ったままモードを切り替える', () => {
+    const onChange = vi.fn();
+    const initialPlan = createDefaultPowerPlan();
+    initialPlan.mode = 'detail';
+    initialPlan.devices.phone.actualWatts = 18;
+    render(<Planner initialPlan={initialPlan} onChange={onChange} />);
+
+    const usage = screen.getByRole('region', { name: '1日の電気使用' });
+    expect(usage).toHaveAttribute('data-mode', 'detail');
+    expect(within(usage).getByText('408 Wh')).toBeInTheDocument();
+    expect(within(usage).getByText(/選択中4種類/).closest('.power-usage-lead')).toHaveTextContent('扇風機の200 Wh（全体の49%）');
+
+    let phoneUsage = within(usage).getByRole('progressbar', { name: 'スマートフォン' });
+    expect(phoneUsage).toHaveAttribute('value', '72');
+    expect(phoneUsage).toHaveAttribute('max', '408');
+    expect(phoneUsage).toHaveAttribute('aria-valuetext', '72 Wh、全体の18%');
+    expect(phoneUsage.closest('li')).toHaveTextContent('実測値 18 W × 2台 × 2時間');
+
+    const fanUsage = within(usage).getByRole('progressbar', { name: '扇風機' });
+    expect(fanUsage.closest('li')).toHaveTextContent('想定値（実測未入力） 25 W × 1台 × 8時間');
+
+    fireEvent.click(screen.getByRole('button', { name: '簡易' }));
+    expect(usage).toHaveAttribute('data-mode', 'simple');
+    expect(within(usage).getByText('384 Wh')).toBeInTheDocument();
+    phoneUsage = within(usage).getByRole('progressbar', { name: 'スマートフォン' });
+    expect(phoneUsage).toHaveAttribute('value', '48');
+    expect(phoneUsage).toHaveAttribute('max', '384');
+    expect(phoneUsage.closest('li')).toHaveTextContent('想定値 12 W × 2台 × 2時間');
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      mode: 'simple',
+      devices: expect.objectContaining({ phone: expect.objectContaining({ actualWatts: 18 }) }),
+    }));
   });
 
   it('電気の流れと主要値を黄色で重点表示する', () => {

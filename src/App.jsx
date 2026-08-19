@@ -16,6 +16,7 @@ import { completeLoadout, getLoadout, loadoutStatus, updateLoadout } from './loa
 import { autoPackInventory, bagSettings, updateBagSettings } from './packing.js';
 import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, respondToCharacter } from './characters.js';
 import { DISASTER_SCENARIOS, generateEmergencyPlan, simulateDisaster } from './emergency.js';
+import { buildStockpileGuideline, STOCKPILE_GUIDELINE_SOURCES } from './stockpileGuideline.js';
 
 const nav = [
   { id: 'home', label: 'ホーム', icon: Home },
@@ -305,35 +306,53 @@ function OptionsPanel({ state, setState, onClose, setToast }) {
 
 function SceneHouseGraphic() {
   return <svg className="scene-illustration scene-house-graphic" viewBox="0 0 180 150" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="house-roof-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#d7835b" /><stop offset="1" stopColor="#9f5237" /></linearGradient>
+      <linearGradient id="house-wall-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#fae9c7" /><stop offset="1" stopColor="#dfbf88" /></linearGradient>
+      <linearGradient id="house-window-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#e6fbff" /><stop offset="1" stopColor="#8fc8d0" /></linearGradient>
+    </defs>
     <ellipse className="scene-shadow" cx="90" cy="138" rx="70" ry="8" />
     <path className="house-garden" d="M17 132c8-13 20-14 29 0m88 0c8-14 20-14 29 0" />
     <rect className="house-chimney" x="119" y="25" width="18" height="38" rx="3" />
     <path className="house-roof" d="M15 67 87 12l78 55-13 19-65-46-59 46Z" />
     <path className="house-roof-highlight" d="M29 66 87 22l62 44" />
     <path className="house-wall" d="M34 68h108v68H34z" />
+    <path className="house-wall-shade" d="M88 68h54v68H88Z" />
+    <path className="house-eave" d="M28 84 87 40l65 44" />
     <path className="house-siding" d="M36 79h104M36 114h104" />
     <rect className="house-door" x="77" y="91" width="28" height="45" rx="4" />
     <path className="house-door-panel" d="M83 98h16v11H83z" />
     <circle className="house-handle" cx="98" cy="114" r="2.5" />
     <g className="house-window"><rect x="47" y="84" width="22" height="22" rx="4" /><path d="M58 84v22M47 95h22m3-7 9-4" /></g>
     <g className="house-window"><rect x="114" y="84" width="18" height="22" rx="4" /><path d="M123 84v22M114 95h18m3-7 7-3" /></g>
+    <path className="house-window-glint" d="m51 89 6-3m61 3 5-2" />
     <path className="house-step" d="M69 136h44l8 7H61Z" />
+    <path className="house-step-highlight" d="M69 136h44" />
   </svg>;
 }
 
 function SceneTravelerGraphic() {
   return <svg className="scene-illustration scene-traveler-graphic" viewBox="0 0 150 180" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="traveler-jacket-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#3b8675" /><stop offset="1" stopColor="#1e564b" /></linearGradient>
+      <linearGradient id="traveler-bag-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#f0ae51" /><stop offset="1" stopColor="#c56b26" /></linearGradient>
+    </defs>
     <ellipse className="scene-shadow" cx="76" cy="167" rx="43" ry="7" />
     <path className="traveler-motion" d="M109 75h17m-12 15h19m-22 15h13" />
     <circle className="traveler-head" cx="77" cy="34" r="18" />
     <path className="traveler-hair" d="M61 34c0-14 7-23 19-23 12 0 19 9 19 22-7-5-11-12-13-17-5 8-13 14-25 18Z" />
     <path className="traveler-body" d="M61 54c7-5 26-5 33 0l8 60H53Z" />
+    <path className="traveler-jacket-shade" d="M78 51c8 0 13 1 16 4l8 59H78Z" />
+    <path className="traveler-jacket-seam" d="M78 55v57" />
     <path className="traveler-leg" d="m64 109-8 47M91 109l9 47" />
+    <path className="traveler-shoe" d="M47 159h15l2 8H45c-4 0-4-6 2-8Zm47 0h13l7 6c1 2-1 3-4 3H97Z" />
     <path className="traveler-arm" d="m58 65-19 40M96 65l18 39" />
     <g className="traveler-backpack">
       <path className="backpack-strap" d="M58 62c-9 3-12 13-12 28M94 62c9 3 12 13 12 28" />
       <path className="backpack-body" d="M91 56c11 3 17 12 17 24v37c0 8-6 14-14 14H78V66c0-7 6-12 13-10Z" />
+      <path className="backpack-flap" d="M81 65c7-7 19-7 25 2l2 14H79Z" />
       <path className="backpack-pocket" d="M84 97h24v22H84c-4 0-7-3-7-7v-8c0-4 3-7 7-7Z" />
+      <path className="backpack-buckle" d="M89 94h9v8h-9Z" />
       <path className="backpack-glint" d="m92 66 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z" />
     </g>
   </svg>;
@@ -341,20 +360,28 @@ function SceneTravelerGraphic() {
 
 function SceneShelterGraphic() {
   return <svg className="scene-illustration scene-shelter-graphic" viewBox="0 0 180 150" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="shelter-roof-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#467c6f" /><stop offset="1" stopColor="#234f46" /></linearGradient>
+      <linearGradient id="shelter-wall-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#f7f2e3" /><stop offset="1" stopColor="#d6ceb7" /></linearGradient>
+    </defs>
     <ellipse className="scene-shadow" cx="90" cy="138" rx="70" ry="8" />
     <path className="shelter-tree" d="M18 130V91m-13 20 13-28 13 28Z" />
     <path className="shelter-roof" d="M18 67 88 21l75 46-12 19-63-39-58 39Z" />
     <path className="shelter-roof-highlight" d="M31 67 88 31l61 37" />
     <path className="shelter-wall" d="M34 68h112v68H34z" />
+    <path className="shelter-wall-shade" d="M91 68h55v68H91Z" />
     <path className="shelter-foundation" d="M29 136h122l7 8H22Z" />
     <rect className="shelter-door" x="75" y="91" width="30" height="45" rx="4" />
     <path className="shelter-door-line" d="M90 92v44" />
+    <path className="shelter-canopy" d="M68 85h44l7 9H61Z" />
+    <circle className="shelter-door-handle" cx="86" cy="114" r="1.8" /><circle className="shelter-door-handle" cx="94" cy="114" r="1.8" />
     <g className="shelter-window"><rect x="47" y="85" width="18" height="19" rx="3" /><path d="M56 85v19M47 94.5h18" /></g>
     <g className="shelter-window"><rect x="116" y="85" width="18" height="19" rx="3" /><path d="M125 85v19M116 94.5h18" /></g>
     <path className="shelter-sign" d="M72 57h35v23H72z" />
     <g className="shelter-mark"><circle cx="82" cy="64" r="2.5" /><path d="M82 68v7m0-4 6 2m-6 2-5 3m5-3 5 4M91 68h10m-4-4 4 4-4 4" /></g>
     <path className="shelter-flagpole" d="M143 23v43" />
     <path className="shelter-flag" d="M144 25h23l-6 9 6 9h-23Z" />
+    <path className="shelter-ramp" d="M99 136h49l10 8H91Z" />
   </svg>;
 }
 
@@ -716,6 +743,67 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast, targ
   </section>;
 }
 
+function StockpileGuidelineTree({ state, summary, setFilter, setPage }) {
+  const guideline = useMemo(() => buildStockpileGuideline(summary, state.inventory), [state.inventory, summary]);
+  const primaryBag = loadoutStatus(state, 'bag-primary');
+  const safetyGates = useMemo(() => essentialPreparednessGates(state, summary), [state, summary]);
+  const nextSafetyGate = safetyGates.gates.find((gate) => !gate.complete) || null;
+  const selectCategory = (category) => {
+    setFilter(category);
+    const focusCategory = () => document.querySelector(`[data-category="${category}"]`)?.focus({ preventScroll: false });
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(focusCategory);
+    else queueMicrotask(focusCategory);
+  };
+  const takeSafetyAction = () => {
+    if (!nextSafetyGate) return;
+    const category = { water: 'water', toilet: 'hygiene', light: 'light' }[nextSafetyGate.key];
+    if (nextSafetyGate.page === 'inventory' && category) {
+      selectCategory(category);
+      return;
+    }
+    setPage(nextSafetyGate.page, { target: nextSafetyGate.page === 'roadmap' ? essentialGateTaskTargets[nextSafetyGate.key] : null });
+  };
+  const takeBranchAction = (branch) => branch.action === 'power' ? setPage('power') : selectCategory(branch.matchedCategory || branch.action);
+  return <section className="stockpile-guideline" aria-labelledby="stockpile-guideline-title">
+    <header className="stockpile-guideline-head">
+      <div><span className="kicker">STOCKPILE LEVEL GUIDE</span><h2 id="stockpile-guideline-title">量から、状況に強い備えへ</h2><p>在宅備蓄は1日を着手点に、最低3日・推奨7日へ。その先は同じ物の量より、使える状況の幅を増やします。</p></div>
+      <aside><small>現在の在宅備蓄</small><b>{formatDays(guideline.essentialDays)}<em>日分</em></b><span aria-live="polite">{nextSafetyGate ? `先に「${nextSafetyGate.label}」を確認` : guideline.nextMessage}</span></aside>
+    </header>
+    <div className="stockpile-tree" role="group" aria-label="備蓄レベルの樹形図">
+      <div className={`stockpile-tree-root ${safetyGates.complete ? 'complete' : 'current'}`}><span>{safetyGates.complete ? <ShieldCheck /> : <ShieldAlert />}</span><div><small>すべての起点・安全確認 {safetyGates.completeCount} / {safetyGates.gates.length}</small><b>命・薬・家族固有の事情</b><p>{nextSafetyGate ? `次は「${nextSafetyGate.label}」を確認。日数の達成より先に、命へ直結する条件を整えます。` : '命へ直結する基本条件を確認済みです。期限と実物を定期的に点検します。'}</p></div>{nextSafetyGate && <button type="button" onClick={takeSafetyAction}>安全確認へ<ChevronRight /></button>}</div>
+      <div className="stockpile-tree-fork" aria-hidden="true"><i /><i /></div>
+      <div className="stockpile-tree-paths">
+        <article className={`stockpile-path stockpile-path-bag ${primaryBag.ready ? 'complete' : 'current'}`}>
+          <span className="stockpile-path-icon"><Backpack /></span>
+          <div className="stockpile-path-copy"><small>避難する備え・在宅備蓄とは別枠</small><h3>即時退避バッグ</h3><p>水・行動食・薬・灯りを、危険が迫った時にすぐ背負える量で確認します。</p></div>
+          <span className="stockpile-path-status">{primaryBag.ready ? <><Check />確認済み</> : `${primaryBag.done} / ${primaryBag.total}項目`}</span>
+          <button type="button" onClick={() => setPage('bags')}>避難バッグを確認<ChevronRight /></button>
+        </article>
+        <article className="stockpile-path stockpile-path-home">
+          <div className="stockpile-home-heading"><span className="stockpile-path-icon"><Home /></span><div><small>自宅で暮らす備え</small><h3>1日から3日、7日へ</h3><p>水・食料・携帯トイレのうち、最も短い日数で判定します。1日は着手点で、公的な最低目安は3日です。食料日数は重量による参考換算で、栄養・アレルギー・調理可否を保証しません。</p></div></div>
+          <ol className="stockpile-milestones" aria-label="在宅備蓄のアプリ段階と公的目安">
+            {guideline.milestones.map((milestone, index) => <li className={`${milestone.complete ? 'complete' : ''} ${milestone.current ? 'current' : ''}`.trim()} aria-current={milestone.current ? 'step' : undefined} key={milestone.days}>
+              <span>{milestone.complete ? <Check /> : milestone.days}</span><div><small>{milestone.days === 1 ? '着手点' : milestone.days === 3 ? '公的な最低目安' : '公的な推奨目安'}</small><b>{milestone.days}日分</b><em>{milestone.complete ? '参考量を達成' : `あと${formatDays(Math.max(0, milestone.days - guideline.essentialDays))}日分`}</em></div>{index < guideline.milestones.length - 1 && <i aria-hidden="true"><ChevronRight /></i>}
+            </li>)}
+          </ol>
+          <div className={`stockpile-diversity ${guideline.diversityUnlocked ? 'unlocked' : 'up-next'}`}>
+            <header><div><small>{guideline.diversityUnlocked ? '7日達成後の中心（アプリ方針）' : '日数を伸ばしながら並行して確認'}</small><h3>状況対応・快適性へ分岐</h3></div><span>{guideline.registeredBranches} / {guideline.branches.length}分野に登録あり</span></header>
+            <div className="stockpile-diversity-branches">
+              {guideline.branches.map((branch) => <article className={branch.registered ? 'registered' : ''} data-guideline-branch={branch.id} key={branch.id}>
+                <div><small>{branch.eyebrow}</small><h4>{branch.title}</h4><p>{branch.description}</p></div>
+                <ul aria-label={`${branch.title}の例`}>{branch.examples.map((example) => <li key={example}>{example}</li>)}</ul>
+                {branch.caution && <p className="stockpile-branch-caution"><AlertTriangle />{branch.caution}</p>}
+                <footer><span>{branch.registered ? <><Check />登録あり</> : '未登録'}</span><button type="button" onClick={() => takeBranchAction(branch)}>{branch.actionLabel}<ChevronRight /></button></footer>
+              </article>)}
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+    <footer className="stockpile-guideline-policy"><div><span>このアプリの設計方針</span><b>{guideline.quantityBoundaryReached ? '30日分以上：量より質へ' : '7日達成後：多様性を先へ'}</b><p>{guideline.policyMessage} 30日は国の一律基準ではありません。</p></div><nav aria-label="備蓄ガイドラインの根拠"><a href={STOCKPILE_GUIDELINE_SOURCES.cabinet.url} target="_blank" rel="noreferrer">3日・7日の公的目安<ArrowRight /></a><a href={STOCKPILE_GUIDELINE_SOURCES.food.url} target="_blank" rel="noreferrer">食品の多様性<ArrowRight /></a><a href={STOCKPILE_GUIDELINE_SOURCES.generator.url} target="_blank" rel="noreferrer">発電機の安全<ArrowRight /></a></nav></footer>
+  </section>;
+}
+
 function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast, setPage }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -798,6 +886,7 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   return <section className="wrap page-section inventory-page">
     <div className="page-title"><h1>わが家の備蓄</h1><div className="page-actions"><button className="secondary-button" onClick={() => setPage('rolling')}><RefreshCw />ローリングストック計画</button><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
     <div className="summary-strip inventory-summary-strip"><div><span>主要備蓄の参考日数</span><b>{formatDays(summary.householdStockpileDays ?? summary.survivalDays)}日</b></div><div><span>{state.preparedness?.targetDays || 7}日目標まで</span><b>{budgetProjection.costComplete ? `約¥${budgetProjection.totalCost.toLocaleString()}` : '単価確認中'}</b></div><div><span>年間予算</span><b>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}</b></div><div className="inventory-summary-actions"><button type="button" aria-label="主要備蓄の参考日数と実物不足を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />日数と不足</button><button type="button" aria-label="年間購入計画を開く" onClick={() => setBudgetOpen(true)}><CalendarDays />購入計画</button></div></div>
+    <StockpileGuidelineTree state={state} summary={summary} setFilter={setFilter} setPage={setPage} />
     <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
       <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>水・食料・携帯トイレは設定日数への達成度、その他は期限切れ品を在庫量に数えない登録目標への達成度です。</p></div><button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><Box />全分類を表示</button></header>
       <div className="inventory-category-grid" role="group" aria-label="備蓄カテゴリ">

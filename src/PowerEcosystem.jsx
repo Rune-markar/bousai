@@ -10,6 +10,13 @@ import {
 
 const yen = (value) => `¥${Math.round(value).toLocaleString('ja-JP')}`;
 const energy = (value) => value >= 1000 ? `${(value / 1000).toFixed(2)} kWh` : `${value.toLocaleString('ja-JP')} Wh`;
+const usageShare = (value, total) => total > 0 ? Math.round(value / total * 100) : 0;
+
+const calculationSource = (row, mode) => {
+  if (mode === 'detail' && row.actualWatts > 0) return '実測値';
+  if (mode === 'detail') return '想定値（実測未入力）';
+  return '想定値';
+};
 
 export default function PowerEcosystem({ plan, onChange, onBack }) {
   const result = useMemo(() => calculatePowerSystem(plan), [plan]);
@@ -57,26 +64,25 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
     <div className="power-settings" aria-label="計算条件">
       <div><span className="power-setting-label">電気を保ちたい日数 <HelpButton label="電気備蓄1週間の目安" helpId="power-recovery" onClick={(event) => openHelp('power-recovery', event)} /></span><select aria-label="電気を保ちたい日数" value={result.plan.autonomyDays} onChange={(event) => updatePlan({ autonomyDays: Number(event.target.value) })}>{[1, 2, 3, 4, 5, 6, 7].map((day) => <option value={day} key={day}>{day}日</option>)}</select></div>
       <label><span>1日の有効日照</span><select value={result.plan.sunHours} onChange={(event) => updatePlan({ sunHours: Number(event.target.value) })}>{[1, 2, 3, 4, 5, 6].map((hour) => <option value={hour} key={hour}>{hour}時間</option>)}</select></label>
-      <div><span>計算モード</span><div className="power-mode"><button type="button" className={result.plan.mode === 'simple' ? 'active' : ''} aria-pressed={result.plan.mode === 'simple'} onClick={() => updatePlan({ mode: 'simple' })}>簡易</button><button type="button" className={result.plan.mode === 'detail' ? 'active' : ''} aria-pressed={result.plan.mode === 'detail'} onClick={() => updatePlan({ mode: 'detail' })}>詳細</button></div></div>
+      <div><span id="power-mode-label">計算モード</span><div className="power-mode" role="group" aria-labelledby="power-mode-label"><button type="button" className={result.plan.mode === 'simple' ? 'active' : ''} aria-pressed={result.plan.mode === 'simple'} aria-controls="power-mode-description power-usage-summary" onClick={() => updatePlan({ mode: 'simple' })}>簡易</button><button type="button" className={result.plan.mode === 'detail' ? 'active' : ''} aria-pressed={result.plan.mode === 'detail'} aria-controls="power-mode-description power-usage-summary" onClick={() => updatePlan({ mode: 'detail' })}>詳細</button></div><p id="power-mode-description" className={`power-mode-description power-mode-description-${result.plan.mode}`} data-mode={result.plan.mode} aria-live="polite" aria-atomic="true">{result.plan.mode === 'simple' ? <><strong>簡易計算</strong><span>想定W・台数・1日の使用時間で計算します。実測Wは使いません。</span></> : <><strong>詳細計算</strong><span>実測Wを優先し、未入力の機器は想定Wで補完します。台数・1日の使用時間も反映します。</span></>}</p></div>
     </div>
 
     <div className="power-flow-viewport">
       <section className="power-flow-stage" aria-label="太陽光から蓄電池を経由して負荷へ流れる電力" aria-describedby="power-flow-layout-description">
-        <p className="visually-hidden" id="power-flow-layout-description">画面では、左に電気を使う負荷、中央に蓄電池、右に太陽光パネルを配置しています。電気は右から左へ流れます。</p>
+        <p className="visually-hidden" id="power-flow-layout-description">画面では、左に太陽光パネル、中央に蓄電池、右に電気を使う負荷を配置しています。電気は左から右へ流れます。</p>
         <div className="power-flow-line" aria-hidden="true">
           <svg viewBox="0 0 1000 210" preserveAspectRatio="none">
             <path className="power-wire-base" d="M177 105 H500 H823" />
-            <path className="power-wire-pulse solar-to-battery" d="M823 105 H500" />
-            <path className="power-wire-pulse battery-to-load" d="M500 105 H177" />
+            <path className="power-wire-pulse solar-to-battery" d="M177 105 H500" />
+            <path className="power-wire-pulse battery-to-load" d="M500 105 H823" />
           </svg>
-          <span className="power-flow-direction"><Zap />負荷 ← 蓄電池 ← 太陽光</span>
+          <span className="power-flow-direction"><Zap />太陽光 → 蓄電池 → 負荷</span>
         </div>
 
-        <article className="power-flow-node power-load-node" aria-labelledby="power-load-title">
-          <button type="button" className="power-load-button" aria-label={`負荷を調整、現在${result.selected.length}種類`} onClick={(event) => openHelp('load-devices', event)}>
-            <span className="power-load-icon"><PlugZap /></span><span><small>つかう</small><strong id="power-load-title">負荷</strong><em>{result.selected.length}種類</em></span><ChevronRight />
-          </button>
-          <div className="power-node-value"><span>1日の使用電力量</span><b>{energy(result.dailyLoadWh)}</b><small>同時最大 {result.peakLoadW} W</small></div>
+        <article className="power-flow-node power-solar-node" aria-labelledby="power-solar-title">
+          <div className="power-node-visual"><span><Sun /></span><div><small>つくる</small><h2 id="power-solar-title">太陽光パネル</h2></div></div>
+          <div className="power-node-value"><span>必要な定格出力 <HelpButton label="太陽光発電条件の補足" helpId="solar-generation" onClick={(event) => openHelp('solar-generation', event)} /></span><b>{result.requiredSolarW} W</b><small>日照{result.plan.sunHours}時間・効率75%</small></div>
+          <button className="power-node-link" type="button" aria-label="太陽光価格の補足" onClick={(event) => openHelp('solar-price', event)}>価格の目安を見る <ChevronRight /></button>
         </article>
 
         <article className="power-flow-node power-battery-node" aria-labelledby="power-battery-title">
@@ -85,12 +91,15 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
           <div className="power-node-actions"><button type="button" aria-label="蓄電池出力の補足" onClick={(event) => openHelp('battery-output', event)}>出力の確認</button><button type="button" aria-label="蓄電池価格の補足" onClick={(event) => openHelp('battery-price', event)}>価格の目安</button></div>
         </article>
 
-        <article className="power-flow-node power-solar-node" aria-labelledby="power-solar-title">
-          <div className="power-node-visual"><span><Sun /></span><div><small>つくる</small><h2 id="power-solar-title">太陽光パネル</h2></div></div>
-          <div className="power-node-value"><span>必要な定格出力 <HelpButton label="太陽光発電条件の補足" helpId="solar-generation" onClick={(event) => openHelp('solar-generation', event)} /></span><b>{result.requiredSolarW} W</b><small>日照{result.plan.sunHours}時間・効率75%</small></div>
-          <button className="power-node-link" type="button" aria-label="太陽光価格の補足" onClick={(event) => openHelp('solar-price', event)}>価格の目安を見る <ChevronRight /></button>
+        <article className="power-flow-node power-load-node" aria-labelledby="power-load-title">
+          <button type="button" className="power-load-button" aria-label={`負荷を調整、現在${result.selected.length}種類`} onClick={(event) => openHelp('load-devices', event)}>
+            <span className="power-load-icon"><PlugZap /></span><span><small>つかう</small><strong id="power-load-title">負荷</strong><em>{result.selected.length}種類</em></span><ChevronRight />
+          </button>
+          <div className="power-node-value"><span>1日の使用電力量</span><b>{energy(result.dailyLoadWh)}</b><small>同時最大 {result.peakLoadW} W</small></div>
         </article>
       </section>
+
+      <UsageSummary result={result} />
 
       <section className="power-breakdown" aria-label="電力計算の内訳">
         <div><span>1日負荷</span><b>{energy(result.dailyLoadWh)}</b></div>
@@ -112,6 +121,36 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
     </div>
 
     {help && <HelpSheet help={help} result={result} updateDevice={updateDevice} setQuantity={setQuantity} onClose={closeHelp} openHelp={openHelp} deviceDetailRefs={deviceDetailRefs} />}
+  </section>;
+}
+
+function UsageSummary({ result }) {
+  const totalUsageWh = result.selected.reduce((sum, row) => sum + row.dailyWh, 0);
+  const largest = result.selected.reduce((current, row) => !current || row.dailyWh > current.dailyWh ? row : current, null);
+
+  return <section id="power-usage-summary" className={`power-usage-summary power-usage-summary-${result.plan.mode}`} data-mode={result.plan.mode} aria-labelledby="power-usage-title">
+    <header className="power-usage-head">
+      <div><small>USAGE</small><h2 id="power-usage-title">1日の電気使用</h2></div>
+      <p className="power-usage-total" aria-live="polite"><strong>{energy(result.dailyLoadWh)}</strong><span> / 日</span></p>
+    </header>
+    {largest ? <p className="power-usage-lead">選択中{result.selected.length}種類。最も使用量が多いのは<strong>{largest.name}</strong>の{energy(largest.dailyWh)}（全体の{usageShare(largest.dailyWh, totalUsageWh)}%）です。</p> : <p className="power-usage-empty">使用する機器を選ぶと、機器別の1日使用量と全体比を表示します。</p>}
+    {result.selected.length > 0 && <ul className="power-usage-list">
+      {result.selected.map((row) => {
+        const share = usageShare(row.dailyWh, totalUsageWh);
+        const usageId = `power-usage-${row.id}`;
+        return <li className="power-usage-item" key={row.id}>
+          <div className="power-usage-item-head">
+            <span className="power-usage-symbol" aria-hidden="true">{row.symbol}</span>
+            <span><strong id={usageId}>{row.name}</strong><small>{calculationSource(row, result.plan.mode)} {row.watts} W × {row.quantity}台 × {row.hours}時間</small></span>
+            <b>{energy(row.dailyWh)}<small> / 日</small></b>
+          </div>
+          <div className="power-usage-meter-row">
+            <progress className="power-usage-meter" value={row.dailyWh} max={totalUsageWh || 1} aria-labelledby={usageId} aria-valuetext={`${energy(row.dailyWh)}、全体の${share}%`}>{share}%</progress>
+            <span aria-hidden="true">{share}%</span>
+          </div>
+        </li>;
+      })}
+    </ul>}
   </section>;
 }
 
