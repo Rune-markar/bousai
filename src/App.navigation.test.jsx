@@ -27,6 +27,7 @@ describe('電力設計ページの導線', () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   it('初回は3ステップで家族人数、備蓄目標、連絡先を設定する', () => {
@@ -49,6 +50,33 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByRole('button', { name: /14日/ })).toBeInTheDocument();
   });
 
+  it('必須の初期設定中は背景を操作対象から外し、フォーカスをダイアログ内に留める', () => {
+    localStorage.clear();
+    const { container } = render(<App />);
+    const dialog = screen.getByRole('dialog', { name: '何人分の備えをしますか？' });
+    const first = within(dialog).getByRole('button', { name: '家族人数を1人減らす' });
+    const last = within(dialog).getByRole('button', { name: '次へ' });
+
+    expect(container.querySelector('main')).toHaveAttribute('aria-hidden', 'true');
+    expect(container.querySelector('main')).toHaveAttribute('inert');
+    expect(container.querySelector('.topbar')).toHaveAttribute('inert');
+
+    first.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(last).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(first).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(dialog).toBeInTheDocument();
+  });
+
+  it('保存領域へ書き込めない場合も画面を壊さず案内する', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError'); });
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('端末に保存できませんでした'));
+  });
+
   it('家族人数はオプションから変更できる', () => {
     render(<App />);
     expect(screen.queryByRole('button', { name: '家族人数を増やす' })).not.toBeInTheDocument();
@@ -58,7 +86,7 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByLabelText('家族3人')).toBeInTheDocument();
   });
 
-  it('命と衛生の必須条件を平均点より先に案内する', () => {
+  it('命と衛生の必須条件を平均点より先に案内し、選んだ確認項目を直接表示する', async () => {
     const saved = createDefaultState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.powerPlan.autonomyDays = 3;
@@ -80,8 +108,13 @@ describe('電力設計ページの導線', () => {
     const referenceScore = screen.getByText('備えの進捗（参考）').closest('article');
     expect(priorities.compareDocumentPosition(referenceScore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    fireEvent.click(within(priorities).getByRole('button', { name: '危険と避難先を確認する' }));
+    fireEvent.click(within(priorities).getByRole('button', { name: '住まいの安全を確認する' }));
     expect(window.location.hash).toBe('#/roadmap');
+    const nextMission = screen.getByRole('heading', { name: 'いまは、これだけ' }).closest('section');
+    const focusedCard = nextMission.querySelector(':scope > .mission-focus');
+    const furnitureMission = within(focusedCard).getByRole('heading', { name: '寝室と避難路の安全化' });
+    expect(within(focusedCard).queryByRole('heading', { name: '地域の災害リスクを確認' })).not.toBeInTheDocument();
+    await waitFor(() => expect(furnitureMission).toHaveFocus());
   });
 
   it('ホームから専用ページを開き、戻るとホームへ戻る', () => {
@@ -227,6 +260,76 @@ describe('電力設計ページの導線', () => {
     fireEvent.change(annualBudget, { target: { value: '10000' } });
     expect(annualBudget).toHaveValue(10000);
     expect(within(dialog).getAllByText('今年買う').length).toBeGreaterThan(0);
+  });
+
+  it('年間予算の編集中はフォーカスを保ち、Escapeでは変更を破棄する', async () => {
+    render(<App />);
+    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
+    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    let dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    let annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
+
+    annualBudget.focus();
+    fireEvent.change(annualBudget, { target: { value: '123000' } });
+    expect(annualBudget).toHaveValue(123000);
+    await waitFor(() => expect(annualBudget).toHaveFocus());
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: '年間予算で購入順を決める' })).not.toBeInTheDocument();
+    expect(screen.getByText('未設定')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
+    expect(annualBudget).toHaveValue(0);
+  });
+
+  it('年間予算は保存操作をした場合だけ確定する', () => {
+    render(<App />);
+    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
+    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    let dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    fireEvent.change(within(dialog).getByLabelText(/毎年の備蓄予算/), { target: { value: '12000' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'この年間予算で保存' }));
+
+    expect(screen.queryByRole('dialog', { name: '年間予算で購入順を決める' })).not.toBeInTheDocument();
+    expect(screen.getByText('¥12,000')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    dialog = screen.getByRole('dialog', { name: '年間予算で購入順を決める' });
+    expect(within(dialog).getByLabelText(/毎年の備蓄予算/)).toHaveValue(12000);
+  });
+
+  it('期限切れロットは消費ではなく廃棄として記録する', async () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = [{
+      ...saved.inventory[0],
+      id: 'expired-water',
+      productId: 'manual:expired-water',
+      name: '期限切れ飲料水',
+      quantity: 1,
+      target: 1,
+      expiry: '2000-01-01',
+    }];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
+    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ローリングストック計画' }));
+
+    expect(screen.getByText('期限切れ')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '1本を消費として記録' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '1本を廃棄として記録' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('期限切れ飲料水を期限切れ・廃棄として記録しました');
+    const history = screen.getByRole('heading', { name: '消費履歴' }).closest('article');
+    expect(within(history).getByText('期限切れ・廃棄')).toBeInTheDocument();
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).transactions[0]).toMatchObject({
+      type: 'discard',
+      source: 'rolling-stock',
+      reason: '期限切れ・廃棄',
+    }));
   });
 
   it('画面をURLへ反映し、履歴移動時に見出しへフォーカスする', async () => {

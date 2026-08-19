@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { inventorySummary } from './domain.js';
-import { defensePower, essentialPreparednessGates, preparednessProgress, targetRequirement, togglePreparednessTask } from './preparedness.js';
+import { getLoadout, requiredLoadoutItemIds } from './loadouts.js';
+import { ALL_PREPAREDNESS_TASKS, defensePower, essentialPreparednessGates, preparednessProgress, targetRequirement, togglePreparednessTask } from './preparedness.js';
 
 const base = {
   household: 2,
@@ -25,6 +26,53 @@ describe('preparedness roadmap', () => {
     const noPhone = { ...base, contact: { shelter: '小学校', phone: '', note: '171を使う' } };
     const progress = preparednessProgress(noPhone, inventorySummary(noPhone.inventory, noPhone.household));
     expect(progress.automatic.has('family-route')).toBe(false);
+  });
+
+  it('derives toilet achievements from the expiry- and component-safe summary', () => {
+    const state = {
+      ...base,
+      household: 1,
+      inventory: [
+        { name: '期限切れ携帯トイレ', category: 'hygiene', quantity: 35, expiry: '2026-08-16' },
+        { name: '凝固剤', category: 'hygiene', quantity: 35 },
+      ],
+      contact: {},
+    };
+    const summary = inventorySummary(state.inventory, state.household, new Date('2026-08-17T12:00:00'));
+    const progress = preparednessProgress(state, summary);
+
+    expect(summary.toiletDays).toBe(0);
+    expect(progress.automatic.has('toilet-3')).toBe(false);
+    expect(progress.automatic.has('toilet-7')).toBe(false);
+  });
+
+  it('ignores unknown, stale automatic, and unverified loadout completions', () => {
+    const state = {
+      household: 1,
+      inventory: [],
+      contact: {},
+      preparedness: {
+        completed: ['unknown-task', 'food-core', 'bag-primary', 'light-fire', 'hazard-map'],
+        loadouts: { 'bag-primary': ['water'], 'light-fire': ['light'] },
+      },
+    };
+    const summary = inventorySummary([], 1);
+    const progress = preparednessProgress(state, summary);
+
+    expect([...progress.completed]).toEqual(['hazard-map']);
+    expect(progress.totalDone).toBe(1);
+    expect(progress.totalDone).toBeLessThanOrEqual(progress.totalTasks);
+    expect(essentialPreparednessGates(state, summary).gates.find((gate) => gate.key === 'light').complete).toBe(false);
+  });
+
+  it('keeps a persisted loadout completion only while every required item remains packed', () => {
+    const required = requiredLoadoutItemIds(getLoadout('bag-primary'));
+    const state = {
+      ...base,
+      preparedness: { completed: ['bag-primary'], loadouts: { 'bag-primary': required } },
+    };
+
+    expect(preparednessProgress(state, inventorySummary(state.inventory, state.household)).completed.has('bag-primary')).toBe(true);
   });
 
   it('keeps automatic tasks authoritative and toggles manual tasks', () => {
@@ -81,10 +129,26 @@ describe('preparedness roadmap', () => {
     expect(defensePower({ ...base, preparedness: { completed: [], targetDays: 180 } }, summary).targetDays).toBe(180);
   });
 
+  it('includes portable-toilet coverage in the selected target-day score', () => {
+    const completed = ALL_PREPAREDNESS_TASKS.filter((task) => !task.auto).map((task) => task.id);
+    const loadouts = Object.fromEntries(completed.filter((taskId) => getLoadout(taskId)).map((taskId) => [taskId, requiredLoadoutItemIds(getLoadout(taskId))]));
+    const state = { ...base, preparedness: { completed, loadouts, targetDays: 30 } };
+    const summary = { ...inventorySummary(base.inventory, base.household), waterDays: 30, foodDays: 30, toiletDays: 7 };
+    const model = defensePower(state, summary);
+
+    expect(model.completedTasks).toBe(model.requiredTasks.length);
+    expect(model.toiletCoverage).toBeCloseTo(7 / 30);
+    expect(model.requirementCount).toBe(model.requiredTasks.length + 3);
+    expect(model.score).toBeLessThan(100);
+  });
+
   it('requires seven life-and-hygiene gates without treating a power calculation as an achievement', () => {
     const state = {
       ...base,
-      preparedness: { completed: ['hazard-map', 'furniture', 'medicine', 'light-fire'] },
+      preparedness: {
+        completed: ['hazard-map', 'furniture', 'medicine', 'light-fire'],
+        loadouts: { 'light-fire': requiredLoadoutItemIds(getLoadout('light-fire')) },
+      },
       powerPlan: { autonomyDays: 7 },
     };
     const plan = essentialPreparednessGates(state, inventorySummary(state.inventory, state.household));

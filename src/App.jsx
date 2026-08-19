@@ -33,6 +33,7 @@ const pageFromLocation = () => {
 };
 
 const emptyForm = { name: '', category: 'food', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', volumeMl: 0, foodWeightG: 0, packingVolumeMl: 0, imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30, replenishmentPriority: 'high', replenishBy: '', purchaseFrom: '' };
+const essentialGateTaskTargets = { home: 'furniture', risk: 'hazard-map', medicine: 'medicine', light: 'light-fire' };
 
 function Brand() {
   return <div className="brand"><span className="brand-mark"><ShieldCheck size={22} /></span><span><b>そなえメモ</b><small>暮らしに、ちいさな安心を。</small></span></div>;
@@ -41,6 +42,7 @@ function Brand() {
 function App() {
   const [state, setState] = useState(loadState);
   const [page, setPageState] = useState(pageFromLocation);
+  const [pageTarget, setPageTarget] = useState(() => window.history.state?.sonaeTarget || null);
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -53,14 +55,22 @@ function App() {
   const mainRef = useRef(null);
   const previousPageRef = useRef(page);
 
-  const setPage = useCallback((nextPage, { replace = false } = {}) => {
+  const setPage = useCallback((nextPage, { replace = false, target = null } = {}) => {
     if (!pageIds.has(nextPage)) return;
     const nextHash = `#/${nextPage}`;
-    if (window.location.hash !== nextHash) window.history[replace ? 'replaceState' : 'pushState']({ sonaePage: nextPage }, '', nextHash);
+    if (window.location.hash !== nextHash) window.history[replace ? 'replaceState' : 'pushState']({ sonaePage: nextPage, sonaeTarget: target }, '', nextHash);
+    else window.history.replaceState({ ...window.history.state, sonaePage: nextPage, sonaeTarget: target }, '', nextHash);
+    setPageTarget(target);
     setPageState(nextPage);
   }, []);
 
-  useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), [state]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      setToast('端末に保存できませんでした。空き容量やブラウザ設定を確認してください');
+    }
+  }, [state]);
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener('online', update);
@@ -82,7 +92,10 @@ function App() {
   }, [page]);
   useEffect(() => {
     if (!window.location.hash || !pageIds.has(window.location.hash.replace(/^#\/?/, ''))) setPage('home', { replace: true });
-    const syncPage = () => setPageState(pageFromLocation());
+    const syncPage = () => {
+      setPageState(pageFromLocation());
+      setPageTarget(window.history.state?.sonaeTarget || null);
+    };
     window.addEventListener('popstate', syncPage);
     window.addEventListener('hashchange', syncPage);
     return () => {
@@ -103,12 +116,13 @@ function App() {
   useEffect(() => {
     const previousPage = previousPageRef.current;
     previousPageRef.current = page;
-    if (previousPage === page) return;
+    if (previousPage === page && !pageTarget) return;
     if (page === 'home' && previousPage === 'power') {
       powerEntryRef.current?.focus();
       return;
     }
     if (page === 'power') return;
+    if (page === 'roadmap' && pageTarget) return;
     const frame = window.requestAnimationFrame(() => {
       const heading = mainRef.current?.querySelector('h1');
       if (heading) {
@@ -117,7 +131,7 @@ function App() {
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [page]);
+  }, [page, pageTarget]);
   useEffect(() => {
     if (visitChecked.current) return;
     visitChecked.current = true;
@@ -142,9 +156,12 @@ function App() {
     setNotificationsOpen(false);
   };
 
+  const onboardingActive = !state.onboarding?.completed;
+  const backgroundA11y = onboardingActive ? { 'aria-hidden': true, inert: true } : {};
+
   return (
     <div className={`app-shell${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
-      <header className="topbar">
+      <header className="topbar" {...backgroundA11y}>
         <Brand />
         <nav className="desktop-nav" aria-label="メインナビゲーション">
           {nav.map(({ id, label, icon: Icon }) => <button aria-current={page === id ? 'page' : undefined} className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={18} />{label}</button>)}
@@ -152,23 +169,23 @@ function App() {
         <div className="header-actions">{!online && <span className="offline-badge"><WifiOff />オフライン</span>}<button className="notification-button" aria-label="オプションを開く" onClick={() => setOptionsOpen(true)}><Settings size={20} /></button><button className="notification-button share-button" aria-label="アクセス用QRコードを開く" onClick={() => setShareOpen(true)}><QrCode size={20} /></button><button className="notification-button" aria-label={`通知一覧を開く（${summary.notificationCount}件）`} onClick={() => setNotificationsOpen(true)}><Bell size={20} /><span>{summary.notificationCount}</span></button></div>
       </header>
 
-      <main ref={mainRef}>
+      <main ref={mainRef} {...backgroundA11y}>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
         {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} />}
         {page === 'bags' && <EvacuationBags state={state} setState={setState} setToast={setToast} setPage={setPage} />}
         {page === 'rolling' && <RollingStock state={state} summary={summary} transactions={state.transactions} updateInventory={updateInventory} onBack={() => setPage('inventory')} />}
-        {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} />}
+        {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} targetTaskId={pageTarget} />}
         {page === 'disasters' && <DisasterPreparedness state={state} setState={setState} setToast={setToast} />}
         {page === 'plan' && <EmergencyPlan state={state} summary={summary} setState={setState} setToast={setToast} />}
         {page === 'learn' && <Learn completed={state.completedTips} setState={setState} />}
         {page === 'power' && <PowerEcosystem plan={state.powerPlan} onChange={(powerPlan) => setState((old) => ({ ...old, powerPlan }))} onBack={() => setPage('home')} />}
       </main>
 
-      <footer className="app-footer">
+      <footer className="app-footer" {...backgroundA11y}>
         <small>© {new Date().getFullYear()} そなえメモ</small>
       </footer>
 
-      <nav className="mobile-nav" aria-label="モバイルナビゲーション">
+      <nav className="mobile-nav" aria-label="モバイルナビゲーション" {...backgroundA11y}>
         {nav.map(({ id, label, icon: Icon }) => <button aria-current={page === id ? 'page' : undefined} className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
@@ -208,9 +225,33 @@ function SetupWizard({ state, setState }) {
   const dialogRef = useRef(null);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
+    const selector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusable = () => [...(dialogRef.current?.querySelectorAll(selector) || [])].filter((element) => !element.hidden);
+    const handleKey = (event) => {
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const elements = focusable();
+      if (!elements.length) return;
+      const first = elements[0];
+      const last = elements.at(-1);
+      const focusOutside = !dialogRef.current.contains(document.activeElement);
+      if (elements.length === 1) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && (document.activeElement === first || focusOutside)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || focusOutside)) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
     document.body.style.overflow = 'hidden';
-    dialogRef.current?.querySelector('[autofocus], button, input')?.focus();
-    return () => { document.body.style.overflow = previousOverflow; };
+    (dialogRef.current?.querySelector('[autofocus]:not([disabled])') || focusable()[0])?.focus();
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKey);
+    };
   }, [step]);
   const finish = (saveContact) => setState((old) => ({
     ...old,
@@ -292,7 +333,7 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
       <summary><span className="priority-summary-copy"><span className="kicker">ESSENTIAL SAFETY GATES</span><b id="priority-goals-title">命と衛生の必須確認</b><small>{essentialGates.complete ? '必須条件は確認済み。定期的に見直せます' : `次は「${nextEssentialGate.label}」を確認`}</small></span><span className="priority-goals-count">{essentialGates.completeCount}<small> / {essentialGates.gates.length}</small></span><span className="disclosure-label">すべて見る<ChevronDown /></span></summary>
       <div className="priority-goal-grid" role="region" aria-labelledby="priority-goals-title">{essentialGates.gates.map((gate) => {
         const Icon = gate.key === 'home' ? ShieldCheck : gate.key === 'risk' ? MapPin : gate.key === 'contact' ? Phone : gate.key === 'medicine' ? Heart : gate.key === 'water' ? Droplets : gate.key === 'toilet' ? Sparkles : Lightbulb;
-        return <button type="button" className={gate.complete ? 'complete' : ''} key={gate.key} aria-label={`${gate.label}を確認する`} onClick={() => setPage(gate.page)}><span className={`priority-goal-icon ${gate.key}`}><Icon /></span><span><small>{gate.label}</small><b>{gate.detail}</b><em>{gate.statusLabel}</em></span><strong>{gate.complete ? <Check /> : <ArrowRight />}{gate.complete ? '確認済み' : '確認する'}</strong></button>;
+        return <button type="button" className={gate.complete ? 'complete' : ''} key={gate.key} aria-label={`${gate.label}を確認する`} onClick={() => setPage(gate.page, { target: gate.page === 'roadmap' ? essentialGateTaskTargets[gate.key] : null })}><span className={`priority-goal-icon ${gate.key}`}><Icon /></span><span><small>{gate.label}</small><b>{gate.detail}</b><em>{gate.statusLabel}</em></span><strong>{gate.complete ? <Check /> : <ArrowRight />}{gate.complete ? '確認済み' : '確認する'}</strong></button>;
       })}</div>
       <p>{essentialGates.complete ? '必須条件を確認済みです。季節・家族構成・期限の変化に合わせて再点検してください。' : '平均点より先に、未確認の必須条件を一つずつ確認してください。'}</p>
     </details>
@@ -488,15 +529,18 @@ function StageIcon({ name }) {
   return name === 'backpack' ? <Backpack /> : name === 'route' ? <Route /> : name === 'calendar' ? <CalendarDays /> : name === 'solar' ? <Sun /> : name === 'community' ? <Users /> : <ShieldCheck />;
 }
 
-function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
+function PreparednessRoadmap({ state, summary, setState, setPage, setToast, targetTaskId }) {
   const progress = useMemo(() => preparednessProgress(state, summary), [state, summary]);
   const [selectedStageId, setSelectedStageId] = useState(() => progress.currentStage.id);
   const [activeLoadout, setActiveLoadout] = useState(null);
   const nextMissionHeadingRef = useRef(null);
+  const targetMissionRef = useRef(null);
   const previousFocusedTaskRef = useRef(progress.nextTask?.id);
   const selectedStage = progress.stages.find((stage) => stage.id === selectedStageId) || progress.currentStage;
-  const focusedTask = progress.nextTask;
-  const focusedStage = progress.currentStage;
+  const targetedStage = progress.stages.find((stage) => stage.tasks.some((task) => task.id === targetTaskId));
+  const targetedTask = targetedStage?.tasks.find((task) => task.id === targetTaskId);
+  const focusedTask = targetedTask || progress.nextTask;
+  const focusedStage = targetedStage || progress.currentStage;
   const weakestLabel = progress.weakest ? pillarLabels[progress.weakest.pillar] : '総合';
   const completedStages = progress.stages.filter((stage) => stage.gateClear).length;
   useEffect(() => {
@@ -504,6 +548,11 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
     previousFocusedTaskRef.current = progress.nextTask?.id;
     if (previousTask && previousTask !== progress.nextTask?.id) nextMissionHeadingRef.current?.focus();
   }, [progress.nextTask?.id]);
+  useEffect(() => {
+    if (!targetedTask) return undefined;
+    const frame = window.requestAnimationFrame(() => targetMissionRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [targetedTask?.id]);
 
   const toggle = (task) => {
     if (getLoadout(task.id)) {
@@ -543,14 +592,14 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
     setToast(!beforeGate && afterStage?.gateClear ? `${taskStage.title} クリア！` : `装備確認完了　+${task.xp} XP`);
   };
 
-  const missionCard = (task, compact = false) => {
+  const missionCard = (task, compact = false, targeted = false) => {
     const done = progress.completed.has(task.id);
     const automatic = progress.automatic.has(task.id);
     const loadout = getLoadout(task.id);
     const kitStatus = loadoutStatus(state, task.id);
     return <article className={`mission ${compact ? 'mission-focus' : ''} ${done ? 'done' : ''}`} key={task.id}>
       <button className="mission-check" type="button" aria-label={loadout ? `${task.title}の装備ケースを開く` : task.auto ? `${task.title}の連動データを確認` : `${task.title}を${done ? '未達成に戻す' : '達成にする'}`} onClick={() => toggle(task)}>{done ? <Check /> : task.auto ? <RefreshCw /> : loadout ? <Backpack /> : null}</button>
-      <div className="mission-copy"><div><span className="mission-pillar">{pillarLabels[task.pillar]}</span>{task.gate && <span className="mission-gate">段階達成の条件</span>}{automatic && <span className="mission-auto">自動達成</span>}{loadout && <span className="mission-loadout-tag">装備ケース</span>}</div><h3>{task.title}</h3><p>{task.detail}</p><small><Lightbulb /> 次の行動：{task.action}</small>{task.id === 'hazard-map' && !done && <a className="mission-action-link" href="https://disaportal.gsi.go.jp/" target="_blank" rel="noreferrer">国のハザードマップを開く<ArrowRight /></a>}{loadout && <button className="mission-loadout" type="button" onClick={() => toggle(task)}><span className="mission-loadout-items">{loadout.items.slice(0, 5).map((item) => <i key={item.id} className={kitStatus.packed.has(item.id) ? 'packed' : ''}>{item.symbol}</i>)}</span><b>{loadout.label}</b><em>{kitStatus.done} / {kitStatus.total} 必須品</em><ChevronRight /></button>}</div>
+      <div className="mission-copy"><div><span className="mission-pillar">{pillarLabels[task.pillar]}</span>{task.gate && <span className="mission-gate">段階達成の条件</span>}{automatic && <span className="mission-auto">自動達成</span>}{loadout && <span className="mission-loadout-tag">装備ケース</span>}</div><h3 ref={targeted ? targetMissionRef : undefined} tabIndex={targeted ? -1 : undefined}>{task.title}</h3><p>{task.detail}</p><small><Lightbulb /> 次の行動：{task.action}</small>{task.id === 'hazard-map' && !done && <a className="mission-action-link" href="https://disaportal.gsi.go.jp/" target="_blank" rel="noreferrer">国のハザードマップを開く<ArrowRight /></a>}{loadout && <button className="mission-loadout" type="button" onClick={() => toggle(task)}><span className="mission-loadout-items">{loadout.items.slice(0, 5).map((item) => <i key={item.id} className={kitStatus.packed.has(item.id) ? 'packed' : ''}>{item.symbol}</i>)}</span><b>{loadout.label}</b><em>{kitStatus.done} / {kitStatus.total} 必須品</em><ChevronRight /></button>}</div>
       <span className="mission-xp">+{task.xp} XP</span>
     </article>;
   };
@@ -566,7 +615,7 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast }) {
 
     <section className="next-mission" aria-labelledby="next-mission-title">
       <div className="next-mission-heading"><div><span className="kicker">NEXT MISSION</span><h2 id="next-mission-title" ref={nextMissionHeadingRef} tabIndex="-1">いまは、これだけ</h2></div><span>{focusedStage.done} / {focusedStage.total}</span></div>
-      {focusedTask ? missionCard(focusedTask, true) : <div className="journey-complete"><Trophy /><div><b>全段階を踏破しました</b><span>季節の変わり目に点検と実地訓練を続けましょう。</span></div></div>}
+      {focusedTask ? missionCard(focusedTask, true, Boolean(targetedTask)) : <div className="journey-complete"><Trophy /><div><b>全段階を踏破しました</b><span>季節の変わり目に点検と実地訓練を続けましょう。</span></div></div>}
       {focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).length > 0 && <details className="stage-more"><summary>この段階の全項目を見る <span>{focusedStage.total}項目</span></summary><div className="mission-list">{focusedStage.tasks.filter((task) => task.id !== focusedTask?.id).map((task) => missionCard(task))}</div></details>}
     </section>
 
@@ -676,7 +725,18 @@ function RollingStock({ state, summary, transactions, updateInventory, onBack })
     const result = consumeByRotation(rawRows(), entry.key, 1);
     const consumed = result.consumed[0];
     if (!consumed) return;
-    updateInventory(result.inventory, `${consumed.item.name}を消費として記録しました`, createTransaction('rotate', consumed.item, -1, `${consumed.item.expiry}の期限が近いロットから消費`));
+    const expired = entry.status === 'expired';
+    updateInventory(
+      result.inventory,
+      expired ? `${consumed.item.name}を期限切れ・廃棄として記録しました` : `${consumed.item.name}を消費として記録しました`,
+      createTransaction(
+        expired ? 'discard' : 'rotate',
+        consumed.item,
+        -1,
+        expired ? `${consumed.item.expiry}の期限切れロットを廃棄` : `${consumed.item.expiry}の期限が近いロットから消費`,
+        { source: 'rolling-stock', reason: expired ? '期限切れ・廃棄' : 'ローリングストック' },
+      ),
+    );
   };
   const setReminder = (entry, value) => {
     const inventory = rawRows().map((row) => row.id === entry.nextLot.id ? { ...row, rotationReminderDate: value } : row);
@@ -685,9 +745,9 @@ function RollingStock({ state, summary, transactions, updateInventory, onBack })
   const today = new Date().toISOString().slice(0, 10);
   const limit = new Date(); limit.setDate(limit.getDate() + 30);
   const maxReminder = limit.toISOString().slice(0, 10);
-  const rollingHistory = transactions.filter((entry) => entry.type === 'rotate').slice(0, 8);
+  const rollingHistory = transactions.filter((entry) => entry.type === 'rotate' || (entry.type === 'discard' && entry.source === 'rolling-stock')).slice(0, 8);
   const upcomingCount = summary.rotationQueue.filter((entry) => entry.status === 'upcoming').length;
-  return <section className="wrap page-section rolling-page"><div className="page-title"><div><span className="kicker">CONSUMPTION PLAN</span><h1>ローリングストック消費計画</h1><p>期限が近い物を、期限が来る前に使う順番として整理します。</p></div><button className="secondary-button" onClick={onBack}><ArrowRight className="back-arrow" />備蓄へ戻る</button></div><aside className="rolling-guide"><b>この画面で行うこと</b><span><CalendarDays />期限順に消費予定を確認する</span><span><Bell />必要な日に再通知を設定する</span><span><RefreshCw />実際に使った時だけ消費として記録する</span></aside><div className="rolling-summary"><span><small>消費時期が到来</small><b>{summary.rotationDueCount}品</b></span><span><small>30日以内に予定</small><b>{upcomingCount}品</b></span><span><small>計画中</small><b>{summary.rotationQueue.length}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list card">{summary.rotationQueue.map((entry) => { const reminderMax = entry.nextLot.expiry >= today && entry.nextLot.expiry < maxReminder ? entry.nextLot.expiry : maxReminder; return <article className={`rolling-row rolling-row-full ${entry.status}`} key={entry.key}><span className="rolling-order">{entry.status === 'expired' ? '期限切れ' : entry.daysToRotate <= 0 ? '消費時期です' : `${entry.daysToRotate}日後に消費`}</span><span><b>{entry.nextLot.name}</b><small>消費期限 {entry.nextLot.expiry}（期限日は変更できません）</small><label className="rolling-reminder"><span>消費予定の再通知日</span><input type="date" min={today} max={reminderMax} value={entry.nextLot.rotationReminderDate || ''} onChange={(event) => setReminder(entry, event.target.value)} /></label></span><div className="rolling-actions"><button type="button" onClick={() => rotateOne(entry)}><RefreshCw />1{entry.nextLot.unit}を消費として記録</button></div></article>; })}</div> : <div className="empty-state"><Check /><h3>期限付きの備蓄はありません</h3><p>備蓄品に期限を登録すると、ここへ期限順に表示します。</p></div>}<article className="card operation-panel rolling-history"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴</h2></div><History /></div>{rollingHistory.length ? rollingHistory.map((entry) => <div className="history-row" key={entry.id}><span className="history-type rotate">期限順消費</span><span><b>{entry.name}</b><small>{entry.quantityDelta}{entry.unit}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">消費を記録すると履歴が残ります</div>}</article></section>;
+  return <section className="wrap page-section rolling-page"><div className="page-title"><div><span className="kicker">CONSUMPTION PLAN</span><h1>ローリングストック消費計画</h1><p>期限が近い物を、期限が来る前に使う順番として整理します。</p></div><button className="secondary-button" onClick={onBack}><ArrowRight className="back-arrow" />備蓄へ戻る</button></div><aside className="rolling-guide"><b>この画面で行うこと</b><span><CalendarDays />期限順に消費予定を確認する</span><span><Bell />必要な日に再通知を設定する</span><span><RefreshCw />実際に使った時だけ消費として記録する</span></aside><div className="rolling-summary"><span><small>消費時期が到来</small><b>{summary.rotationDueCount}品</b></span><span><small>30日以内に予定</small><b>{upcomingCount}品</b></span><span><small>計画中</small><b>{summary.rotationQueue.length}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list card">{summary.rotationQueue.map((entry) => { const reminderMax = entry.nextLot.expiry >= today && entry.nextLot.expiry < maxReminder ? entry.nextLot.expiry : maxReminder; const expired = entry.status === 'expired'; return <article className={`rolling-row rolling-row-full ${entry.status}`} key={entry.key}><span className="rolling-order">{expired ? '期限切れ' : entry.daysToRotate <= 0 ? '消費時期です' : `${entry.daysToRotate}日後に消費`}</span><span><b>{entry.nextLot.name}</b><small>消費期限 {entry.nextLot.expiry}（期限日は変更できません）</small><label className="rolling-reminder"><span>{expired ? '廃棄記録前の確認日' : '消費予定の再通知日'}</span><input type="date" min={today} max={reminderMax} value={entry.nextLot.rotationReminderDate || ''} onChange={(event) => setReminder(entry, event.target.value)} /></label></span><div className="rolling-actions"><button type="button" onClick={() => rotateOne(entry)}>{expired ? <Trash2 /> : <RefreshCw />}1{entry.nextLot.unit}を{expired ? '廃棄' : '消費'}として記録</button></div></article>; })}</div> : <div className="empty-state"><Check /><h3>期限付きの備蓄はありません</h3><p>備蓄品に期限を登録すると、ここへ期限順に表示します。</p></div>}<article className="card operation-panel rolling-history"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴</h2></div><History /></div>{rollingHistory.length ? rollingHistory.map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'discard' ? '期限切れ・廃棄' : '期限順消費'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta}{entry.unit}・{entry.reason || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">消費を記録すると履歴が残ります</div>}</article></section>;
 }
 
 function StockpileCalculationDialog({ summary, items, household, targetDays, onClose, onAction }) {
@@ -699,10 +759,14 @@ function StockpileCalculationDialog({ summary, items, household, targetDays, onC
 function BudgetPlannerDialog({ state, summary, setState, onClose }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
-  const budget = state.preparedness?.annualBudget || 0;
+  const [budget, setBudget] = useState(state.preparedness?.annualBudget || 0);
   const projection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, budget), [state.inventory, state.household, state.preparedness?.targetDays, budget]);
-  const duration = projection.months === null ? '年間予算を入力すると表示します' : projection.months === 0 ? '目標日数を達成済み' : projection.months < 12 ? `約${projection.months}か月` : `約${(projection.months / 12).toFixed(1)}年`;
-  return <div className="modal-backdrop budget-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal budget-dialog" role="dialog" aria-modal="true" aria-labelledby="budget-title"><div className="modal-title"><div><span className="kicker">ANNUAL PURCHASE PLAN</span><h2 id="budget-title">年間予算で購入順を決める</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><label className="annual-budget-input"><span>毎年の備蓄予算（円）<small>この金額の範囲で、優先度の高い物から割り当てます。</small></span><input autoFocus type="number" min="0" max="10000000" step="1000" value={budget} onChange={(event) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, annualBudget: Math.min(10000000, Math.max(0, Number(event.target.value) || 0)) } }))} /></label><div className="budget-result"><span>備蓄目標<strong>{projection.targetDays}日分</strong></span><span>目標までの概算<strong>{projection.costComplete ? `¥${projection.totalCost.toLocaleString()}` : '単価登録が必要'}</strong></span><span>今年の購入予定<strong>¥{projection.plannedThisYear.toLocaleString()}</strong></span><span>到達目安<strong>{duration}</strong></span></div><section className="annual-purchase-plan" aria-labelledby="purchase-order-title"><header><div><span className="kicker">WHAT TO BUY FIRST</span><h3 id="purchase-order-title">今年、何から買うか</h3></div>{budget > 0 && <span>残り予算 ¥{projection.remainingAnnualBudget.toLocaleString()}</span>}</header>{projection.annualPlan.length ? <ol>{projection.annualPlan.map((item) => <li className={!item.hasPrice ? 'needs-price' : item.plannedQuantity === 0 ? 'deferred' : ''} key={item.key}><span className="purchase-order">{item.order}</span><span><small>{item.label}・現在 {formatDays(item.currentDays)}日分</small><b>{item.recommendation?.name || `${item.label}の商品`}</b><em>{item.recommendation ? `目標まで ${item.recommendation.quantity}${item.recommendation.unit}・単価 ¥${item.recommendation.unitPrice.toLocaleString()}` : '商品に内容量と単価を登録してください'}</em></span><strong>{budget === 0 ? '予算入力後に割当' : item.plannedQuantity > 0 ? <><small>今年買う</small>{item.plannedQuantity}{item.recommendation.unit}<em>¥{item.plannedCost.toLocaleString()}</em></> : item.hasPrice ? '翌年以降' : '単価未登録'}</strong></li>)}</ol> : <div className="empty-small"><Check />目標日数分を確保済みです</div>}</section><p className="dialog-note">主要備蓄の参考日数が短い分野を先にし、同じ場合は水・食料・携帯トイレの順で提案します。価格は登録済み商品の単価による概算です。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={onClose}><Check />この年間予算で保存</button></div></section></div>;
+  const duration = !projection.costComplete ? '不足商品の単価登録後に表示します' : projection.months === null ? '年間予算を入力すると表示します' : projection.months === 0 ? '目標日数を達成済み' : projection.months < 12 ? `約${projection.months}か月` : `約${(projection.months / 12).toFixed(1)}年`;
+  const save = () => {
+    setState((old) => ({ ...old, preparedness: { ...old.preparedness, annualBudget: budget } }));
+    onClose();
+  };
+  return <div className="modal-backdrop budget-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal budget-dialog" role="dialog" aria-modal="true" aria-labelledby="budget-title"><div className="modal-title"><div><span className="kicker">ANNUAL PURCHASE PLAN</span><h2 id="budget-title">年間予算で購入順を決める</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><label className="annual-budget-input"><span>毎年の備蓄予算（円）<small>この金額の範囲で、優先度の高い物から割り当てます。</small></span><input autoFocus type="number" min="0" max="10000000" step="1000" value={budget} onChange={(event) => setBudget(Math.min(10000000, Math.max(0, Number(event.target.value) || 0)))} /></label><div className="budget-result"><span>備蓄目標<strong>{projection.targetDays}日分</strong></span><span>目標までの概算<strong>{projection.costComplete ? `¥${projection.totalCost.toLocaleString()}` : '単価登録が必要'}</strong></span><span>今年の購入予定<strong>¥{projection.plannedThisYear.toLocaleString()}</strong></span><span>到達目安<strong>{duration}</strong></span></div><section className="annual-purchase-plan" aria-labelledby="purchase-order-title"><header><div><span className="kicker">WHAT TO BUY FIRST</span><h3 id="purchase-order-title">今年、何から買うか</h3></div>{budget > 0 && <span>残り予算 ¥{projection.remainingAnnualBudget.toLocaleString()}</span>}</header>{projection.annualPlan.length ? <ol>{projection.annualPlan.map((item) => <li className={!item.hasPrice ? 'needs-price' : item.plannedQuantity === 0 ? 'deferred' : ''} key={item.key}><span className="purchase-order">{item.order}</span><span><small>{item.label}・現在 {formatDays(item.currentDays)}日分</small><b>{item.recommendation?.name || `${item.label}の商品`}</b><em>{item.recommendation ? `目標まで ${item.recommendation.quantity}${item.recommendation.unit}・単価 ¥${item.recommendation.unitPrice.toLocaleString()}` : '商品に内容量と単価を登録してください'}</em></span><strong>{budget === 0 ? '予算入力後に割当' : item.plannedQuantity > 0 ? <><small>今年買う</small>{item.plannedQuantity}{item.recommendation.unit}<em>¥{item.plannedCost.toLocaleString()}</em></> : item.hasPrice ? '翌年以降' : '単価未登録'}</strong></li>)}</ol> : <div className="empty-small"><Check />目標日数分を確保済みです</div>}</section><p className="dialog-note">主要備蓄の参考日数が短い分野を先にし、同じ場合は水・食料・携帯トイレの順で提案します。価格は登録済み商品の単価による概算です。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={save}><Check />この年間予算で保存</button></div></section></div>;
 }
 
 function CategoryIcon({ category }) {
@@ -784,13 +848,19 @@ function PreparednessBenchmarkDialog({ kind, onClose }) {
 }
 
 function useDialogClose(onClose, dialogRef) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
     const selector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
     const getDialog = () => dialogRef.current || document.querySelector('[role="dialog"]');
-    const frame = window.requestAnimationFrame(() => getDialog()?.querySelector('[autofocus], button, input, select, textarea, [href]')?.focus());
+    const frame = window.requestAnimationFrame(() => {
+      const dialog = getDialog();
+      (dialog?.querySelector('[autofocus]:not([disabled])') || dialog?.querySelector(selector))?.focus();
+    });
     const handleKey = (event) => {
-      if (event.key === 'Escape') return onClose();
+      if (event.key === 'Escape') return onCloseRef.current();
       const dialog = getDialog();
       if (event.key !== 'Tab' || !dialog) return;
       const elements = [...dialog.querySelectorAll(selector)].filter((element) => !element.hidden);
@@ -804,11 +874,11 @@ function useDialogClose(onClose, dialogRef) {
     window.addEventListener('keydown', handleKey);
     return () => {
       window.cancelAnimationFrame(frame);
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKey);
       previousFocus?.focus?.();
     };
-  }, [onClose, dialogRef]);
+  }, [dialogRef]);
 }
 
 function ShareQrPanel({ onClose, setToast }) {
@@ -949,7 +1019,7 @@ function ItemModal({ item, inventory, onClose, onSave }) {
   const set = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   const duplicate = !item && form.barcode ? inventory.find((entry) => entry.barcode === form.barcode) : null;
   const categoryGuidance = itemCategoryGuidance[form.category];
-  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><form className="modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" onSubmit={(e) => { e.preventDefault(); onSave({ ...form, tier: Number(form.tier), quantity: Number(form.quantity), target: Number(form.target), price: Number(form.price), volumeMl: Number(form.volumeMl) || 0, foodWeightG: Number(form.foodWeightG) || 0, packingVolumeMl: Number(form.packingVolumeMl) || 0, rotationLeadDays: Number(form.rotationLeadDays) || 30 }); }}>
+  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><form ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" onSubmit={(e) => { e.preventDefault(); onSave({ ...form, tier: Number(form.tier), quantity: Number(form.quantity), target: Number(form.target), price: Number(form.price), volumeMl: Number(form.volumeMl) || 0, foodWeightG: Number(form.foodWeightG) || 0, packingVolumeMl: Number(form.packingVolumeMl) || 0, rotationLeadDays: Number(form.rotationLeadDays) || 30 }); }}>
     <div className="modal-title"><div><span className="kicker">STOCK ITEM</span><h2 id="item-modal-title">{item ? '備蓄品を編集' : '備蓄品を追加'}</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div>
     {!item && <button className="optional-section-toggle" type="button" aria-expanded={scannerOpen} onClick={() => setScannerOpen((open) => !open)}><QrCode />バーコードから入力<span>{scannerOpen ? '閉じる' : 'カメラ・画像・番号'}</span><ChevronRight /></button>}
     {scannerOpen && <div className="optional-section"><BarcodeScanner initialProduct={form.barcode && form.name ? form : null} localProducts={inventory} onBarcode={(barcode) => set('barcode', barcode)} onProduct={(product) => setForm((old) => ({ ...old, ...product, registrationMode: !item && inventory.some((entry) => entry.barcode === product.barcode) ? 'merge' : old.registrationMode, note: old.note || [product.brand, product.packageSize].filter(Boolean).join(' / ') }))} />

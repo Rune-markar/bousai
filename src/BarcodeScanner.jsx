@@ -50,11 +50,6 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
       onProduct?.(localProduct);
       return;
     }
-    if (!navigator.onLine) {
-      setStatus('not-found');
-      setMessage('オフラインのため外部の商品情報を照会できません。番号を保持して手入力できます。');
-      return;
-    }
     const controller = new AbortController();
     requestRef.current = controller;
     try {
@@ -69,9 +64,12 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
       setMessage('商品情報を取得しました。');
       onProduct?.(result.product);
     } catch (error) {
-      if (error.name === 'AbortError') return;
-      setStatus('error');
-      setMessage(error.message || '商品情報サービスへ接続できませんでした。');
+      if (error?.name === 'AbortError') return;
+      const offline = !navigator.onLine;
+      setStatus(offline ? 'not-found' : 'error');
+      setMessage(offline
+        ? 'オフラインで保存済みの商品情報が見つかりません。番号を保持して手入力できます。'
+        : error?.message || '商品情報サービスへ接続できませんでした。');
     } finally {
       if (requestRef.current === controller) requestRef.current = null;
     }

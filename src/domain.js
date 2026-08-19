@@ -23,8 +23,37 @@ function isUnexpiredInventoryItem(item, today = new Date()) {
   return !item.expiry || new Date(`${item.expiry}T00:00:00`) >= currentDate;
 }
 
+const PORTABLE_TOILET_KIT_PATTERN = /(携帯|簡易|非常用|災害用).{0,8}トイレ|トイレ.{0,8}(セット|キット|一式)/;
+const PORTABLE_TOILET_ACCESSORY_PATTERN = /(テント|便座|本体|収納|ケース|カバー)/;
+const TOILET_BAG_PATTERN = /(便袋|排便袋)/;
+const TOILET_COAGULANT_PATTERN = /(凝固剤|凝固材)/;
+const TOILET_COMPONENT_ONLY_PATTERN = /トイレ.{0,4}(用|の|交換|追加).{0,4}(便袋|排便袋|凝固剤|凝固材)|(便袋|排便袋|凝固剤|凝固材).{0,4}(単品|のみ|交換|追加|詰替)/;
+
+function portableToiletItemKind(item) {
+  if (item.category !== 'hygiene') return null;
+  const name = String(item.name || '');
+  const hasBag = TOILET_BAG_PATTERN.test(name);
+  const hasCoagulant = TOILET_COAGULANT_PATTERN.test(name);
+  if (hasBag && hasCoagulant) return 'kit';
+  const hasKitName = PORTABLE_TOILET_KIT_PATTERN.test(name) && !PORTABLE_TOILET_ACCESSORY_PATTERN.test(name);
+  if (hasKitName && !TOILET_COMPONENT_ONLY_PATTERN.test(name)) return 'kit';
+  if (hasBag) return 'bag';
+  if (hasCoagulant) return 'coagulant';
+  if (hasKitName) return 'kit';
+  return null;
+}
+
 export function usableInventory(items = [], today = new Date()) {
   return items.filter((item) => Number(item.quantity) > 0 && isUnexpiredInventoryItem(item, today));
+}
+
+export function portableToiletUses(items = [], today = new Date()) {
+  const counts = { kit: 0, bag: 0, coagulant: 0 };
+  for (const item of usableInventory(items, today)) {
+    const kind = portableToiletItemKind(item);
+    if (kind) counts[kind] += Math.max(0, Number(item.quantity) || 0);
+  }
+  return counts.kit + Math.min(counts.bag, counts.coagulant);
 }
 
 export const daysFromNow = (amount) => {
@@ -39,7 +68,7 @@ export const createInitialInventory = () => [
   { id: 'rice', name: 'アルファ米', category: 'food', tier: 1, unit: '食', quantity: 9, target: 12, price: 360, foodWeightG: 150, expiry: daysFromNow(420), note: '味の違うものを混ぜる' },
   { id: 'gas', name: 'カセットボンベ', category: 'heat', tier: 2, unit: '本', quantity: 6, target: 9, price: 180, expiry: '', note: '高温を避けて保管' },
   { id: 'stove', name: 'カセットコンロ', category: 'heat', tier: 1, unit: '台', quantity: 0, target: 1, price: 5000, expiry: '', note: '製造から10年を目安に点検・交換' },
-  { id: 'toilet', name: '携帯トイレ', category: 'hygiene', tier: 1, unit: '回分', quantity: 20, target: 35, price: 110, expiry: '', note: '家族5人×7日分' },
+  { id: 'toilet', name: '携帯トイレ', category: 'hygiene', tier: 1, unit: '回分', quantity: 20, target: 35, price: 110, expiry: '', note: '1人1日5回、まず7日分を目安に家族人数で計算' },
   { id: 'battery', name: '乾電池（単3）', category: 'light', tier: 2, unit: '本', quantity: 8, target: 12, price: 90, expiry: daysFromNow(21), note: 'ライトとラジオ用' },
   { id: 'coffee', name: 'ドリップコーヒー', category: 'comfort', tier: 3, unit: '袋', quantity: 6, target: 6, price: 85, expiry: daysFromNow(180), note: '気持ちを落ち着けるもの' },
 ];
@@ -112,7 +141,7 @@ export function buildRotationQueue(items, today = new Date()) {
 
 export function consumeByRotation(items, key, amount = 1, today = new Date()) {
   let remaining = Math.max(0, Number(amount) || 0);
-  const candidates = items.filter((item) => productKey(item) === key && Number(item.quantity) > 0)
+  const candidates = items.filter((item) => item.rotationEnabled !== false && productKey(item) === key && Number(item.quantity) > 0)
     .sort((a, b) => (a.expiry || '9999-12-31').localeCompare(b.expiry || '9999-12-31'));
   const consumed = new Map();
   for (const item of candidates) {
@@ -149,12 +178,11 @@ export function inventorySummary(items, household = 2, today = new Date()) {
   const usableRows = rows.filter((item, index) => usableItems.has(items[index]));
   const foodRows = usableRows.filter((item) => item.category === 'food');
   const waterRows = usableRows.filter((item) => item.category === 'water');
-  const toiletRows = usableRows.filter((item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')));
   const foodGrams = foodRows.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.foodWeightG) || 0), 0);
   const waterMl = waterRows.reduce((sum, item) => sum + Number(item.quantity || 0) * Math.max(0, Number(item.volumeMl) || 0), 0);
   const foodDays = foodGrams / (people * FOOD_GRAMS_PER_PERSON_DAY);
   const waterDays = waterMl / (people * WATER_ML_PER_PERSON_DAY);
-  const toiletUnits = toiletRows.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+  const toiletUnits = portableToiletUses(items, today);
   const toiletDays = toiletUnits / (people * TOILET_USES_PER_PERSON_DAY);
   const foodTargetGrams = people * FOOD_GRAMS_PER_PERSON_DAY * STOCKPILE_TARGET_DAYS;
   const waterTargetMl = people * WATER_ML_PER_PERSON_DAY * STOCKPILE_TARGET_DAYS;
@@ -201,7 +229,7 @@ export function stockpileUnitNeeds(items, household = 1, targetDays = 7, today =
   const amount = (predicate, unitAmount = () => 1) => usable.filter(predicate).reduce((sum, item) => sum + Number(item.quantity || 0) * unitAmount(item), 0);
   const waterMl = amount((item) => item.category === 'water', (item) => Math.max(0, Number(item.volumeMl) || 0));
   const foodGrams = amount((item) => item.category === 'food', (item) => Math.max(0, Number(item.foodWeightG) || 0));
-  const toiletUnits = amount((item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')));
+  const toiletUnits = portableToiletUses(items, today);
   const gasCanisters = amount((item) => item.category === 'heat' && /(カセット|ガス).*(ボンベ|ガス缶)|ボンベ/.test(String(item.name || '')));
   const stoves = amount((item) => item.category === 'heat' && /(カセット|ガス).*(コンロ|こんろ)/.test(String(item.name || '')));
   const waterTargetMl = people * WATER_ML_PER_PERSON_DAY * days;
@@ -225,11 +253,11 @@ export function stockpileBudgetProjection(items, household = 1, targetDays = 7, 
   const definitions = [
     { key: 'water', label: '水', priority: 0, daily: people * WATER_ML_PER_PERSON_DAY, amount: (item) => item.category === 'water' ? Number(item.volumeMl) || 0 : 0 },
     { key: 'food', label: '食料', priority: 1, daily: people * FOOD_GRAMS_PER_PERSON_DAY, amount: (item) => item.category === 'food' ? Number(item.foodWeightG) || 0 : 0 },
-    { key: 'toilet', label: '携帯トイレ', priority: 2, daily: people * TOILET_USES_PER_PERSON_DAY, amount: (item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || '')) ? 1 : 0 },
+    { key: 'toilet', label: '携帯トイレ', priority: 2, daily: people * TOILET_USES_PER_PERSON_DAY, amount: (item) => portableToiletItemKind(item) === 'kit' ? 1 : 0, stocked: () => portableToiletUses(items, today) },
   ];
   const resources = definitions.map((resource) => {
     const applicable = items.filter((item) => isUnexpiredInventoryItem(item, today) && resource.amount(item) > 0);
-    const stocked = applicable.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0) * resource.amount(item), 0);
+    const stocked = resource.stocked ? resource.stocked() : applicable.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0) * resource.amount(item), 0);
     const missing = Math.max(0, target * resource.daily - stocked);
     const candidate = applicable.filter((item) => Number(item.price) > 0).sort((a, b) => {
       const tierGap = (Number(a.tier) || 3) - (Number(b.tier) || 3);
@@ -250,6 +278,7 @@ export function stockpileBudgetProjection(items, household = 1, targetDays = 7, 
   });
   const totalCost = resources.reduce((sum, item) => sum + item.estimatedCost, 0);
   const purchasePlan = resources.filter((item) => item.missing > 0).sort((a, b) => a.currentDays - b.currentDays || a.priority - b.priority);
+  const costComplete = purchasePlan.every((item) => item.hasPrice);
   let remainingAnnualBudget = budget;
   const annualPlan = purchasePlan.map((resource, index) => {
     const recommendation = resource.recommendation;
@@ -258,7 +287,7 @@ export function stockpileBudgetProjection(items, household = 1, targetDays = 7, 
     remainingAnnualBudget -= plannedCost;
     return { ...resource, order: index + 1, plannedQuantity, plannedCost, deferredQuantity: recommendation ? recommendation.quantity - plannedQuantity : 0 };
   });
-  const months = totalCost === 0 ? 0 : budget > 0 ? Math.ceil(totalCost / budget * 12) : null;
+  const months = !costComplete ? null : totalCost === 0 ? 0 : budget > 0 ? Math.ceil(totalCost / budget * 12) : null;
   return {
     resources,
     purchasePlan,
@@ -269,7 +298,7 @@ export function stockpileBudgetProjection(items, household = 1, targetDays = 7, 
     annualBudget: budget,
     plannedThisYear: annualPlan.reduce((sum, item) => sum + item.plannedCost, 0),
     remainingAnnualBudget,
-    costComplete: purchasePlan.every((item) => item.hasPrice),
+    costComplete,
     complete: resources.every((item) => item.currentDays >= target),
   };
 }

@@ -1,4 +1,4 @@
-import { createInitialInventory, daysFromNow, uid } from './domain.js';
+import { CATEGORY_META, createInitialInventory, daysFromNow, uid } from './domain.js';
 import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
 import { parseWeightGrams } from '../shared/productLookup.mjs';
 
@@ -6,40 +6,43 @@ export const STORAGE_KEY = 'sonae-note-state-v1';
 export const SCHEMA_VERSION = 13;
 
 const today = () => new Date().toISOString().slice(0, 10);
+const INVENTORY_CATEGORIES = new Set(Object.keys(CATEGORY_META));
 
 export function normalizeInventoryItem(item = {}, index = 0) {
-  const barcode = String(item.barcode || '').replace(/\D/g, '');
-  const id = String(item.id || uid());
+  const source = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
+  const barcode = String(source.barcode || '').replace(/\D/g, '');
+  const id = String(source.id || uid());
+  const category = INVENTORY_CATEGORIES.has(source.category) ? source.category : 'food';
   return {
     id,
-    productId: item.productId || (barcode ? `gtin:${barcode}` : `legacy:${id || index}`),
-    name: String(item.name || `備蓄品 ${index + 1}`),
-    category: item.category || 'food',
-    tier: Math.min(3, Math.max(1, Number(item.tier) || 2)),
-    unit: String(item.unit || '個'),
-    quantity: Math.max(0, Number(item.quantity) || 0),
-    target: Math.max(0, Number(item.target) || 0),
-    price: Math.max(0, Number(item.price) || 0),
-    expiry: item.expiry || '',
-    note: String(item.note || ''),
+    productId: source.productId || (barcode ? `gtin:${barcode}` : `legacy:${id || index}`),
+    name: String(source.name || `備蓄品 ${index + 1}`),
+    category,
+    tier: Math.min(3, Math.max(1, Number(source.tier) || 2)),
+    unit: String(source.unit || '個'),
+    quantity: Math.max(0, Number(source.quantity) || 0),
+    target: Math.max(0, Number(source.target) || 0),
+    price: Math.max(0, Number(source.price) || 0),
+    expiry: source.expiry || '',
+    note: String(source.note || ''),
     barcode,
-    brand: String(item.brand || ''),
-    packageSize: String(item.packageSize || ''),
-    volumeMl: Math.max(0, Number(item.volumeMl) || 0),
-    foodWeightG: Math.max(0, Number(item.foodWeightG) || (item.category === 'food' ? parseWeightGrams(`${item.packageSize || ''} ${item.name || ''}`) : 0)),
-    packingVolumeMl: Math.max(0, Number(item.packingVolumeMl) || 0),
-    imageUrl: String(item.imageUrl || ''),
-    source: String(item.source || ''),
-    sourceUrl: String(item.sourceUrl || ''),
-    location: String(item.location || ''),
-    lastChecked: item.lastChecked || today(),
-    nextCheck: item.nextCheck || daysFromNow(30),
-    rotationEnabled: item.rotationEnabled !== false,
-    rotationLeadDays: Math.max(0, Number(item.rotationLeadDays) || 30),
-    rotationReminderDate: item.rotationReminderDate || '',
-    replenishmentPriority: ['high', 'medium', 'low'].includes(item.replenishmentPriority) ? item.replenishmentPriority : ((Number(item.tier) || 2) === 1 ? 'high' : (Number(item.tier) || 2) === 2 ? 'medium' : 'low'),
-    replenishBy: item.replenishBy || '',
-    purchaseFrom: String(item.purchaseFrom || ''),
+    brand: String(source.brand || ''),
+    packageSize: String(source.packageSize || ''),
+    volumeMl: Math.max(0, Number(source.volumeMl) || 0),
+    foodWeightG: Math.max(0, Number(source.foodWeightG) || (category === 'food' ? parseWeightGrams(`${source.packageSize || ''} ${source.name || ''}`) : 0)),
+    packingVolumeMl: Math.max(0, Number(source.packingVolumeMl) || 0),
+    imageUrl: String(source.imageUrl || ''),
+    source: String(source.source || ''),
+    sourceUrl: String(source.sourceUrl || ''),
+    location: String(source.location || ''),
+    lastChecked: source.lastChecked || today(),
+    nextCheck: source.nextCheck || daysFromNow(30),
+    rotationEnabled: source.rotationEnabled !== false,
+    rotationLeadDays: Math.max(0, Number(source.rotationLeadDays) || 30),
+    rotationReminderDate: source.rotationReminderDate || '',
+    replenishmentPriority: ['high', 'medium', 'low'].includes(source.replenishmentPriority) ? source.replenishmentPriority : ((Number(source.tier) || 2) === 1 ? 'high' : (Number(source.tier) || 2) === 2 ? 'medium' : 'low'),
+    replenishBy: source.replenishBy || '',
+    purchaseFrom: String(source.purchaseFrom || ''),
   };
 }
 
@@ -64,7 +67,9 @@ export function createDefaultState() {
 export function normalizeState(input) {
   const fallback = createDefaultState();
   if (!input || typeof input !== 'object') return fallback;
-  const inventory = Array.isArray(input.inventory) ? input.inventory.map(normalizeInventoryItem) : fallback.inventory;
+  const inventory = Array.isArray(input.inventory)
+    ? input.inventory.filter((item) => item && typeof item === 'object' && !Array.isArray(item)).map(normalizeInventoryItem)
+    : fallback.inventory;
   if ((Number(input.schemaVersion) || 0) < 12 && !inventory.some((item) => item.category === 'heat' && /(カセット|ガス).*(コンロ|こんろ)/.test(item.name))) {
     inventory.push(normalizeInventoryItem(createInitialInventory().find((item) => item.id === 'stove'), inventory.length));
   }

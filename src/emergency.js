@@ -41,17 +41,26 @@ export function generateEmergencyPlan(state, summary) {
 
 export function simulateDisaster(state, summary, scenarioId, days = 3) {
   const scenario = DISASTER_SCENARIOS.find((item) => item.id === scenarioId) || DISASTER_SCENARIOS[0];
+  const requestedDays = Number(days);
+  const duration = Number.isFinite(requestedDays) ? Math.min(14, Math.max(1, requestedDays)) : scenario.days;
   const categoryMap = Object.fromEntries(summary.categoryScores.map((item) => [item.key, item.score]));
+  const dayCoverageScore = (value) => Math.round(Math.min(1, Math.max(0, Number(value) || 0) / duration) * 100);
+  categoryMap.water = dayCoverageScore(summary.waterDays);
+  categoryMap.food = dayCoverageScore(summary.foodDays);
+  categoryMap.hygiene = dayCoverageScore(summary.toiletDays);
   const categoryScore = Math.round(scenario.categories.reduce((sum, key) => sum + (categoryMap[key] || 0), 0) / scenario.categories.length);
-  const durationPenalty = Math.max(0, Number(days) - scenario.days) * 5;
-  const score = Math.max(0, Math.min(100, categoryScore - durationPenalty));
-  const criticalGaps = scenario.categories.filter((key) => (categoryMap[key] || 0) < 70).map((key) => ({ key, score: categoryMap[key] || 0 }));
+  const score = Math.max(0, Math.min(100, categoryScore));
+  const criticalGaps = scenario.categories
+    .filter((key) => (categoryMap[key] || 0) < 70)
+    .map((key) => ({ key, score: categoryMap[key] || 0 }))
+    .sort((a, b) => a.score - b.score);
+  const statusKey = score < 50 ? 'large-gap' : criticalGaps.length || score < 80 ? 'needs-stock' : 'reference-ready';
   return {
     scenario,
-    days: Number(days),
+    days: duration,
     score,
-    statusKey: score >= 80 ? 'reference-ready' : score >= 50 ? 'needs-stock' : 'large-gap',
-    status: score >= 80 ? '参考上は充足' : score >= 50 ? '備蓄不足あり' : '大きな不足',
+    statusKey,
+    status: statusKey === 'reference-ready' ? '参考上は充足' : statusKey === 'needs-stock' ? '備蓄不足あり' : '大きな不足',
     criticalGaps,
     advice: criticalGaps.length ? `${EMERGENCY_CATEGORY_LABELS[criticalGaps[0].key] || CATEGORY_META[criticalGaps[0].key]?.label || '不足している'}分野を最優先で補強してください。` : '主要分野は整っています。実物を使う訓練で確認してください。',
   };

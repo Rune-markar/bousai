@@ -1,3 +1,5 @@
+import { getLoadout, loadoutStatus } from './loadouts.js';
+
 export const PREPAREDNESS_STAGES = [
   {
     id: 'protect', number: 1, title: '命を守る土台', subtitle: '発災直後を生き抜く', icon: 'shield',
@@ -62,6 +64,16 @@ export const PREPAREDNESS_STAGES = [
 ];
 
 export const ALL_PREPAREDNESS_TASKS = PREPAREDNESS_STAGES.flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageId: stage.id, stageNumber: stage.number })));
+const PREPAREDNESS_TASK_BY_ID = new Map(ALL_PREPAREDNESS_TASKS.map((task) => [task.id, task]));
+
+function validPersistedCompletionIds(state) {
+  const persisted = Array.isArray(state.preparedness?.completed) ? state.preparedness.completed : [];
+  return new Set(persisted.filter((taskId) => {
+    const task = PREPAREDNESS_TASK_BY_ID.get(taskId);
+    if (!task || task.auto) return false;
+    return !getLoadout(taskId) || loadoutStatus(state, taskId).ready;
+  }));
+}
 
 export const TARGET_REQUIREMENTS = [
   { maxDays: 3, stageNumber: 2, label: '72時間をしのぐ力' },
@@ -75,25 +87,21 @@ export function targetRequirement(days = 7) {
   return TARGET_REQUIREMENTS.find((requirement) => normalizedDays <= requirement.maxDays) || TARGET_REQUIREMENTS.at(-1);
 }
 
-const toiletQuantity = (inventory) => inventory.filter((item) => item.category === 'hygiene' && /(トイレ|便袋|凝固)/.test(String(item.name || ''))).reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
-
 export function getAutomaticTaskIds(state, inventorySummary) {
-  const people = Math.max(1, Number(state.household) || 1);
-  const toiletUnits = toiletQuantity(state.inventory || []);
   const contact = state.contact || {};
   const checks = {
     water3: inventorySummary.waterDays >= 3,
     water7: inventorySummary.waterDays >= 7,
     food3: inventorySummary.foodDays >= 3,
-    toilet3: toiletUnits >= people * 5 * 3,
-    toilet7: toiletUnits >= people * 5 * 7,
+    toilet3: inventorySummary.toiletDays >= 3,
+    toilet7: inventorySummary.toiletDays >= 7,
     contactReady: Boolean(String(contact.shelter || '').trim() && String(contact.phone || '').trim() && String(contact.note || '').trim()),
   };
   return new Set(ALL_PREPAREDNESS_TASKS.filter((task) => task.auto && checks[task.auto]).map((task) => task.id));
 }
 
 export function preparednessProgress(state, inventorySummary) {
-  const manual = new Set(Array.isArray(state.preparedness?.completed) ? state.preparedness.completed : []);
+  const manual = validPersistedCompletionIds(state);
   const automatic = getAutomaticTaskIds(state, inventorySummary);
   const completed = new Set([...manual, ...automatic]);
   const stages = PREPAREDNESS_STAGES.map((stage, index) => {
@@ -114,7 +122,8 @@ export function preparednessProgress(state, inventorySummary) {
   const nextTask = currentStage?.tasks.find((task) => !completed.has(task.id) && task.gate) || currentStage?.tasks.find((task) => !completed.has(task.id)) || null;
   const level = Math.min(6, 1 + stages.filter((stage) => stage.gateClear).length);
   const titles = ['備えの芽', '命を守る人', '72時間サバイバー', '避難設計者', '暮らしの守り手', '自立防災士'];
-  return { completed, automatic, stages, xp, maxXp, level, title: titles[level - 1], weakest, currentStage, nextTask, totalDone: completed.size, totalTasks: ALL_PREPAREDNESS_TASKS.length };
+  const totalDone = ALL_PREPAREDNESS_TASKS.filter((task) => completed.has(task.id)).length;
+  return { completed, automatic, stages, xp, maxXp, level, title: titles[level - 1], weakest, currentStage, nextTask, totalDone, totalTasks: ALL_PREPAREDNESS_TASKS.length };
 }
 
 export function defensePower(state, inventorySummary) {
@@ -125,24 +134,26 @@ export function defensePower(state, inventorySummary) {
   const completedTasks = requiredTasks.filter((task) => progress.completed.has(task.id)).length;
   const waterCoverage = Math.min(1, Math.max(0, Number(inventorySummary.waterDays) || 0) / targetDays);
   const foodCoverage = Math.min(1, Math.max(0, Number(inventorySummary.foodDays) || 0) / targetDays);
-  const earned = completedTasks + waterCoverage + foodCoverage;
-  const requirementCount = requiredTasks.length + 2;
+  const toiletCoverage = Math.min(1, Math.max(0, Number(inventorySummary.toiletDays) || 0) / targetDays);
+  const earned = completedTasks + waterCoverage + foodCoverage + toiletCoverage;
+  const requirementCount = requiredTasks.length + 3;
   return {
     targetDays,
     requiredStage,
     requiredTasks,
     completedTasks,
     requirementCount,
-    fulfilled: completedTasks + Number(waterCoverage === 1) + Number(foodCoverage === 1),
+    fulfilled: completedTasks + Number(waterCoverage === 1) + Number(foodCoverage === 1) + Number(toiletCoverage === 1),
     waterCoverage,
     foodCoverage,
+    toiletCoverage,
     score: Math.round(earned / requirementCount * 100),
     nextTask: requiredTasks.find((task) => !progress.completed.has(task.id)) || null,
   };
 }
 
 export function essentialPreparednessGates(state, inventorySummary) {
-  const completed = new Set(state.preparedness?.completed || []);
+  const completed = validPersistedCompletionIds(state);
   const contact = state.contact || {};
   const shelterReady = Boolean(String(contact.shelter || '').trim());
   const hazardReady = completed.has('hazard-map');
@@ -175,7 +186,7 @@ export function togglePreparednessTask(state, taskId, inventorySummary) {
   if (!task || task.auto) return state;
   const automatic = getAutomaticTaskIds(state, inventorySummary);
   if (automatic.has(taskId)) return state;
-  const completed = new Set(state.preparedness?.completed || []);
+  const completed = validPersistedCompletionIds(state);
   completed.has(taskId) ? completed.delete(taskId) : completed.add(taskId);
   return { ...state, preparedness: { ...state.preparedness, completed: [...completed], updatedAt: new Date().toISOString() } };
 }

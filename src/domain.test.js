@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRotationQueue, consumeByRotation, inventorySummary, itemStats, stockpileBudgetProjection, stockpileUnitNeeds, transactionInsights } from './domain.js';
+import { buildRotationQueue, consumeByRotation, createInitialInventory, inventorySummary, itemStats, portableToiletUses, stockpileBudgetProjection, stockpileUnitNeeds, transactionInsights } from './domain.js';
 
 describe('itemStats', () => {
   it('不足数と補充費用を計算する', () => {
@@ -55,6 +55,18 @@ describe('stockpileBudgetProjection', () => {
     expect(water.currentDays).toBe(0);
     expect(water.recommendation).toMatchObject({ itemId: 'fresh', quantity: 2 });
   });
+
+  it('単価が不足している分野を除外した到達月数を表示しない', () => {
+    const result = stockpileBudgetProjection([
+      { id: 'water', name: '2L水', category: 'water', unit: '本', quantity: 0, volumeMl: 2000, price: 100 },
+      { id: 'food', name: '保存食', category: 'food', unit: '食', quantity: 0, foodWeightG: 150, price: 0 },
+      { id: 'toilet', name: '携帯トイレ', category: 'hygiene', unit: '回分', quantity: 0, price: 0 },
+    ], 1, 3, 12000);
+
+    expect(result.costComplete).toBe(false);
+    expect(result.totalCost).toBe(500);
+    expect(result.months).toBeNull();
+  });
 });
 
 describe('transactionInsights', () => {
@@ -87,6 +99,56 @@ describe('rolling stock', () => {
     expect(result.inventory.find((item) => item.id === 'early').quantity).toBe(0);
     expect(result.inventory.find((item) => item.id === 'late').quantity).toBe(1);
     expect(result.consumed.map(({ item }) => item.id)).toEqual(['early', 'late']);
+  });
+
+  it('does not consume a lot excluded from rotation', () => {
+    const items = [
+      { id: 'reserved', productId: 'gtin:1', name: '保存食', quantity: 2, expiry: '2026-08-20', rotationEnabled: false },
+      { id: 'rolling', productId: 'gtin:1', name: '保存食', quantity: 2, expiry: '2026-09-01', rotationEnabled: true },
+    ];
+    const result = consumeByRotation(items, 'gtin:1', 1, new Date('2026-08-14T12:00:00'));
+
+    expect(result.consumed.map(({ item }) => item.id)).toEqual(['rolling']);
+    expect(result.inventory.find((item) => item.id === 'reserved').quantity).toBe(2);
+    expect(result.inventory.find((item) => item.id === 'rolling').quantity).toBe(1);
+  });
+});
+
+describe('portableToiletUses', () => {
+  const today = new Date('2026-08-17T12:00:00');
+
+  it('counts complete kits and only matched bag/coagulant component pairs', () => {
+    const items = [
+      { name: '携帯トイレ', category: 'hygiene', quantity: 10 },
+      { name: '非常用トイレの便袋', category: 'hygiene', quantity: 40 },
+      { name: '携帯トイレ用凝固剤', category: 'hygiene', quantity: 25 },
+      { name: '期限切れ携帯トイレ', category: 'hygiene', quantity: 100, expiry: '2026-08-16' },
+      { name: 'ウェットティッシュ', category: 'hygiene', quantity: 100 },
+    ];
+
+    expect(portableToiletUses(items, today)).toBe(35);
+    expect(portableToiletUses([{ name: '便袋', category: 'hygiene', quantity: 35 }], today)).toBe(0);
+    expect(portableToiletUses([{ name: '凝固剤', category: 'hygiene', quantity: 35 }], today)).toBe(0);
+  });
+
+  it('uses the same safe count for summary, unit needs, and budget stock', () => {
+    const items = [
+      { name: '便袋', category: 'hygiene', quantity: 12, price: 10 },
+      { name: '凝固剤', category: 'hygiene', quantity: 8, price: 10 },
+      { name: '携帯トイレ', category: 'hygiene', quantity: 2, price: 100, unit: '回分' },
+    ];
+    const summary = inventorySummary(items, 1, today);
+    const needs = stockpileUnitNeeds(items, 1, 2, today).find((item) => item.key === 'toilet');
+    const budget = stockpileBudgetProjection(items, 1, 2, 1000, today).resources.find((item) => item.key === 'toilet');
+
+    expect(summary.toiletUnits).toBe(10);
+    expect(summary.toiletDays).toBe(2);
+    expect(needs).toMatchObject({ shortage: 0, current: '10回分' });
+    expect(budget).toMatchObject({ currentDays: 2, missing: 0 });
+  });
+
+  it('describes the default portable-toilet target without a fixed household mismatch', () => {
+    expect(createInitialInventory().find((item) => item.id === 'toilet').note).toContain('家族人数で計算');
   });
 });
 

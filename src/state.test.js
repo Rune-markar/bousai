@@ -32,6 +32,27 @@ describe('state migration', () => {
     expect(state.inventory[0].foodWeightG).toBe(240);
   });
 
+  it('keeps valid imported state when inventory contains null or invalid records', () => {
+    const raw = {
+      schemaVersion: SCHEMA_VERSION,
+      household: 4,
+      contact: { name: '重要メモ', phone: '090', shelter: '避難所', note: '171' },
+      inventory: [
+        { id: 'water', name: '飲料水', category: 'water', quantity: 6, volumeMl: 500 },
+        null,
+        'broken',
+        [],
+        { id: 'mapped', name: '分類不明品', category: 'edited-category', quantity: 1 },
+      ],
+    };
+    const state = loadState({ getItem: () => JSON.stringify(raw) });
+
+    expect(state.household).toBe(4);
+    expect(state.contact).toMatchObject({ name: '重要メモ', phone: '090', shelter: '避難所', note: '171' });
+    expect(state.inventory.map((item) => item.id)).toEqual(['water', 'mapped']);
+    expect(state.inventory.find((item) => item.id === 'mapped').category).toBe('food');
+  });
+
   it('recovers from corrupt JSON', () => {
     const state = loadState({ getItem: () => '{broken' });
     expect(state.inventory.length).toBeGreaterThan(0);
