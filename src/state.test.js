@@ -8,7 +8,7 @@ describe('state migration', () => {
     expect(state.onboarding.completed).toBe(true);
     expect(state.inventory[0]).toMatchObject({ id: 'old', name: '水', quantity: 2 });
     expect(state.inventory[0].productId).toBe('legacy:old');
-    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, disasterChecks: {}, targetDays: 7, annualBudget: 0, updatedAt: '' });
+    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, disasterChecks: {}, stockpileSkillClaims: [], targetDays: 7, annualBudget: 0, updatedAt: '' });
     expect(state.inventory[0].packingVolumeMl).toBe(0);
     expect(state.inventory[0].foodWeightG).toBe(0);
     expect(state.transactions).toEqual([]);
@@ -25,6 +25,12 @@ describe('state migration', () => {
 
   it('preserves valid disaster checklist state', () => {
     expect(normalizeState({ preparedness: { disasterChecks: { earthquake: ['furniture-brace', 'furniture-brace', 42] } } }).preparedness.disasterChecks).toEqual({ earthquake: ['furniture-brace'] });
+  });
+
+  it('normalizes and preserves claimed stockpile skill IDs', () => {
+    const state = normalizeState({ preparedness: { stockpileSkillClaims: ['food-3', ' food-3 ', 42, '', 'home-3'] } });
+
+    expect(state.preparedness.stockpileSkillClaims).toEqual(['food-3', 'home-3']);
   });
 
   it('migrates food weight from an existing package label', () => {

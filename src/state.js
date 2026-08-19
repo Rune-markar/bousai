@@ -3,7 +3,7 @@ import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
 import { parseWeightGrams } from '../shared/productLookup.mjs';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 const today = () => new Date().toISOString().slice(0, 10);
 const INVENTORY_CATEGORIES = new Set(Object.keys(CATEGORY_META));
@@ -54,7 +54,7 @@ export function createDefaultState() {
     household: 2,
     contact: { name: '家族の緊急メモ', phone: '', shelter: '', note: '災害用伝言ダイヤル 171' },
     completedTips: [],
-    preparedness: { completed: [], loadouts: {}, bagSettings: {}, disasterChecks: {}, targetDays: 7, annualBudget: 0, updatedAt: '' },
+    preparedness: { completed: [], loadouts: {}, bagSettings: {}, disasterChecks: {}, stockpileSkillClaims: [], targetDays: 7, annualBudget: 0, updatedAt: '' },
     transactions: [],
     lastVisitAt: '',
     selectedCharacter: 'hikari',
@@ -95,6 +95,7 @@ export function normalizeState(input) {
       loadouts: Object.fromEntries(Object.entries(input.preparedness?.loadouts || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
       bagSettings: Object.fromEntries(Object.entries(input.preparedness?.bagSettings || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, { mode: value.mode === 'custom' ? 'custom' : 'standard', customCapacityL: Math.min(100, Math.max(1, Number(value.customCapacityL) || 20)) }])),
       disasterChecks: Object.fromEntries(Object.entries(input.preparedness?.disasterChecks || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
+      stockpileSkillClaims: [...new Set((Array.isArray(input.preparedness?.stockpileSkillClaims) ? input.preparedness.stockpileSkillClaims : []).filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim()))],
       targetDays: Math.min(180, Math.max(1, Number(input.preparedness?.targetDays) || fallback.preparedness.targetDays)),
       annualBudget: Math.min(10000000, Math.max(0, Number(input.preparedness?.annualBudget) || 0)),
       updatedAt: String(input.preparedness?.updatedAt || ''),

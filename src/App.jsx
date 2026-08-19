@@ -10,13 +10,15 @@ import BarcodeScanner from './BarcodeScanner.jsx';
 import PowerEcosystem from './PowerEcosystem.jsx';
 import PracticalLoadout from './PracticalLoadout.jsx';
 import DisasterPreparedness from './DisasterPreparedness.jsx';
+import StockpileSkillTree from './StockpileSkillTree.jsx';
 import { createTransaction, loadState, normalizeState, STORAGE_KEY } from './state.js';
 import { defensePower, essentialPreparednessGates, preparednessProgress, togglePreparednessTask } from './preparedness.js';
 import { completeLoadout, getLoadout, loadoutStatus, updateLoadout } from './loadouts.js';
 import { autoPackInventory, bagSettings, updateBagSettings } from './packing.js';
 import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, respondToCharacter } from './characters.js';
 import { DISASTER_SCENARIOS, generateEmergencyPlan, simulateDisaster } from './emergency.js';
-import { buildStockpileGuideline, STOCKPILE_GUIDELINE_SOURCES } from './stockpileGuideline.js';
+import { STOCKPILE_GUIDELINE_SOURCES } from './stockpileGuideline.js';
+import { buildStockpileSkillTree, claimStockpileSkill } from './stockpileSkills.js';
 
 const nav = [
   { id: 'home', label: 'ホーム', icon: Home },
@@ -27,7 +29,7 @@ const nav = [
   { id: 'plan', label: '緊急メモ', icon: ClipboardList },
   { id: 'learn', label: '知る', icon: BookOpen },
 ];
-const pageIds = new Set([...nav.map(({ id }) => id), 'power', 'rolling']);
+const pageIds = new Set([...nav.map(({ id }) => id), 'power', 'rolling', 'stockpile-skills']);
 const pageFromLocation = () => {
   const id = window.location.hash.replace(/^#\/?/, '');
   return pageIds.has(id) ? id : 'home';
@@ -53,6 +55,7 @@ function App() {
   const summary = useMemo(() => inventorySummary(state.inventory, state.household), [state.inventory, state.household]);
   const visitChecked = useRef(false);
   const powerEntryRef = useRef(null);
+  const stockpileSkillEntryRef = useRef(null);
   const mainRef = useRef(null);
   const previousPageRef = useRef(page);
 
@@ -122,7 +125,12 @@ function App() {
       powerEntryRef.current?.focus();
       return;
     }
+    if (page === 'inventory' && previousPage === 'stockpile-skills') {
+      const frame = window.requestAnimationFrame(() => stockpileSkillEntryRef.current?.focus());
+      return () => window.cancelAnimationFrame(frame);
+    }
     if (page === 'power') return;
+    if (page === 'stockpile-skills') return;
     if (page === 'roadmap' && pageTarget) return;
     const frame = window.requestAnimationFrame(() => {
       const heading = mainRef.current?.querySelector('h1');
@@ -159,20 +167,23 @@ function App() {
 
   const onboardingActive = !state.onboarding?.completed;
   const backgroundA11y = onboardingActive ? { 'aria-hidden': true, inert: true } : {};
+  const chromeA11y = onboardingActive || page === 'stockpile-skills' ? { 'aria-hidden': true, inert: true } : {};
+  const navigationPage = page === 'stockpile-skills' ? 'inventory' : page;
 
   return (
     <div className={`app-shell${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
-      <header className="topbar" {...backgroundA11y}>
+      <header className="topbar" {...chromeA11y}>
         <Brand />
         <nav className="desktop-nav" aria-label="メインナビゲーション">
-          {nav.map(({ id, label, icon: Icon }) => <button aria-current={page === id ? 'page' : undefined} className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={18} />{label}</button>)}
+          {nav.map(({ id, label, icon: Icon }) => <button aria-current={navigationPage === id ? 'page' : undefined} className={navigationPage === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={18} />{label}</button>)}
         </nav>
         <div className="header-actions">{!online && <span className="offline-badge"><WifiOff />オフライン</span>}<button className="notification-button" aria-label="オプションを開く" onClick={() => setOptionsOpen(true)}><Settings size={20} /></button><button className="notification-button share-button" aria-label="アクセス用QRコードを開く" onClick={() => setShareOpen(true)}><QrCode size={20} /></button><button className="notification-button" aria-label={`通知一覧を開く（${summary.notificationCount}件）`} onClick={() => setNotificationsOpen(true)}><Bell size={20} /><span>{summary.notificationCount}</span></button></div>
       </header>
 
       <main ref={mainRef} {...backgroundA11y}>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
-        {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} />}
+        {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} />}
+        {page === 'stockpile-skills' && !onboardingActive && <StockpileSkillsPage state={state} setState={setState} setToast={setToast} onClose={() => setPage('inventory', { replace: true })} />}
         {page === 'bags' && <EvacuationBags state={state} setState={setState} setToast={setToast} setPage={setPage} />}
         {page === 'rolling' && <RollingStock state={state} summary={summary} transactions={state.transactions} updateInventory={updateInventory} onBack={() => setPage('inventory')} />}
         {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} targetTaskId={pageTarget} />}
@@ -182,12 +193,12 @@ function App() {
         {page === 'power' && <PowerEcosystem plan={state.powerPlan} onChange={(powerPlan) => setState((old) => ({ ...old, powerPlan }))} onBack={() => setPage('home')} />}
       </main>
 
-      <footer className="app-footer" {...backgroundA11y}>
+      <footer className="app-footer" {...chromeA11y}>
         <small>© {new Date().getFullYear()} そなえメモ</small>
       </footer>
 
-      <nav className="mobile-nav" aria-label="モバイルナビゲーション" {...backgroundA11y}>
-        {nav.map(({ id, label, icon: Icon }) => <button aria-current={page === id ? 'page' : undefined} className={page === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
+      <nav className="mobile-nav" aria-label="モバイルナビゲーション" {...chromeA11y}>
+        {nav.map(({ id, label, icon: Icon }) => <button aria-current={navigationPage === id ? 'page' : undefined} className={navigationPage === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
       {modal && <ItemModal item={modal === 'new' ? null : modal} inventory={state.inventory} onClose={() => setModal(null)} onSave={(form) => {
@@ -743,68 +754,107 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast, targ
   </section>;
 }
 
-function StockpileGuidelineTree({ state, summary, setFilter, setPage }) {
-  const guideline = useMemo(() => buildStockpileGuideline(summary, state.inventory), [state.inventory, summary]);
-  const primaryBag = loadoutStatus(state, 'bag-primary');
-  const safetyGates = useMemo(() => essentialPreparednessGates(state, summary), [state, summary]);
-  const nextSafetyGate = safetyGates.gates.find((gate) => !gate.complete) || null;
-  const selectCategory = (category) => {
-    setFilter(category);
-    const focusCategory = () => document.querySelector(`[data-category="${category}"]`)?.focus({ preventScroll: false });
-    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(focusCategory);
-    else queueMicrotask(focusCategory);
-  };
-  const takeSafetyAction = () => {
-    if (!nextSafetyGate) return;
-    const category = { water: 'water', toilet: 'hygiene', light: 'light' }[nextSafetyGate.key];
-    if (nextSafetyGate.page === 'inventory' && category) {
-      selectCategory(category);
+const stockpileSkillDetails = {
+  'safety-foundation': '備蓄日数とは別に、住まい・避難先・連絡・常用薬を確認します。未確認項目はホームの必須確認に残り、スキルの開放を待つ必要はありません。',
+  'diversity-power': '医療機器など止められない用途を最優先にし、必要な家庭だけ蓄電池・太陽光・発電機などを組み合わせます。登録だけで容量や安全運用は保証されません。燃料式発電機は屋内・車内・テント内では絶対に使わず、屋外でも出入口や窓から離れた風通しのよい場所で、排気方向と取扱説明書を確認します。',
+  'diversity-food': '同じ主食を増やすだけでなく、チョコレート・菓子・調味料など、食欲と平常感を支える期限内の食品を加えます。',
+  'diversity-calm': 'トランプ・本・子どもの遊びなど、電気を使わず普段に近い時間を作れる物を家族構成に合わせて選ぶ任意項目です。',
+  'diversity-personal': '常用薬、乳幼児用品、アレルギー対応品、ペット用品など、代替しにくい物は備蓄日数より先に確認します。登録後も必要量・期限・使い方を別に点検します。',
+};
+
+const stockpileSkillSymbols = {
+  'stockpile-root': '◎',
+  'safety-foundation': '🛡️',
+  'home-1': '1',
+  'home-3': '3',
+  'home-7': '7',
+  'home-30': '30',
+  'diversity-power': '🔋',
+  'diversity-food': '🍫',
+  'diversity-calm': '🃏',
+  'diversity-personal': '💊',
+};
+
+const stockpileSkillSource = (node) => {
+  if (node.id === 'home-3' || node.id === 'home-7') return STOCKPILE_GUIDELINE_SOURCES.cabinet;
+  if (node.id === 'diversity-power') return STOCKPILE_GUIDELINE_SOURCES.generator;
+  if (node.id === 'diversity-food' || node.category === 'food') return STOCKPILE_GUIDELINE_SOURCES.food;
+  return null;
+};
+
+const formatSkillProgress = (node, model) => {
+  const currentValue = Number(node.progress?.current) || 0;
+  const current = Number.isInteger(currentValue) ? currentValue : Math.round(currentValue * 10) / 10;
+  const target = Number(node.progress?.target) || 0;
+  if (node.kind === 'safety') {
+    const missing = model.safety.gates.filter((gate) => !gate.complete).map((gate) => gate.label);
+    return missing.length
+      ? `ホームの必須確認で ${current} / ${target}項目を確認。未確認：${missing.join('、')}`
+      : `ホームの必須確認で ${target}項目を確認済み。実物と最新情報を定期的に見直す`;
+  }
+  if (node.kind === 'diversity') {
+    const stage = node.id === 'diversity-personal'
+      ? '備蓄日数を待たず'
+      : node.id === 'diversity-food'
+        ? '食料の重量換算3日分と並行して'
+        : node.id === 'diversity-power'
+          ? '主要備蓄の参考量3日分と並行して'
+          : '主要備蓄の参考量7日分を維持しながら';
+    return `${stage}、対象となる期限内の実物を登録する（現在 ${current} / ${target}登録）`;
+  }
+  const basis = target === 1
+    ? '1日はアプリ上の着手点'
+    : target === 3
+      ? '3日は公的な最低目安'
+      : target === 7
+        ? '7日は公的な推奨目安'
+        : target === 30
+          ? '30日は国の一律基準ではなく、量から質へ切り替えるアプリ上の判断点'
+          : '';
+  const foodCaveat = node.category === 'food' || node.kind === 'milestone'
+    ? '。食料は登録重量による参考換算で、栄養・アレルギー・調理可否は別に確認'
+    : '';
+  return `期限内の登録データで ${current}日分 / 条件 ${target}日分${basis ? `。${basis}` : ''}${foodCaveat}`;
+};
+
+function StockpileSkillsPage({ state, setState, setToast, onClose }) {
+  const model = useMemo(() => buildStockpileSkillTree(state), [state]);
+  const nodes = useMemo(() => [{
+    id: 'stockpile-root',
+    title: '備蓄を記録する',
+    symbol: stockpileSkillSymbols['stockpile-root'],
+    state: 'claimed',
+    parents: [],
+    detail: '在庫の数量・内容量・期限を記録した地点です。ここから安全確認と備蓄量の枝が伸びます。',
+    condition: '備蓄データをこの端末に保存する',
+  }, ...model.nodes.map((node) => ({
+    ...node,
+    symbol: stockpileSkillSymbols[node.id],
+    parents: node.parentIds.length ? node.parentIds : ['stockpile-root'],
+    detail: stockpileSkillDetails[node.id] || node.description,
+    condition: formatSkillProgress(node, model),
+    source: stockpileSkillSource(node),
+  }))], [model]);
+
+  const handleClaim = (nodeId) => {
+    const next = claimStockpileSkill(state, nodeId);
+    if (next === state) {
+      setToast('条件が変わったため、現在の備蓄をもう一度確認してください');
       return;
     }
-    setPage(nextSafetyGate.page, { target: nextSafetyGate.page === 'roadmap' ? essentialGateTaskTargets[nextSafetyGate.key] : null });
+    setState(next);
+    setToast('登録データ上の達成を確認しました');
   };
-  const takeBranchAction = (branch) => branch.action === 'power' ? setPage('power') : selectCategory(branch.matchedCategory || branch.action);
-  return <section className="stockpile-guideline" aria-labelledby="stockpile-guideline-title">
-    <header className="stockpile-guideline-head">
-      <div><span className="kicker">STOCKPILE LEVEL GUIDE</span><h2 id="stockpile-guideline-title">量から、状況に強い備えへ</h2><p>在宅備蓄は1日を着手点に、最低3日・推奨7日へ。その先は同じ物の量より、使える状況の幅を増やします。</p></div>
-      <aside><small>現在の在宅備蓄</small><b>{formatDays(guideline.essentialDays)}<em>日分</em></b><span aria-live="polite">{nextSafetyGate ? `先に「${nextSafetyGate.label}」を確認` : guideline.nextMessage}</span></aside>
-    </header>
-    <div className="stockpile-tree" role="group" aria-label="備蓄レベルの樹形図">
-      <div className={`stockpile-tree-root ${safetyGates.complete ? 'complete' : 'current'}`}><span>{safetyGates.complete ? <ShieldCheck /> : <ShieldAlert />}</span><div><small>すべての起点・安全確認 {safetyGates.completeCount} / {safetyGates.gates.length}</small><b>命・薬・家族固有の事情</b><p>{nextSafetyGate ? `次は「${nextSafetyGate.label}」を確認。日数の達成より先に、命へ直結する条件を整えます。` : '命へ直結する基本条件を確認済みです。期限と実物を定期的に点検します。'}</p></div>{nextSafetyGate && <button type="button" onClick={takeSafetyAction}>安全確認へ<ChevronRight /></button>}</div>
-      <div className="stockpile-tree-fork" aria-hidden="true"><i /><i /></div>
-      <div className="stockpile-tree-paths">
-        <article className={`stockpile-path stockpile-path-bag ${primaryBag.ready ? 'complete' : 'current'}`}>
-          <span className="stockpile-path-icon"><Backpack /></span>
-          <div className="stockpile-path-copy"><small>避難する備え・在宅備蓄とは別枠</small><h3>即時退避バッグ</h3><p>水・行動食・薬・灯りを、危険が迫った時にすぐ背負える量で確認します。</p></div>
-          <span className="stockpile-path-status">{primaryBag.ready ? <><Check />確認済み</> : `${primaryBag.done} / ${primaryBag.total}項目`}</span>
-          <button type="button" onClick={() => setPage('bags')}>避難バッグを確認<ChevronRight /></button>
-        </article>
-        <article className="stockpile-path stockpile-path-home">
-          <div className="stockpile-home-heading"><span className="stockpile-path-icon"><Home /></span><div><small>自宅で暮らす備え</small><h3>1日から3日、7日へ</h3><p>水・食料・携帯トイレのうち、最も短い日数で判定します。1日は着手点で、公的な最低目安は3日です。食料日数は重量による参考換算で、栄養・アレルギー・調理可否を保証しません。</p></div></div>
-          <ol className="stockpile-milestones" aria-label="在宅備蓄のアプリ段階と公的目安">
-            {guideline.milestones.map((milestone, index) => <li className={`${milestone.complete ? 'complete' : ''} ${milestone.current ? 'current' : ''}`.trim()} aria-current={milestone.current ? 'step' : undefined} key={milestone.days}>
-              <span>{milestone.complete ? <Check /> : milestone.days}</span><div><small>{milestone.days === 1 ? '着手点' : milestone.days === 3 ? '公的な最低目安' : '公的な推奨目安'}</small><b>{milestone.days}日分</b><em>{milestone.complete ? '参考量を達成' : `あと${formatDays(Math.max(0, milestone.days - guideline.essentialDays))}日分`}</em></div>{index < guideline.milestones.length - 1 && <i aria-hidden="true"><ChevronRight /></i>}
-            </li>)}
-          </ol>
-          <div className={`stockpile-diversity ${guideline.diversityUnlocked ? 'unlocked' : 'up-next'}`}>
-            <header><div><small>{guideline.diversityUnlocked ? '7日達成後の中心（アプリ方針）' : '日数を伸ばしながら並行して確認'}</small><h3>状況対応・快適性へ分岐</h3></div><span>{guideline.registeredBranches} / {guideline.branches.length}分野に登録あり</span></header>
-            <div className="stockpile-diversity-branches">
-              {guideline.branches.map((branch) => <article className={branch.registered ? 'registered' : ''} data-guideline-branch={branch.id} key={branch.id}>
-                <div><small>{branch.eyebrow}</small><h4>{branch.title}</h4><p>{branch.description}</p></div>
-                <ul aria-label={`${branch.title}の例`}>{branch.examples.map((example) => <li key={example}>{example}</li>)}</ul>
-                {branch.caution && <p className="stockpile-branch-caution"><AlertTriangle />{branch.caution}</p>}
-                <footer><span>{branch.registered ? <><Check />登録あり</> : '未登録'}</span><button type="button" onClick={() => takeBranchAction(branch)}>{branch.actionLabel}<ChevronRight /></button></footer>
-              </article>)}
-            </div>
-          </div>
-        </article>
-      </div>
-    </div>
-    <footer className="stockpile-guideline-policy"><div><span>このアプリの設計方針</span><b>{guideline.quantityBoundaryReached ? '30日分以上：量より質へ' : '7日達成後：多様性を先へ'}</b><p>{guideline.policyMessage} 30日は国の一律基準ではありません。</p></div><nav aria-label="備蓄ガイドラインの根拠"><a href={STOCKPILE_GUIDELINE_SOURCES.cabinet.url} target="_blank" rel="noreferrer">3日・7日の公的目安<ArrowRight /></a><a href={STOCKPILE_GUIDELINE_SOURCES.food.url} target="_blank" rel="noreferrer">食品の多様性<ArrowRight /></a><a href={STOCKPILE_GUIDELINE_SOURCES.generator.url} target="_blank" rel="noreferrer">発電機の安全<ArrowRight /></a></nav></footer>
-  </section>;
+
+  return <StockpileSkillTree
+    nodes={nodes}
+    onClaim={handleClaim}
+    onClose={onClose}
+    description="シンボルを選ぶと条件を表示します。緊急の安全確認・薬・医療電源はスキルの開放を待たず、ホームで先に確認してください。"
+  />;
 }
 
-function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast, setPage }) {
+function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast, setPage, skillEntryRef }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [consumeItem, setConsumeItem] = useState(null);
@@ -815,6 +865,15 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   const importRef = useRef(null);
   const insights = useMemo(() => transactionInsights(transactions), [transactions]);
   const budgetProjection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, state.preparedness?.annualBudget || 0), [state.inventory, state.household, state.preparedness?.targetDays, state.preparedness?.annualBudget]);
+  const stockpileSkills = useMemo(() => buildStockpileSkillTree(state), [state]);
+  const skillClaimableCount = stockpileSkills.claimableIds.length;
+  const skillReviewCount = stockpileSkills.reviewIds.length;
+  const skillLauncherLabel = skillClaimableCount || skillReviewCount
+    ? `備蓄スキルツリーを開く。${[
+      skillClaimableCount ? `達成確認可能 ${skillClaimableCount}件` : '',
+      skillReviewCount ? `再確認が必要 ${skillReviewCount}件` : '',
+    ].filter(Boolean).join('、')}`
+    : '備蓄スキルツリーを開く。新しい達成確認はありません';
   const inventoryDefense = useMemo(() => defensePower(state, summary), [state, summary]);
   const dayGoalCoverage = {
     water: inventoryDefense.waterCoverage,
@@ -886,7 +945,16 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   return <section className="wrap page-section inventory-page">
     <div className="page-title"><h1>わが家の備蓄</h1><div className="page-actions"><button className="secondary-button" onClick={() => setPage('rolling')}><RefreshCw />ローリングストック計画</button><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
     <div className="summary-strip inventory-summary-strip"><div><span>主要備蓄の参考日数</span><b>{formatDays(summary.householdStockpileDays ?? summary.survivalDays)}日</b></div><div><span>{state.preparedness?.targetDays || 7}日目標まで</span><b>{budgetProjection.costComplete ? `約¥${budgetProjection.totalCost.toLocaleString()}` : '単価確認中'}</b></div><div><span>年間予算</span><b>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}</b></div><div className="inventory-summary-actions"><button type="button" aria-label="主要備蓄の参考日数と実物不足を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />日数と不足</button><button type="button" aria-label="年間購入計画を開く" onClick={() => setBudgetOpen(true)}><CalendarDays />購入計画</button></div></div>
-    <StockpileGuidelineTree state={state} summary={summary} setFilter={setFilter} setPage={setPage} />
+    <button
+      ref={skillEntryRef}
+      type="button"
+      className={`stockpile-skill-launcher ${skillClaimableCount ? 'has-claimable' : ''} ${skillReviewCount ? 'has-review' : ''}`.trim()}
+      aria-label={skillLauncherLabel}
+      onClick={() => setPage('stockpile-skills')}
+    >
+      <Route aria-hidden="true" />
+      {(skillClaimableCount > 0 || skillReviewCount > 0) && <span className="stockpile-skill-launcher-alert" aria-hidden="true">!</span>}
+    </button>
     <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
       <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>水・食料・携帯トイレは設定日数への達成度、その他は期限切れ品を在庫量に数えない登録目標への達成度です。</p></div><button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><Box />全分類を表示</button></header>
       <div className="inventory-category-grid" role="group" aria-label="備蓄カテゴリ">

@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import App from './App.jsx';
+import { STOCKPILE_SKILL_LONG_PRESS_MS } from './StockpileSkillTree.jsx';
 import { createDefaultState, STORAGE_KEY } from './state.js';
 
 describe('電力設計ページの導線', () => {
@@ -71,6 +72,16 @@ describe('電力設計ページの導線', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(dialog).toBeInTheDocument();
+  });
+
+  it('初期設定前にスキルツリーURLを直接開いてもダイアログを重ねない', () => {
+    localStorage.clear();
+    window.history.replaceState({}, '', '#/stockpile-skills');
+    render(<App />);
+
+    expect(screen.getByRole('dialog', { name: '何人分の備えをしますか？' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: '備蓄スキルツリー' })).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   });
 
   it('保存領域へ書き込めない場合も画面を壊さず案内する', async () => {
@@ -180,51 +191,75 @@ describe('電力設計ページの導線', () => {
     expect(screen.queryByRole('heading', { name: '飲料水 500ml' })).not.toBeInTheDocument();
   });
 
-  it('安全確認から1日・3日・7日、多様性へ進む備蓄樹形図を表示する', async () => {
-    render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
-
-    const tree = screen.getByRole('group', { name: '備蓄レベルの樹形図' });
-    expect(within(tree).getByText('すべての起点・安全確認 0 / 7')).toBeInTheDocument();
-    expect(within(tree).getByRole('button', { name: '安全確認へ' })).toBeInTheDocument();
-    expect(within(tree).getByRole('heading', { name: '即時退避バッグ' })).toBeInTheDocument();
-    expect(within(tree).getByRole('heading', { name: '1日から3日、7日へ' })).toBeInTheDocument();
-    expect(within(tree).getByText('着手点')).toBeInTheDocument();
-    expect(within(tree).getByText('公的な最低目安')).toBeInTheDocument();
-    expect(within(tree).getByText('公的な推奨目安')).toBeInTheDocument();
-    expect(within(tree).getByText('発電機')).toBeInTheDocument();
-    expect(within(tree).getByText('チョコレート')).toBeInTheDocument();
-    expect(within(tree).getByText('トランプ')).toBeInTheDocument();
-    expect(within(tree).getByText(/燃料式発電機は屋内・車内・テント内で絶対に使わず/)).toBeInTheDocument();
-    expect(screen.getByText(/30日は国の一律基準ではありません/)).toBeInTheDocument();
-
-    fireEvent.click(within(tree).getAllByRole('button', { name: '快適用品を確認' })[0]);
-    const comfort = screen.getByRole('button', { name: /快適の備蓄を表示/ });
-    await waitFor(() => expect(comfort).toHaveFocus());
-    expect(comfort).toHaveAttribute('aria-pressed', 'true');
-
-    fireEvent.click(within(tree).getByRole('button', { name: '安全確認へ' }));
-    const nextMission = screen.getByRole('heading', { name: 'いまは、これだけ' }).closest('section');
-    const furnitureMission = within(nextMission.querySelector(':scope > .mission-focus')).getByRole('heading', { name: '寝室と避難路の安全化' });
-    await waitFor(() => expect(furnitureMission).toHaveFocus());
-  });
-
-  it('備蓄画面の安全確認から、次の未達分類へその場で移動する', async () => {
+  it('備蓄ガイドをメインから外し、右下の通知付きボタンからシンボル主体のスキルツリーを開く', async () => {
     const saved = createDefaultState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
-    saved.preparedness.completed = ['furniture', 'hazard-map', 'medicine'];
-    saved.contact = { ...saved.contact, shelter: '市立青葉小学校 体育館', phone: '090-0000-0000' };
+    saved.household = 1;
+    saved.inventory = [{ id: 'food-test', name: '保存食', category: 'food', tier: 1, unit: '袋', quantity: 3, target: 3, price: 100, foodWeightG: 450, expiry: '2030-01-01' }];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
 
-    const tree = screen.getByRole('group', { name: '備蓄レベルの樹形図' });
-    expect(within(tree).getByText(/次は「飲料・調理用水」を確認/)).toBeInTheDocument();
-    fireEvent.click(within(tree).getByRole('button', { name: '安全確認へ' }));
+    expect(screen.queryByRole('group', { name: '備蓄レベルの樹形図' })).not.toBeInTheDocument();
+    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 2件' });
+    expect(launcher.querySelector('.stockpile-skill-launcher-alert')).toHaveTextContent('!');
+    fireEvent.click(launcher);
 
-    const water = screen.getByRole('button', { name: /水分の備蓄を表示/ });
-    await waitFor(() => expect(water).toHaveFocus());
-    expect(water).toHaveAttribute('aria-pressed', 'true');
+    expect(window.location.hash).toBe('#/stockpile-skills');
+    const dialog = screen.getByRole('dialog', { name: '備蓄スキルツリー' });
+    const food = within(dialog).getByRole('button', { name: '食料・重量換算3日分、達成可能' });
+    expect(food).toHaveTextContent('🍚');
+    expect(food).not.toHaveTextContent('食料');
+    expect(food.closest('li')).toHaveAttribute('data-state', 'claimable');
+    fireEvent.click(food);
+    expect(within(dialog).getByRole('heading', { name: '食料・重量換算3日分' })).toBeInTheDocument();
+    expect(within(dialog).getByText(/登録重量による参考換算/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/栄養・アレルギー・調理可否は別に確認/)).toHaveLength(2);
+    expect(within(dialog).getByRole('link', { name: /根拠を確認：農林水産省/ })).toHaveAttribute('href', expect.stringContaining('maff.go.jp'));
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '備蓄スキルツリーを閉じる' }));
+    expect(window.location.hash).toBe('#/inventory');
+    await waitFor(() => expect(screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 2件' })).toHaveFocus());
+  });
+
+  it('達成可能ノードの長押しで祖先と経路を達成色にし、確認済み状態を保存する', async () => {
+    vi.useFakeTimers();
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.household = 1;
+    saved.inventory = [{ id: 'food-test', name: '保存食', category: 'food', tier: 1, unit: '袋', quantity: 3, target: 3, price: 100, foodWeightG: 450, expiry: '2030-01-01' }];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    const { container } = render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: /備蓄スキルツリーを開く/ }));
+
+    const food = screen.getByRole('button', { name: '食料・重量換算3日分、達成可能' });
+    fireEvent.pointerDown(food, { pointerId: 7, isPrimary: true, button: 0, clientX: 20, clientY: 20 });
+    act(() => vi.advanceTimersByTime(STOCKPILE_SKILL_LONG_PRESS_MS));
+
+    expect(screen.getByRole('button', { name: '食料・重量換算1日分、達成済み' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '食料・重量換算3日分、達成済み' })).toBeInTheDocument();
+    expect(container.querySelectorAll('.stockpile-skill-tree-connector.is-active').length).toBeGreaterThanOrEqual(2);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).preparedness.stockpileSkillClaims).toEqual(['food-1', 'food-3']);
+
+    fireEvent.click(screen.getByRole('button', { name: '備蓄スキルツリーを閉じる' }));
+    act(() => vi.runOnlyPendingTimers());
+    expect(screen.getByRole('button', { name: '備蓄スキルツリーを開く。新しい達成確認はありません' })).toBeInTheDocument();
+  });
+
+  it('取得後に在庫が不足した項目は右下ボタンで再確認件数を知らせる', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.household = 1;
+    saved.inventory = [{ id: 'food-test', name: '保存食', category: 'food', tier: 1, unit: '袋', quantity: 0, target: 3, price: 100, foodWeightG: 450, expiry: '2030-01-01' }];
+    saved.preparedness.stockpileSkillClaims = ['food-1', 'food-3'];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+
+    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。再確認が必要 2件' });
+    expect(launcher).toHaveClass('has-review');
+    expect(launcher.querySelector('.stockpile-skill-launcher-alert')).toHaveTextContent('!');
   });
 
   it('灯り・電源カテゴリの充填色を黄色に固定する', () => {

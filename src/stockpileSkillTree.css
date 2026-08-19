@@ -1,0 +1,1037 @@
+.stockpile-skill-launcher {
+  position: fixed;
+  z-index: 55;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: 46px;
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #347d6c, #174f43);
+  color: #fff;
+  box-shadow: 0 14px 32px rgba(15, 59, 50, .3);
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+
+.stockpile-skill-launcher > svg {
+  width: 27px;
+  height: 27px;
+}
+
+.stockpile-skill-launcher:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 17px 36px rgba(15, 59, 50, .35);
+}
+
+.stockpile-skill-launcher:active {
+  transform: scale(.95);
+}
+
+.stockpile-skill-launcher:focus-visible {
+  outline: 4px solid #e0a52e;
+  outline-offset: 4px;
+}
+
+.stockpile-skill-launcher.has-claimable {
+  box-shadow: 0 0 0 5px rgba(224, 165, 46, .22), 0 14px 32px rgba(15, 59, 50, .3);
+  animation: stockpile-skill-launcher-ready 2.4s ease-in-out infinite;
+}
+
+.stockpile-skill-launcher.has-review {
+  box-shadow: 0 0 0 5px rgba(198, 61, 50, .18), 0 14px 32px rgba(15, 59, 50, .3);
+}
+
+.stockpile-skill-launcher-alert {
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #c63d32;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1;
+  box-shadow: 0 4px 10px rgba(112, 20, 16, .28);
+}
+
+@keyframes stockpile-skill-launcher-ready {
+  50% { box-shadow: 0 0 0 9px rgba(224, 165, 46, .12), 0 16px 35px rgba(15, 59, 50, .34); }
+}
+
+.stockpile-skill-tree-backdrop,
+.stockpile-skill-tree-backdrop * {
+  box-sizing: border-box;
+}
+
+.stockpile-skill-tree-backdrop {
+  --skill-ink: #163e36;
+  --skill-muted: #667a74;
+  --skill-line: #cbd7d1;
+  --skill-green: #2d806b;
+  --skill-green-deep: #185b4d;
+  --skill-green-soft: #dff3e9;
+  --skill-amber: #b26c15;
+  --skill-amber-soft: #fff0d1;
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  padding: 16px;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgba(12, 35, 30, .72);
+  color: var(--skill-ink);
+  font-family: inherit;
+}
+
+.stockpile-skill-tree-dialog {
+  width: min(1180px, 100%);
+  height: min(860px, 100%);
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: 26px;
+  background: #f5f8f5;
+  box-shadow: 0 30px 90px rgba(4, 23, 19, .34);
+}
+
+.stockpile-skill-tree-header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-width: 0;
+  padding: 18px 22px;
+  border-bottom: 1px solid #d9e3de;
+  background: rgba(255, 255, 255, .96);
+}
+
+.stockpile-skill-tree-header > div {
+  min-width: 0;
+}
+
+.stockpile-skill-tree-header span {
+  display: block;
+  color: #568075;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .16em;
+}
+
+.stockpile-skill-tree-header h2 {
+  margin: 3px 0 2px;
+  color: var(--skill-ink);
+  font-size: clamp(20px, 2.2vw, 29px);
+  line-height: 1.16;
+  overflow-wrap: anywhere;
+}
+
+.stockpile-skill-tree-header p {
+  margin: 0;
+  color: var(--skill-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.stockpile-skill-tree-header > button {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #d7e2dc;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--skill-ink);
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+
+.stockpile-skill-tree-header > button:hover {
+  border-color: #9ebcaf;
+  background: #edf5f1;
+}
+
+.stockpile-skill-tree-header > button:active {
+  transform: scale(.96);
+}
+
+.stockpile-skill-tree-header > button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.stockpile-skill-tree-main {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 340px);
+  overflow: hidden;
+}
+
+.stockpile-skill-tree-map {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background:
+    radial-gradient(circle at 18% 14%, rgba(115, 179, 154, .15), transparent 26%),
+    linear-gradient(155deg, #f7faf7, #edf3ef);
+}
+
+.stockpile-skill-tree-guide {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid rgba(201, 215, 208, .7);
+  background: rgba(247, 250, 247, .85);
+}
+
+.stockpile-skill-tree-guide > p {
+  min-width: 0;
+  margin: 0;
+  color: var(--skill-muted);
+  font-size: 9px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.stockpile-skill-tree-guide ul {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stockpile-skill-tree-guide li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #60736d;
+  font-size: 8px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.stockpile-skill-tree-guide li::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border: 2px solid #aab9b3;
+  border-radius: 50%;
+  background: #e7ece9;
+}
+
+.stockpile-skill-tree-guide li[data-state="claimable"]::before {
+  border-color: #69a994;
+  background: #eef9f4;
+  box-shadow: 0 0 7px rgba(67, 151, 124, .55);
+}
+
+.stockpile-skill-tree-guide li[data-state="claimed"]::before {
+  border-color: var(--skill-green-deep);
+  background: var(--skill-green);
+}
+
+.stockpile-skill-tree-guide li[data-state="review"]::before {
+  border-color: var(--skill-amber);
+  background: var(--skill-amber-soft);
+}
+
+.stockpile-skill-tree-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.stockpile-skill-tree-scroll:focus-visible {
+  outline: 3px solid rgba(45, 128, 107, .48);
+  outline-offset: -4px;
+}
+
+.stockpile-skill-tree-surface {
+  position: relative;
+  width: 100%;
+  min-width: var(--stockpile-skill-tree-min-width);
+  height: var(--stockpile-skill-tree-height);
+  min-height: 100%;
+}
+
+.stockpile-skill-tree-connectors {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: var(--stockpile-skill-tree-height);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.stockpile-skill-tree-connector {
+  fill: none;
+  stroke: var(--skill-line);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke .22s ease, filter .22s ease;
+}
+
+.stockpile-skill-tree-connector.is-active {
+  stroke: var(--skill-green);
+  stroke-dasharray: 100;
+  filter: drop-shadow(0 0 3px rgba(45, 128, 107, .28));
+  animation: stockpile-skill-path-fill .55s ease-out both;
+}
+
+.stockpile-skill-tree-connector.is-review {
+  stroke: var(--skill-amber);
+  stroke-dasharray: 8 8;
+  filter: drop-shadow(0 0 3px rgba(178, 108, 21, .22));
+}
+
+.stockpile-skill-tree-nodes {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
+
+.stockpile-skill-tree-nodes > li {
+  position: absolute;
+  left: var(--stockpile-skill-node-x);
+  top: var(--stockpile-skill-node-y);
+  width: 82px;
+  height: 82px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.stockpile-skill-tree-nodes button {
+  position: relative;
+  width: 82px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  overflow: visible;
+  border: 4px solid #aebdb6;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #fff, #e6ece8);
+  box-shadow: 0 8px 18px rgba(31, 72, 62, .13), inset 0 0 0 3px rgba(255, 255, 255, .72);
+  color: #667972;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+
+.stockpile-skill-tree-nodes button > span {
+  display: block;
+  max-width: 58px;
+  overflow: hidden;
+  font-size: 34px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  filter: grayscale(.55);
+  transition: filter .18s ease, transform .18s ease;
+}
+
+.stockpile-skill-tree-nodes button:hover {
+  transform: translateY(-2px);
+  border-color: #7fa394;
+}
+
+.stockpile-skill-tree-nodes button:active {
+  transform: scale(.96);
+}
+
+.stockpile-skill-tree-nodes button:focus-visible,
+.stockpile-skill-tree-claim-button:focus-visible,
+.stockpile-skill-tree-header > button:focus-visible {
+  outline: 3px solid #d2993f;
+  outline-offset: 4px;
+}
+
+.stockpile-skill-tree-nodes > li.is-selected button {
+  outline: 4px solid rgba(210, 153, 63, .28);
+  outline-offset: 5px;
+}
+
+.stockpile-skill-tree-nodes > li[data-state="claimable"] button {
+  border-color: #67a890;
+  background: linear-gradient(145deg, #fff, #e6f6ef);
+  box-shadow: 0 0 0 5px rgba(90, 165, 139, .09), 0 0 20px rgba(65, 150, 121, .28), inset 0 0 0 3px rgba(255, 255, 255, .78);
+  animation: stockpile-skill-claimable-glow 2.4s ease-in-out infinite;
+}
+
+.stockpile-skill-tree-nodes > li[data-state="claimable"] button > span {
+  filter: grayscale(.08);
+}
+
+.stockpile-skill-tree-nodes > li[data-state="claimed"] button {
+  border-color: var(--skill-green-deep);
+  background: linear-gradient(145deg, #53a58f, #24705e);
+  box-shadow: 0 9px 21px rgba(26, 91, 75, .28), inset 0 0 0 3px rgba(255, 255, 255, .28);
+  color: #fff;
+}
+
+.stockpile-skill-tree-nodes > li[data-state="claimed"] button > span {
+  filter: grayscale(0) saturate(1.08) drop-shadow(0 2px 2px rgba(10, 50, 40, .26));
+}
+
+.stockpile-skill-tree-nodes > li[data-state="review"] button {
+  border-color: var(--skill-amber);
+  background: linear-gradient(145deg, #fff8e9, #f0cc87);
+  box-shadow: 0 8px 20px rgba(155, 92, 15, .2), inset 0 0 0 3px rgba(255, 255, 255, .58);
+  color: #7e4b0b;
+}
+
+.stockpile-skill-tree-nodes > li[data-state="review"] button > span {
+  filter: grayscale(.1) sepia(.12);
+}
+
+.stockpile-skill-tree-nodes > li.is-pressing button::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border: 4px solid transparent;
+  border-top-color: var(--skill-green-deep);
+  border-right-color: var(--skill-green-deep);
+  border-radius: 50%;
+  animation: stockpile-skill-hold-progress var(--stockpile-skill-hold-duration) linear forwards;
+  pointer-events: none;
+}
+
+@keyframes stockpile-skill-claimable-glow {
+  50% { box-shadow: 0 0 0 6px rgba(90, 165, 139, .13), 0 0 25px rgba(65, 150, 121, .34), inset 0 0 0 3px rgba(255, 255, 255, .78); }
+}
+
+@keyframes stockpile-skill-hold-progress {
+  from { transform: rotate(-45deg); }
+  to { transform: rotate(315deg); }
+}
+
+@keyframes stockpile-skill-path-fill {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
+.stockpile-skill-tree-empty {
+  min-width: 100%;
+  min-height: 230px;
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  padding: 24px;
+  color: var(--skill-muted);
+  text-align: center;
+}
+
+.stockpile-skill-tree-empty span {
+  font-size: 42px;
+  color: #8ba79d;
+}
+
+.stockpile-skill-tree-empty p {
+  margin: 0;
+  font-size: 11px;
+}
+
+.stockpile-skill-tree-detail {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 15px;
+  padding: 22px;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  border-left: 1px solid #d6e0da;
+  background: #fff;
+}
+
+.stockpile-skill-tree-detail-scroll {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.stockpile-skill-tree-detail-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.stockpile-skill-tree-detail-heading > div {
+  min-width: 0;
+}
+
+.stockpile-skill-tree-detail-symbol {
+  width: 66px;
+  height: 66px;
+  flex: 0 0 66px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 3px solid #b8c6c0;
+  border-radius: 50%;
+  background: #edf2ef;
+  font-size: 31px;
+}
+
+.stockpile-skill-tree-detail-symbol[data-state="claimed"] {
+  border-color: var(--skill-green-deep);
+  background: var(--skill-green);
+}
+
+.stockpile-skill-tree-detail-symbol[data-state="claimable"] {
+  border-color: #65a68f;
+  background: var(--skill-green-soft);
+}
+
+.stockpile-skill-tree-detail-symbol[data-state="review"] {
+  border-color: var(--skill-amber);
+  background: var(--skill-amber-soft);
+}
+
+.stockpile-skill-tree-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #e8eeeb;
+  color: #5b6c66;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .04em;
+}
+
+.stockpile-skill-tree-state[data-state="claimable"] {
+  background: var(--skill-green-soft);
+  color: var(--skill-green-deep);
+}
+
+.stockpile-skill-tree-state[data-state="claimed"] {
+  background: var(--skill-green);
+  color: #fff;
+}
+
+.stockpile-skill-tree-state[data-state="review"] {
+  background: var(--skill-amber-soft);
+  color: #80500e;
+}
+
+.stockpile-skill-tree-detail h3 {
+  margin: 5px 0 0;
+  color: var(--skill-ink);
+  font-size: 21px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.stockpile-skill-tree-detail-copy {
+  margin: 0;
+  color: #50665f;
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.stockpile-skill-tree-condition {
+  padding: 14px;
+  border: 1px solid #dbe4df;
+  border-radius: 15px;
+  background: #f6f9f7;
+}
+
+.stockpile-skill-tree-condition > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #52736a;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .08em;
+}
+
+.stockpile-skill-tree-condition p {
+  margin: 0;
+  color: #273f39;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.stockpile-skill-tree-source {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid #d9e4de;
+  border-radius: 12px;
+  background: #f8fbf9;
+  color: #276556;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.45;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.stockpile-skill-tree-source:hover {
+  border-color: #9fc2b3;
+  background: #eff7f3;
+}
+
+.stockpile-skill-tree-source:focus-visible {
+  outline: 3px solid #d2993f;
+  outline-offset: 3px;
+}
+
+.stockpile-skill-tree-source > span {
+  flex: 0 0 auto;
+  font-size: 15px;
+}
+
+.stockpile-skill-tree-claim-note,
+.stockpile-skill-tree-claimed-note,
+.stockpile-skill-tree-locked-note,
+.stockpile-skill-tree-review-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  color: #536a63;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.stockpile-skill-tree-claim-note svg,
+.stockpile-skill-tree-claimed-note svg,
+.stockpile-skill-tree-locked-note svg,
+.stockpile-skill-tree-review-note svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin-top: 1px;
+}
+
+.stockpile-skill-tree-claim-note,
+.stockpile-skill-tree-claimed-note {
+  color: var(--skill-green-deep);
+}
+
+.stockpile-skill-tree-review-note {
+  color: #80500e;
+}
+
+.stockpile-skill-tree-claim-button {
+  width: 100%;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 0;
+  padding: 11px 15px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--skill-green-deep);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: background .16s ease, transform .16s ease;
+}
+
+.stockpile-skill-tree-claim-button:hover:not(:disabled) {
+  background: #0e493d;
+}
+
+.stockpile-skill-tree-claim-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.stockpile-skill-tree-claim-button:disabled {
+  border: 1px solid #d5dfda;
+  background: #e9eeeb;
+  color: #87958f;
+  cursor: not-allowed;
+}
+
+.stockpile-skill-tree-claim-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.stockpile-skill-tree-detail.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  color: var(--skill-muted);
+  text-align: center;
+}
+
+.stockpile-skill-tree-detail.is-empty h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.stockpile-skill-tree-detail.is-empty p {
+  max-width: 230px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.stockpile-skill-tree-empty-symbol {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed #9bb0a7;
+  border-radius: 50%;
+  color: #7d9d91;
+  font-size: 28px;
+}
+
+@media (max-width: 720px) {
+  .stockpile-skill-launcher {
+    right: max(14px, env(safe-area-inset-right));
+    bottom: calc(82px + env(safe-area-inset-bottom));
+    width: 58px;
+    height: 58px;
+  }
+
+  .stockpile-skill-tree-backdrop {
+    padding: 8px;
+  }
+
+  .stockpile-skill-tree-dialog {
+    width: 100%;
+    height: 100%;
+    border-radius: 18px;
+  }
+
+  .stockpile-skill-tree-header {
+    padding: 12px 14px;
+  }
+
+  .stockpile-skill-tree-header > button {
+    width: 46px;
+    height: 46px;
+    flex-basis: 46px;
+  }
+
+  .stockpile-skill-tree-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(210px, 1fr) minmax(190px, auto);
+  }
+
+  .stockpile-skill-tree-guide {
+    align-items: flex-start;
+    padding: 7px 10px;
+  }
+
+  .stockpile-skill-tree-guide ul {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 3px 8px;
+  }
+
+  .stockpile-skill-tree-nodes > li,
+  .stockpile-skill-tree-nodes button {
+    width: 72px;
+    height: 72px;
+  }
+
+  .stockpile-skill-tree-nodes button > span {
+    max-width: 50px;
+    font-size: 30px;
+  }
+
+  .stockpile-skill-tree-detail {
+    max-height: min(38dvh, 290px);
+    gap: 9px;
+    padding: 13px 15px calc(13px + env(safe-area-inset-bottom));
+    border-top: 1px solid #d6e0da;
+    border-left: 0;
+  }
+
+  .stockpile-skill-tree-detail-scroll {
+    gap: 9px;
+  }
+
+  .stockpile-skill-tree-detail-heading {
+    gap: 10px;
+  }
+
+  .stockpile-skill-tree-detail-symbol {
+    width: 52px;
+    height: 52px;
+    flex-basis: 52px;
+    font-size: 25px;
+  }
+
+  .stockpile-skill-tree-detail h3 {
+    font-size: 17px;
+  }
+
+  .stockpile-skill-tree-detail-copy {
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .stockpile-skill-tree-condition {
+    padding: 9px 11px;
+  }
+
+  .stockpile-skill-tree-condition p {
+    font-size: 10px;
+    line-height: 1.45;
+  }
+
+  .stockpile-skill-tree-claim-button {
+    min-height: 46px;
+    margin-top: 1px;
+  }
+}
+
+@media (max-width: 620px) {
+  .stockpile-skill-tree-backdrop {
+    padding: 0;
+  }
+
+  .stockpile-skill-tree-dialog {
+    border: 0;
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .stockpile-skill-tree-header h2 {
+    font-size: 19px;
+  }
+
+  .stockpile-skill-tree-header p {
+    font-size: 9px;
+  }
+
+  .stockpile-skill-tree-guide > p {
+    font-size: 8px;
+  }
+
+  .stockpile-skill-tree-guide li {
+    font-size: 7px;
+  }
+}
+
+@media (max-height: 500px) {
+  .stockpile-skill-launcher {
+    bottom: calc(75px + env(safe-area-inset-bottom));
+    width: 52px;
+    height: 52px;
+  }
+
+  .stockpile-skill-tree-backdrop {
+    padding: 0;
+  }
+
+  .stockpile-skill-tree-dialog {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .stockpile-skill-tree-header {
+    padding: 7px 10px;
+  }
+
+  .stockpile-skill-tree-header span,
+  .stockpile-skill-tree-header p {
+    display: none;
+  }
+
+  .stockpile-skill-tree-header h2 {
+    margin: 0;
+    font-size: 17px;
+  }
+
+  .stockpile-skill-tree-header > button {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+  }
+
+  .stockpile-skill-tree-guide {
+    padding-block: 5px;
+  }
+
+  .stockpile-skill-tree-guide > p {
+    line-height: 1.3;
+  }
+}
+
+@media (max-height: 500px) and (min-width: 520px) {
+  .stockpile-skill-tree-main {
+    grid-template-columns: minmax(0, 1fr) minmax(230px, 38%);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .stockpile-skill-tree-guide ul {
+    grid-template-columns: auto auto;
+  }
+
+  .stockpile-skill-tree-detail {
+    max-height: none;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    border-top: 0;
+    border-left: 1px solid #d6e0da;
+  }
+
+  .stockpile-skill-tree-detail-symbol {
+    width: 46px;
+    height: 46px;
+    flex-basis: 46px;
+    font-size: 23px;
+  }
+
+  .stockpile-skill-tree-detail h3 {
+    font-size: 15px;
+  }
+
+  .stockpile-skill-tree-detail-copy,
+  .stockpile-skill-tree-claim-note,
+  .stockpile-skill-tree-claimed-note,
+  .stockpile-skill-tree-locked-note,
+  .stockpile-skill-tree-review-note {
+    font-size: 9px;
+    line-height: 1.35;
+  }
+
+  .stockpile-skill-tree-condition {
+    padding: 7px 9px;
+  }
+
+  .stockpile-skill-tree-claim-button {
+    min-height: 44px;
+    padding-block: 8px;
+  }
+
+  .stockpile-skill-tree-nodes > li,
+  .stockpile-skill-tree-nodes button {
+    width: 64px;
+    height: 64px;
+  }
+
+  .stockpile-skill-tree-nodes button > span {
+    max-width: 44px;
+    font-size: 27px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stockpile-skill-launcher {
+    transition: none;
+    animation: none;
+  }
+
+  .stockpile-skill-tree-backdrop *,
+  .stockpile-skill-tree-backdrop *::before,
+  .stockpile-skill-tree-backdrop *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .stockpile-skill-tree-nodes > li.is-pressing button::after {
+    border-color: var(--skill-green-deep);
+  }
+}
+
+@media (forced-colors: active) {
+  .stockpile-skill-launcher,
+  .stockpile-skill-tree-nodes button,
+  .stockpile-skill-tree-detail-symbol,
+  .stockpile-skill-tree-claim-button {
+    border: 2px solid ButtonText;
+    background: Canvas;
+    color: ButtonText;
+    forced-color-adjust: auto;
+  }
+
+  .stockpile-skill-launcher-alert {
+    border: 2px solid HighlightText;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .stockpile-skill-tree-nodes > li[data-state="claimable"] button {
+    outline: 3px dashed Highlight;
+  }
+
+  .stockpile-skill-tree-nodes > li[data-state="claimed"] button,
+  .stockpile-skill-tree-detail-symbol[data-state="claimed"] {
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .stockpile-skill-tree-connector,
+  .stockpile-skill-tree-connector.is-active,
+  .stockpile-skill-tree-connector.is-review {
+    stroke: CanvasText;
+    filter: none;
+  }
+}
