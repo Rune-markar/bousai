@@ -35,15 +35,19 @@ describe('避難バッグの自動判定表示', () => {
   it('自動提案だけでは実物確認済みにしない', () => {
     render(<PracticalLoadout taskId="bag-primary" state={state} {...handlers} />);
     expect(screen.queryByRole('button', { name: '必須品を一括確認' })).not.toBeInTheDocument();
-    expect(screen.getByText('保有備蓄から自動提案')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '1. 保有備蓄から自動選定' })).toBeInTheDocument();
     expect(screen.getByText('現状の備蓄品')).toBeInTheDocument();
-    expect(screen.getByText('バッグへの自動配置')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'バッグへ入れる物' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '自動選定' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /現物確認/ })).toHaveAttribute('aria-selected', 'false');
     expect(handlers.onChange).not.toHaveBeenCalled();
   });
 
-  it('理想構成はアイコンから詳細を開いて収納確認する', () => {
+  it('現物確認は品名つきの項目から詳細を開いて収納確認する', () => {
     render(<PracticalLoadout taskId="bag-primary" state={state} {...handlers} />);
     expect(screen.getByText('参考予算（アプリ内概算）')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /現物確認/ }));
+    expect(screen.getByRole('tab', { name: /現物確認/ })).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(screen.getByRole('button', { name: '飲料水 500mlの詳細を表示' }));
     expect(screen.getByText('容量目安 1本 約600ml')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '実物を確認して収納' }));

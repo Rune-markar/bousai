@@ -23,13 +23,11 @@ import { buildStockpileSkillTree, claimStockpileSkill } from './stockpileSkills.
 const nav = [
   { id: 'home', label: 'ホーム', icon: Home },
   { id: 'inventory', label: '備蓄', icon: Box },
-  { id: 'bags', label: '避難バッグ', icon: Backpack },
-  { id: 'roadmap', label: '防災力', icon: Route },
   { id: 'disasters', label: '災害対策', icon: ShieldAlert },
   { id: 'plan', label: '緊急メモ', icon: ClipboardList },
   { id: 'learn', label: '知る', icon: BookOpen },
 ];
-const pageIds = new Set([...nav.map(({ id }) => id), 'power', 'rolling', 'stockpile-skills', 'inventory-category']);
+const pageIds = new Set([...nav.map(({ id }) => id), 'bags', 'roadmap', 'power', 'rolling', 'stockpile-skills', 'inventory-category']);
 const inventoryCategoryRoute = () => {
   const match = window.location.hash.replace(/^#\/?/, '').match(/^inventory-category\/([^/]+)$/);
   if (!match) return null;
@@ -184,7 +182,11 @@ function App() {
   const onboardingActive = !state.onboarding?.completed;
   const backgroundA11y = onboardingActive ? { 'aria-hidden': true, inert: true } : {};
   const chromeA11y = onboardingActive || page === 'stockpile-skills' ? { 'aria-hidden': true, inert: true } : {};
-  const navigationPage = ['stockpile-skills', 'inventory-category', 'rolling'].includes(page) ? 'inventory' : page;
+  const navigationPage = ['stockpile-skills', 'inventory-category', 'rolling'].includes(page)
+    ? 'inventory'
+    : ['bags', 'roadmap', 'power'].includes(page)
+      ? 'home'
+      : page;
 
   return (
     <div className={`app-shell${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
@@ -642,7 +644,7 @@ function EvacuationBags({ state, setState, setToast, setPage }) {
       })}
     </div>
 
-    <p className="bag-safety-note"><ShieldCheck />自動選定は収納計画です。実際にバッグへ入れた後、画面内の「理想構成」で現物を一つずつ確認してください。</p>
+    <p className="bag-safety-note"><ShieldCheck />自動選定は収納計画です。実際にバッグへ入れた後、画面内の「現物確認」で一つずつ確認してください。</p>
     {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} />}
   </section>;
 }
@@ -881,6 +883,16 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
   const importRef = useRef(null);
   const insights = useMemo(() => transactionInsights(transactions), [transactions]);
   const budgetProjection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, state.preparedness?.annualBudget || 0), [state.inventory, state.household, state.preparedness?.targetDays, state.preparedness?.annualBudget]);
+  const budgetDuration = !budgetProjection.costComplete
+    ? '単価の確認待ち'
+    : budgetProjection.months === null
+      ? '予算を設定して算出'
+      : budgetProjection.months === 0
+        ? '目標日数を達成済み'
+        : budgetProjection.months < 12
+          ? `約${budgetProjection.months}か月で到達`
+          : `約${(budgetProjection.months / 12).toFixed(1)}年で到達`;
+  const nextRotation = summary.rotationQueue[0];
   const stockpileSkills = useMemo(() => buildStockpileSkillTree(state), [state]);
   const skillClaimableCount = stockpileSkills.claimableIds.length;
   const skillReviewCount = stockpileSkills.reviewIds.length;
@@ -970,11 +982,25 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
 
   if (!selectedCategory) return <section className="wrap page-section inventory-page inventory-dashboard-page">
     <div className="page-title"><div><span className="kicker">STOCKPILE DASHBOARD</span><h1>わが家の備蓄</h1><p>備蓄全体の状態と、次に対応する品目をここで確認します。</p></div><div className="page-actions"><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
-    <div className="summary-strip inventory-summary-strip"><div><span>主要備蓄の参考日数</span><b>{formatDays(summary.householdStockpileDays ?? summary.survivalDays)}日</b></div><div><span>{state.preparedness?.targetDays || 7}日目標まで</span><b>{budgetProjection.costComplete ? `約¥${budgetProjection.totalCost.toLocaleString()}` : '単価確認中'}</b></div><div><span>年間予算</span><b>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}</b></div><div className="inventory-summary-actions"><button type="button" aria-label="主要備蓄の参考日数と実物不足を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />日数と不足</button><button type="button" aria-label="年間購入計画を開く" onClick={() => setBudgetOpen(true)}><CalendarDays />購入計画</button></div></div>
+    <div className="summary-strip inventory-summary-strip"><div><span>主要備蓄の参考日数</span><b>{formatDays(summary.householdStockpileDays ?? summary.survivalDays)}日</b></div><div><span>{state.preparedness?.targetDays || 7}日目標まで</span><b>{budgetProjection.costComplete ? `約¥${budgetProjection.totalCost.toLocaleString()}` : '単価確認中'}</b></div><div><span>年間予算</span><b>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}</b></div><div className="inventory-summary-actions"><button type="button" aria-label="主要備蓄の参考日数と実物不足を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />日数と不足</button></div></div>
     <section className="card stockpile-next-actions" aria-labelledby="stockpile-next-actions-title">
       <header><div><span className="stockpile-next-actions-icon"><RefreshCw /></span><div><span className="kicker">NEXT ROTATION</span><h2 id="stockpile-next-actions-title">次に使う・確認する備蓄</h2><p>期限と消費開始日が近い順です。品目名を確認してから計画ページへ進めます。</p></div></div><span className={summary.rotationDueCount ? 'stockpile-action-count urgent' : 'stockpile-action-count'}>{summary.rotationDueCount ? `今すぐ ${summary.rotationDueCount}品` : upcomingRotationCount ? `30日以内 ${upcomingRotationCount}品` : '今すぐの対応なし'}</span></header>
       {rotationPreview.length ? <div className="stockpile-next-list">{rotationPreview.map((entry) => <button type="button" key={entry.key} className={entry.status} aria-label={`${entry.nextLot.name}。${rotationStatus(entry)}。ローリングストック計画を開く`} onClick={() => setPage('rolling')}><span className="stockpile-next-status">{rotationStatus(entry)}</span><span><b>{entry.nextLot.name}</b><small>期限 {entry.nextLot.expiry}・在庫 {entry.totalQuantity}{entry.nextLot.unit}</small></span><ChevronRight /></button>)}</div> : <div className="stockpile-next-empty"><Check /><span><b>期限付きの消費予定はありません</b><small>備蓄品に期限を登録すると、次の対応がここに表示されます。</small></span></div>}
-      <button type="button" className="stockpile-plan-link" aria-label="ローリングストック計画" onClick={() => setPage('rolling')}><RefreshCw /><span><b>ローリングストック計画</b><small>全品目の順番・再通知・消費記録</small></span><ChevronRight /></button>
+    </section>
+    <section className="stockpile-plan-hub" aria-labelledby="stockpile-plan-title">
+      <header><div><span className="kicker">STOCKPILE PLANS</span><h2 id="stockpile-plan-title">使う計画と、買う計画</h2></div><p>在庫を循環させながら、必要な備蓄を予算内で揃えます。</p></header>
+      <div className="stockpile-plan-grid">
+        <button type="button" className="stockpile-plan-card rotation-plan-card" aria-label="ローリングストック計画を開く" onClick={() => setPage('rolling')}>
+          <span className="stockpile-plan-icon"><RefreshCw /></span>
+          <span><small>使う計画</small><b>ローリングストック</b><em>{summary.rotationDueCount ? `いま消費時期の備蓄 ${summary.rotationDueCount}品` : nextRotation ? `次は ${nextRotation.nextLot.name}` : '期限を登録すると消費順を提案'}</em></span>
+          <strong>{summary.rotationQueue.length}<small>品を計画中</small></strong><ChevronRight />
+        </button>
+        <button type="button" className="stockpile-plan-card budget-plan-card" aria-label="防災予算計画を開く" onClick={() => setBudgetOpen(true)}>
+          <span className="stockpile-plan-icon"><CalendarDays /></span>
+          <span><small>買う計画</small><b>防災予算計画</b><em>{budgetDuration}</em></span>
+          <strong>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}<small>年間予算</small></strong><ChevronRight />
+        </button>
+      </div>
     </section>
     <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
       <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>各分類を開くと、その分類の品目一覧・数量変更・編集を行えます。</p></div></header>

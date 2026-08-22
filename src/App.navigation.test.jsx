@@ -415,14 +415,13 @@ describe('電力設計ページの導線', () => {
   it('防災力ページに旧電力プランナーを埋め込まない', () => {
     render(<App />);
 
-    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
-    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '防災力' }));
+    fireEvent.click(screen.getByRole('button', { name: /備えの進捗 .* の詳細を開く/ }));
 
     expect(screen.getByRole('heading', { name: '防災力ロードマップ' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '停電時の電力を、一つの流れで設計' })).not.toBeInTheDocument();
   });
 
-  it('ホームと常設ナビから避難バッグの自動選定へ直接移動できる', () => {
+  it('避難バッグはホームの避難導線へ合流し、常設ナビを増やさない', () => {
     render(<App />);
 
     const scene = screen.getByRole('region', { name: '自宅から避難先までの備え' });
@@ -440,14 +439,16 @@ describe('電力設計ページの導線', () => {
     expect(screen.getAllByRole('button', { name: /自動選定結果を開く/ })).toHaveLength(2);
 
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
-    expect(within(desktopNavigation).getByRole('button', { name: '避難バッグ' })).toHaveAttribute('aria-current', 'page');
+    expect(within(desktopNavigation).queryByRole('button', { name: '避難バッグ' })).not.toBeInTheDocument();
+    expect(within(desktopNavigation).queryByRole('button', { name: '防災力' })).not.toBeInTheDocument();
+    expect(within(desktopNavigation).getByRole('button', { name: 'ホーム' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('情報量の多い主要ページは要点から詳細を段階的に開ける', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
 
-    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '防災力' }));
+    fireEvent.click(screen.getByRole('button', { name: /備えの進捗 .* の詳細を開く/ }));
     const roadmap = screen.getByText('6段階の防災マップ').closest('details');
     expect(roadmap).not.toHaveAttribute('open');
     expect(screen.getByRole('heading', { name: 'いまは、これだけ' })).toBeInTheDocument();
@@ -508,10 +509,13 @@ describe('電力設計ページの導線', () => {
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
     expect(screen.getByText('7日目標まで')).toBeInTheDocument();
-    expect(screen.getByText('年間予算')).toBeInTheDocument();
-    expect(screen.getByText('未設定')).toBeInTheDocument();
+    const planHub = screen.getByRole('region', { name: '使う計画と、買う計画' });
+    expect(within(planHub).getByText('年間予算')).toBeInTheDocument();
+    expect(within(planHub).getByText('未設定')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    expect(screen.getByRole('heading', { name: '使う計画と、買う計画' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ローリングストック計画を開く' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     const dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     expect(within(dialog).getByRole('heading', { name: '今年、何から買うか' })).toBeInTheDocument();
     expect(within(dialog).getByRole('heading', { name: '予算を変えると、到達時期がすぐ変わります' })).toBeInTheDocument();
@@ -532,7 +536,7 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     let dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     let annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
 
@@ -543,8 +547,8 @@ describe('電力設計ページの導線', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(screen.queryByRole('dialog', { name: '予算で、いつ何を揃えるか' })).not.toBeInTheDocument();
-    expect(screen.getByText('未設定')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    expect(within(screen.getByRole('region', { name: '使う計画と、買う計画' })).getByText('未設定')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
     expect(annualBudget).toHaveValue(0);
@@ -554,14 +558,14 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     let dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     fireEvent.change(within(dialog).getByLabelText(/毎年の備蓄予算/), { target: { value: '12000' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'この年間予算で保存' }));
 
     expect(screen.queryByRole('dialog', { name: '予算で、いつ何を揃えるか' })).not.toBeInTheDocument();
-    expect(screen.getByText('¥12,000')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    expect(within(screen.getByRole('region', { name: '使う計画と、買う計画' })).getByText('¥12,000')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     expect(within(dialog).getByLabelText(/毎年の備蓄予算/)).toHaveValue(12000);
   });
@@ -582,7 +586,7 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
-    fireEvent.click(screen.getByRole('button', { name: 'ローリングストック計画' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ローリングストック計画を開く' }));
 
     expect(screen.getByText('期限切れ')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '1本を消費として記録' })).not.toBeInTheDocument();
@@ -657,8 +661,7 @@ describe('電力設計ページの導線', () => {
 
   it('ミッション完了後は次のミッション見出しへフォーカスする', async () => {
     render(<App />);
-    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
-    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '防災力' }));
+    fireEvent.click(screen.getByRole('button', { name: /備えの進捗 .* の詳細を開く/ }));
     fireEvent.click(screen.getAllByRole('button', { name: '地域の災害リスクを確認を達成にする' })[0]);
     await waitFor(() => expect(screen.getByRole('heading', { name: 'いまは、これだけ' })).toHaveFocus());
   });
