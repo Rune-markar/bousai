@@ -781,19 +781,6 @@ const stockpileSkillDetails = {
   'diversity-personal': '常用薬、乳幼児用品、アレルギー対応品、ペット用品など、代替しにくい物は備蓄日数より先に確認します。登録後も必要量・期限・使い方を別に点検します。',
 };
 
-const stockpileSkillSymbols = {
-  'stockpile-root': '◎',
-  'safety-foundation': '🛡️',
-  'home-1': '1',
-  'home-3': '3',
-  'home-7': '7',
-  'home-30': '30',
-  'diversity-power': '🔋',
-  'diversity-food': '🍫',
-  'diversity-calm': '🃏',
-  'diversity-personal': '💊',
-};
-
 const stockpileSkillSource = (node) => {
   if (node.id === 'home-3' || node.id === 'home-7') return STOCKPILE_GUIDELINE_SOURCES.cabinet;
   if (node.id === 'diversity-power') return STOCKPILE_GUIDELINE_SOURCES.generator;
@@ -838,22 +825,13 @@ const formatSkillProgress = (node, model) => {
 
 function StockpileSkillsPage({ state, setState, setToast, onClose }) {
   const model = useMemo(() => buildStockpileSkillTree(state), [state]);
-  const nodes = useMemo(() => [{
-    id: 'stockpile-root',
-    title: '備蓄を記録する',
-    symbol: stockpileSkillSymbols['stockpile-root'],
-    state: 'claimed',
-    parents: [],
-    detail: '在庫の数量・内容量・期限を記録した地点です。ここから安全確認と備蓄量の枝が伸びます。',
-    condition: '備蓄データをこの端末に保存する',
-  }, ...model.nodes.map((node) => ({
+  const nodes = useMemo(() => model.nodes.map((node) => ({
     ...node,
-    symbol: stockpileSkillSymbols[node.id],
-    parents: node.parentIds.length ? node.parentIds : ['stockpile-root'],
+    parents: node.parentIds,
     detail: stockpileSkillDetails[node.id] || node.description,
     condition: formatSkillProgress(node, model),
     source: stockpileSkillSource(node),
-  }))], [model]);
+  })), [model]);
 
   const handleClaim = (nodeId) => {
     const next = claimStockpileSkill(state, nodeId);
@@ -867,9 +845,10 @@ function StockpileSkillsPage({ state, setState, setToast, onClose }) {
 
   return <StockpileSkillTree
     nodes={nodes}
+    household={state.household}
     onClaim={handleClaim}
     onClose={onClose}
-    description="シンボルを選ぶと条件を表示します。緊急の安全確認・薬・医療電源はスキルの開放を待たず、ホームで先に確認してください。"
+    description="水・食料・携帯トイレを3日・7日の共通ラインへそろえ、家庭固有の備えは量と分けて確認します。"
   />;
 }
 
@@ -894,8 +873,11 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
           : `約${(budgetProjection.months / 12).toFixed(1)}年で到達`;
   const nextRotation = summary.rotationQueue[0];
   const stockpileSkills = useMemo(() => buildStockpileSkillTree(state), [state]);
-  const skillClaimableCount = stockpileSkills.claimableIds.length;
-  const skillReviewCount = stockpileSkills.reviewIds.length;
+  const countVisibleSkillCards = (status) => new Set(stockpileSkills.nodes
+    .filter((node) => node.status === status && node.tier !== '1-day')
+    .map((node) => node.kind === 'resource' ? `resource-${node.category}` : node.id)).size;
+  const skillClaimableCount = countVisibleSkillCards('claimable');
+  const skillReviewCount = countVisibleSkillCards('review');
   const skillLauncherLabel = skillClaimableCount || skillReviewCount
     ? `備蓄スキルツリーを開く。${[
       skillClaimableCount ? `達成確認可能 ${skillClaimableCount}件` : '',

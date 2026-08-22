@@ -217,7 +217,7 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByRole('heading', { name: 'ローリングストック消費計画' })).toBeInTheDocument();
   });
 
-  it('備蓄ガイドをメインから外し、右下の通知付きボタンからシンボル主体のスキルツリーを開く', async () => {
+  it('備蓄ガイドをメインから外し、右下の通知付きボタンから家庭別の達成ラインを開く', async () => {
     const saved = createDefaultState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.household = 1;
@@ -227,25 +227,25 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
 
     expect(screen.queryByRole('group', { name: '備蓄レベルの樹形図' })).not.toBeInTheDocument();
-    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 2件' });
+    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 1件' });
     expect(launcher.querySelector('.stockpile-skill-launcher-alert')).toHaveTextContent('!');
     fireEvent.click(launcher);
 
     expect(window.location.hash).toBe('#/stockpile-skills');
     const dialog = screen.getByRole('dialog', { name: '備蓄スキルツリー' });
-    const food = within(dialog).getByRole('button', { name: '食料・重量換算3日分、達成可能' });
-    expect(food).toHaveTextContent('🍚');
-    expect(food).not.toHaveTextContent('食料');
+    const food = within(dialog).getByRole('button', { name: '食料（重量換算）、現在3日分、確認できます' });
+    expect(food).toHaveTextContent('食料（重量換算）');
+    expect(food.querySelector('.lucide-utensils')).toBeInTheDocument();
     expect(food.closest('li')).toHaveAttribute('data-state', 'claimable');
     fireEvent.click(food);
-    expect(within(dialog).getByRole('heading', { name: '食料・重量換算3日分' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: '食料（重量換算）' })).toBeInTheDocument();
     expect(within(dialog).getByText(/登録重量による参考換算/)).toBeInTheDocument();
     expect(within(dialog).getAllByText(/栄養・アレルギー・調理可否は別に確認/)).toHaveLength(2);
     expect(within(dialog).getByRole('link', { name: /根拠を確認：農林水産省/ })).toHaveAttribute('href', expect.stringContaining('maff.go.jp'));
 
     fireEvent.click(within(dialog).getByRole('button', { name: '備蓄スキルツリーを閉じる' }));
     expect(window.location.hash).toBe('#/inventory');
-    await waitFor(() => expect(screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 2件' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 1件' })).toHaveFocus());
   });
 
   it('達成可能ノードの長押しで祖先と経路を達成色にし、確認済み状態を保存する', async () => {
@@ -259,13 +259,12 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
     fireEvent.click(screen.getByRole('button', { name: /備蓄スキルツリーを開く/ }));
 
-    const food = screen.getByRole('button', { name: '食料・重量換算3日分、達成可能' });
+    const food = screen.getByRole('button', { name: '食料（重量換算）、現在3日分、確認できます' });
     fireEvent.pointerDown(food, { pointerId: 7, isPrimary: true, button: 0, clientX: 20, clientY: 20 });
     act(() => vi.advanceTimersByTime(STOCKPILE_SKILL_LONG_PRESS_MS));
 
-    expect(screen.getByRole('button', { name: '食料・重量換算1日分、達成済み' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '食料・重量換算3日分、達成済み' })).toBeInTheDocument();
-    expect(container.querySelectorAll('.stockpile-skill-tree-connector.is-active').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole('button', { name: '食料（重量換算）、現在3日分、確認済み' })).toBeInTheDocument();
+    expect(container.querySelector('.stockpile-skill-resource-lane[data-category="food"]')).toHaveAttribute('data-reached-three', 'true');
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).preparedness.stockpileSkillClaims).toEqual(['food-1', 'food-3']);
 
     fireEvent.click(screen.getByRole('button', { name: '備蓄スキルツリーを閉じる' }));
@@ -283,7 +282,7 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
 
-    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。再確認が必要 2件' });
+    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。再確認が必要 1件' });
     expect(launcher).toHaveClass('has-review');
     expect(launcher.querySelector('.stockpile-skill-launcher-alert')).toHaveTextContent('!');
   });
