@@ -29,11 +29,24 @@ const nav = [
   { id: 'plan', label: '緊急メモ', icon: ClipboardList },
   { id: 'learn', label: '知る', icon: BookOpen },
 ];
-const pageIds = new Set([...nav.map(({ id }) => id), 'power', 'rolling', 'stockpile-skills']);
+const pageIds = new Set([...nav.map(({ id }) => id), 'power', 'rolling', 'stockpile-skills', 'inventory-category']);
+const inventoryCategoryRoute = () => {
+  const match = window.location.hash.replace(/^#\/?/, '').match(/^inventory-category\/([^/]+)$/);
+  if (!match) return null;
+  let category;
+  try {
+    category = decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+  return Object.hasOwn(CATEGORY_META, category) ? category : null;
+};
 const pageFromLocation = () => {
   const id = window.location.hash.replace(/^#\/?/, '');
+  if (inventoryCategoryRoute()) return 'inventory-category';
   return pageIds.has(id) ? id : 'home';
 };
+const pageTargetFromLocation = () => inventoryCategoryRoute() || window.history.state?.sonaeTarget || null;
 
 const emptyForm = { name: '', category: 'food', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', volumeMl: 0, foodWeightG: 0, packingVolumeMl: 0, imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30, replenishmentPriority: 'high', replenishBy: '', purchaseFrom: '' };
 const essentialGateTaskTargets = { home: 'furniture', risk: 'hazard-map', medicine: 'medicine', light: 'light-fire' };
@@ -45,7 +58,7 @@ function Brand() {
 function App() {
   const [state, setState] = useState(loadState);
   const [page, setPageState] = useState(pageFromLocation);
-  const [pageTarget, setPageTarget] = useState(() => window.history.state?.sonaeTarget || null);
+  const [pageTarget, setPageTarget] = useState(pageTargetFromLocation);
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState('');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -61,7 +74,9 @@ function App() {
 
   const setPage = useCallback((nextPage, { replace = false, target = null } = {}) => {
     if (!pageIds.has(nextPage)) return;
-    const nextHash = `#/${nextPage}`;
+    const categoryTarget = nextPage === 'inventory-category' && Object.hasOwn(CATEGORY_META, target) ? target : null;
+    if (nextPage === 'inventory-category' && !categoryTarget) return;
+    const nextHash = categoryTarget ? `#/inventory-category/${encodeURIComponent(categoryTarget)}` : `#/${nextPage}`;
     if (window.location.hash !== nextHash) window.history[replace ? 'replaceState' : 'pushState']({ sonaePage: nextPage, sonaeTarget: target }, '', nextHash);
     else window.history.replaceState({ ...window.history.state, sonaePage: nextPage, sonaeTarget: target }, '', nextHash);
     setPageTarget(target);
@@ -93,12 +108,13 @@ function App() {
   }, [toast]);
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  }, [page]);
+  }, [page, pageTarget]);
   useEffect(() => {
-    if (!window.location.hash || !pageIds.has(window.location.hash.replace(/^#\/?/, ''))) setPage('home', { replace: true });
+    const locationId = window.location.hash.replace(/^#\/?/, '');
+    if (!window.location.hash || (!pageIds.has(locationId) && !inventoryCategoryRoute())) setPage('home', { replace: true });
     const syncPage = () => {
       setPageState(pageFromLocation());
-      setPageTarget(window.history.state?.sonaeTarget || null);
+      setPageTarget(pageTargetFromLocation());
     };
     window.addEventListener('popstate', syncPage);
     window.addEventListener('hashchange', syncPage);
@@ -168,7 +184,7 @@ function App() {
   const onboardingActive = !state.onboarding?.completed;
   const backgroundA11y = onboardingActive ? { 'aria-hidden': true, inert: true } : {};
   const chromeA11y = onboardingActive || page === 'stockpile-skills' ? { 'aria-hidden': true, inert: true } : {};
-  const navigationPage = page === 'stockpile-skills' ? 'inventory' : page;
+  const navigationPage = ['stockpile-skills', 'inventory-category', 'rolling'].includes(page) ? 'inventory' : page;
 
   return (
     <div className={`app-shell${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
@@ -183,6 +199,7 @@ function App() {
       <main ref={mainRef} {...backgroundA11y}>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
         {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} />}
+        {page === 'inventory-category' && <Inventory categoryKey={pageTarget} state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} />}
         {page === 'stockpile-skills' && !onboardingActive && <StockpileSkillsPage state={state} setState={setState} setToast={setToast} onClose={() => setPage('inventory', { replace: true })} />}
         {page === 'bags' && <EvacuationBags state={state} setState={setState} setToast={setToast} setPage={setPage} />}
         {page === 'rolling' && <RollingStock state={state} summary={summary} transactions={state.transactions} updateInventory={updateInventory} onBack={() => setPage('inventory')} />}
@@ -854,9 +871,8 @@ function StockpileSkillsPage({ state, setState, setToast, onClose }) {
   />;
 }
 
-function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast, setPage, skillEntryRef }) {
+function Inventory({ categoryKey = null, state, summary, transactions, setModal, updateInventory, setState, setToast, setPage, skillEntryRef }) {
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('all');
   const [consumeItem, setConsumeItem] = useState(null);
   const [calculationOpen, setCalculationOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
@@ -897,8 +913,8 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     const score = scoreRatio >= 1 ? 100 : Math.min(99, Math.round(scoreRatio * 100));
     return { key, ...meta, itemCount: categoryRows.length, targetConfigured: targetRows.length > 0, score, progressBasis: '登録目標' };
   });
-  const selectedCategory = categories.find((category) => category.key === filter) || null;
-  const rows = summary.rows.filter((item) => (filter === 'all' || item.category === filter) && item.name.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3) || a.tier - b.tier || a.ratio - b.ratio);
+  const selectedCategory = categories.find((category) => category.key === categoryKey) || null;
+  const rows = summary.rows.filter((item) => (!selectedCategory || item.category === selectedCategory.key) && item.name.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3) || a.tier - b.tier || a.ratio - b.ratio);
   const rawRows = () => summary.rows.map(({ shortage, ratio, replenishmentCost, daysToExpiry, isExpiring, isExpired, daysToCheck, isCheckDue, priority, ...item }) => item);
   const adjust = (id, delta) => {
     const item = summary.rows.find((entry) => entry.id === id);
@@ -942,9 +958,37 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
       setToast('バックアップファイルを読み込めませんでした');
     }
   };
-  return <section className="wrap page-section inventory-page">
-    <div className="page-title"><h1>わが家の備蓄</h1><div className="page-actions"><button className="secondary-button" onClick={() => setPage('rolling')}><RefreshCw />ローリングストック計画</button><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
+  const rotationPreview = summary.rotationQueue.slice(0, 3);
+  const upcomingRotationCount = summary.rotationQueue.filter((entry) => entry.status === 'upcoming').length;
+  const rotationStatus = (entry) => entry.status === 'expired'
+    ? '期限切れ・廃棄を確認'
+    : entry.status === 'due'
+      ? '消費時期です'
+      : entry.status === 'upcoming'
+        ? `${entry.daysToRotate}日後に消費開始`
+        : `${entry.daysToRotate}日後に消費開始`;
+
+  if (!selectedCategory) return <section className="wrap page-section inventory-page inventory-dashboard-page">
+    <div className="page-title"><div><span className="kicker">STOCKPILE DASHBOARD</span><h1>わが家の備蓄</h1><p>備蓄全体の状態と、次に対応する品目をここで確認します。</p></div><div className="page-actions"><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />バックアップ</button><button className="secondary-button" onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
     <div className="summary-strip inventory-summary-strip"><div><span>主要備蓄の参考日数</span><b>{formatDays(summary.householdStockpileDays ?? summary.survivalDays)}日</b></div><div><span>{state.preparedness?.targetDays || 7}日目標まで</span><b>{budgetProjection.costComplete ? `約¥${budgetProjection.totalCost.toLocaleString()}` : '単価確認中'}</b></div><div><span>年間予算</span><b>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}</b></div><div className="inventory-summary-actions"><button type="button" aria-label="主要備蓄の参考日数と実物不足を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />日数と不足</button><button type="button" aria-label="年間購入計画を開く" onClick={() => setBudgetOpen(true)}><CalendarDays />購入計画</button></div></div>
+    <section className="card stockpile-next-actions" aria-labelledby="stockpile-next-actions-title">
+      <header><div><span className="stockpile-next-actions-icon"><RefreshCw /></span><div><span className="kicker">NEXT ROTATION</span><h2 id="stockpile-next-actions-title">次に使う・確認する備蓄</h2><p>期限と消費開始日が近い順です。品目名を確認してから計画ページへ進めます。</p></div></div><span className={summary.rotationDueCount ? 'stockpile-action-count urgent' : 'stockpile-action-count'}>{summary.rotationDueCount ? `今すぐ ${summary.rotationDueCount}品` : upcomingRotationCount ? `30日以内 ${upcomingRotationCount}品` : '今すぐの対応なし'}</span></header>
+      {rotationPreview.length ? <div className="stockpile-next-list">{rotationPreview.map((entry) => <button type="button" key={entry.key} className={entry.status} aria-label={`${entry.nextLot.name}。${rotationStatus(entry)}。ローリングストック計画を開く`} onClick={() => setPage('rolling')}><span className="stockpile-next-status">{rotationStatus(entry)}</span><span><b>{entry.nextLot.name}</b><small>期限 {entry.nextLot.expiry}・在庫 {entry.totalQuantity}{entry.nextLot.unit}</small></span><ChevronRight /></button>)}</div> : <div className="stockpile-next-empty"><Check /><span><b>期限付きの消費予定はありません</b><small>備蓄品に期限を登録すると、次の対応がここに表示されます。</small></span></div>}
+      <button type="button" className="stockpile-plan-link" aria-label="ローリングストック計画" onClick={() => setPage('rolling')}><RefreshCw /><span><b>ローリングストック計画</b><small>全品目の順番・再通知・消費記録</small></span><ChevronRight /></button>
+    </section>
+    <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
+      <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>各分類を開くと、その分類の品目一覧・数量変更・編集を行えます。</p></div></header>
+      <div className="inventory-category-grid" role="group" aria-label="備蓄カテゴリ">
+        <span className="visually-hidden" id="category-long-press-instruction">選ぶと分類別の詳細ページへ移動します。長押しすると分類の意味と備蓄目安を表示します。キーボードではIキーでも開けます。</span>
+        {categories.map((category) => <InventoryCategoryButton
+          category={category}
+          key={category.key}
+          progressLabel={category.targetConfigured ? `${category.score}%` : '目標未設定'}
+          onExplain={() => setMeaningCategory(category)}
+          onSelect={() => setPage('inventory-category', { target: category.key })}
+        />)}
+      </div>
+    </section>
     <button
       ref={skillEntryRef}
       type="button"
@@ -955,48 +999,35 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
       <Route aria-hidden="true" />
       {(skillClaimableCount > 0 || skillReviewCount > 0) && <span className="stockpile-skill-launcher-alert" aria-hidden="true">!</span>}
     </button>
-    <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
-      <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>水・食料・携帯トイレは設定日数への達成度、その他は期限切れ品を在庫量に数えない登録目標への達成度です。</p></div><button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}><Box />全分類を表示</button></header>
-      <div className="inventory-category-grid" role="group" aria-label="備蓄カテゴリ">
-        <span className="visually-hidden" id="category-long-press-instruction">長押しすると分類の意味と備蓄目安を表示します。キーボードではIキーでも開けます。</span>
-        {categories.map((category) => {
-          const progressLabel = category.targetConfigured ? `${category.score}%` : '目標未設定';
-          return <InventoryCategoryButton
-            active={filter === category.key}
-            category={category}
-            key={category.key}
-            progressLabel={progressLabel}
-            onExplain={() => setMeaningCategory(category)}
-            onSelect={() => setFilter(category.key)}
-          />;
-        })}
-      </div>
-    </section>
-    {selectedCategory && <aside className="inventory-category-guidance" aria-live="polite"><span className="guidance-category-icon" style={{ '--category': selectedCategory.color }}><CategoryIcon category={selectedCategory.key} /></span><div><small>選択中・{selectedCategory.label}</small><b>{itemCategoryGuidance[selectedCategory.key].title}</b><p>{itemCategoryGuidance[selectedCategory.key].primary}</p></div>{selectedCategory.key === 'hygiene' && <button type="button" aria-label="携帯トイレ7日分の目安" onClick={() => setBenchmarkOpen(true)}><CircleHelp />目安を確認</button>}</aside>}
-    <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={selectedCategory ? `${selectedCategory.label}から検索` : '備蓄品を検索'} /></label>{selectedCategory && <button type="button" className="clear-category-filter" onClick={() => setFilter('all')}><X />分類選択を解除</button>}</div>
-    <div className="inventory-list">
+    {calculationOpen && <StockpileCalculationDialog summary={summary} items={state.inventory} household={state.household} targetDays={state.preparedness?.targetDays || 7} onClose={() => setCalculationOpen(false)} onAction={() => { setPage('inventory-category', { target: summary.foodItemsMissingWeight ? 'food' : 'water' }); setCalculationOpen(false); }} />}
+    {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
+    {meaningCategory && <StockpileMeaningDialog category={meaningCategory} onClose={() => setMeaningCategory(null)} />}
+  </section>;
+
+  return <section className="wrap page-section inventory-page inventory-category-page">
+    <div className="page-title inventory-category-title"><div><span className="kicker">CATEGORY DETAIL</span><h1>{selectedCategory.label}の備蓄</h1><p>{selectedCategory.itemCount}品目を登録中。数量・期限・内容量を品目ごとに管理します。</p></div><div className="page-actions"><button type="button" className="secondary-button" onClick={() => setPage('inventory')}><ArrowLeft />備蓄ダッシュボードへ</button><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
+    <aside className="inventory-category-guidance"><span className="guidance-category-icon" style={{ '--category': selectedCategory.color }}><CategoryIcon category={selectedCategory.key} /></span><div><small>{selectedCategory.progressBasis}の達成度 {selectedCategory.targetConfigured ? `${selectedCategory.score}%` : '目標未設定'}</small><b>{itemCategoryGuidance[selectedCategory.key].title}</b><p>{itemCategoryGuidance[selectedCategory.key].primary}</p></div>{selectedCategory.key === 'hygiene' && <button type="button" aria-label="携帯トイレ7日分の目安" onClick={() => setBenchmarkOpen(true)}><CircleHelp />目安を確認</button>}</aside>
+    <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`${selectedCategory.label}から検索`} /></label></div>
+    <div className="inventory-list" aria-label={`${selectedCategory.label}の備蓄品目`}>
       {rows.map((item) => <article className="inventory-item" key={item.id}>
         {item.imageUrl ? <div className="product-thumb"><img src={item.imageUrl} alt="" /></div> : <div className="category-badge" style={{ '--category': CATEGORY_META[item.category]?.color }}><CategoryIcon category={item.category} /></div>}
         <div className="item-main"><div className="item-title"><span className={`tier tier-${item.tier}`}>TIER {item.tier}</span><h3>{item.name}</h3>{item.brand && <span className="brand-tag">{item.brand}</span>}{item.isExpiring && <span className="expiry-tag">{item.isExpired ? '期限切れ' : `あと${item.daysToExpiry}日`}</span>}{item.category === 'food' && !item.foodWeightG && <span className="amount-missing-tag">重量未登録</span>}{item.category === 'water' && !item.volumeMl && <span className="amount-missing-tag">水量未登録</span>}</div><div className="stock-progress"><span style={{ width: `${Math.min(item.ratio * 100, 100)}%` }} /><i style={{ left: `${Math.min(item.ratio * 100, 100)}%` }} /></div><div className="item-meta"><span>在庫 <b>{item.quantity}{item.unit}</b> / 目標 {item.target}{item.unit}{item.category === 'food' && item.foodWeightG > 0 && <small>・1{item.unit} {formatFoodWeight(item.foodWeightG)}</small>}{item.category === 'water' && item.volumeMl > 0 && <small>・1{item.unit} {formatWaterVolume(item.volumeMl)}</small>}{item.barcode && <small>・JAN {item.barcode}</small>}</span>{item.shortage > 0 ? <span className="shortage">あと {item.shortage}{item.unit}</span> : <span className="enough"><Check /> 目標達成</span>}</div></div>
         <div className="quick-actions"><button aria-label={`${item.name}を消費・廃棄`} onClick={() => setConsumeItem(item)}><Minus /></button><button aria-label={`${item.name}を1つ補充`} onClick={() => adjust(item.id, 1)}><Plus /></button><button aria-label={`${item.name}を編集`} onClick={() => setModal(item)}><Pencil /></button><button aria-label={`${item.name}を削除`} className="danger" onClick={() => remove(item.id)}><Trash2 /></button></div>
       </article>)}
-      {!rows.length && <div className="empty-state"><Search /><h3>該当する備蓄品がありません</h3><p>検索条件を変えてみてください。</p></div>}
+      {!rows.length && <div className="empty-state"><Search /><h3>該当する備蓄品がありません</h3><p>検索条件を変えるか、この分類へ備蓄品を追加してください。</p></div>}
     </div>
     <details className="card inventory-history-panel">
       <summary><span><History /><b>消費履歴と傾向</b><small>必要なときに開く</small></span><ChevronRight /></summary>
       <div className="operation-panel"><div className="insight-strip"><span>30日消費<b>{insights.consumed30Days}</b></span><span>うち廃棄<b>{insights.discarded30Days}</b></span><span>最多<b>{insights.topConsumed?.name || '—'}</b></span></div>{transactions.length ? transactions.slice(0, 10).map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '期限順消費' : entry.type === 'consume' ? '消費' : entry.type === 'discard' ? '廃棄' : entry.type === 'delete' ? '削除' : entry.type === 'edit' ? '編集' : '入庫'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{entry.reason || entry.note || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</div>
     </details>
     {consumeItem && <ConsumptionModal item={consumeItem} onClose={() => setConsumeItem(null)} onSave={consume} />}
-    {calculationOpen && <StockpileCalculationDialog summary={summary} items={state.inventory} household={state.household} targetDays={state.preparedness?.targetDays || 7} onClose={() => setCalculationOpen(false)} onAction={() => { setFilter(summary.foodItemsMissingWeight ? 'food' : 'water'); setCalculationOpen(false); }} />}
-    {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
     {benchmarkOpen && <PreparednessBenchmarkDialog kind="hygiene" onClose={() => setBenchmarkOpen(false)} />}
-    {meaningCategory && <StockpileMeaningDialog category={meaningCategory} onClose={() => setMeaningCategory(null)} />}
   </section>;
 }
 
 const CATEGORY_LONG_PRESS_MS = 600;
 
-function InventoryCategoryButton({ active, category, progressLabel, onExplain, onSelect }) {
+function InventoryCategoryButton({ category, progressLabel, onExplain, onSelect }) {
   const timerRef = useRef(null);
   const longPressedRef = useRef(false);
   const isPriority = ['water', 'food', 'hygiene'].includes(category.key);
@@ -1034,13 +1065,11 @@ function InventoryCategoryButton({ active, category, progressLabel, onExplain, o
   const label = category.targetConfigured ? `${category.label}の備蓄を表示。${category.progressBasis}の達成度 ${category.score}%` : `${category.label}の備蓄を表示。目標未設定`;
   return <button
     type="button"
-    className={`${active ? 'active ' : ''}${isPriority ? `priority-category priority-${category.key}` : ''}`.trim()}
+    className={isPriority ? `priority-category priority-${category.key}` : ''}
     data-category={category.key}
     data-priority={isPriority ? 'true' : undefined}
-    aria-pressed={active}
     aria-label={label}
     aria-describedby="category-long-press-instruction"
-    aria-haspopup="dialog"
     aria-keyshortcuts="I F1"
     onClick={select}
     onContextMenu={(event) => { event.preventDefault(); clearLongPress(); onExplain(); }}
@@ -1073,7 +1102,7 @@ function StockpileMeaningDialog({ category, onClose }) {
       </div>}
       <p>{guidance.detail}</p>
       {guidance.evidence && <a className="category-meaning-source" href={guidance.evidence.url} target="_blank" rel="noreferrer">根拠を確認：{guidance.evidence.label}<ArrowRight /></a>}
-      <small className="category-meaning-note">通常のタップではこの分類に絞り込みます。登録した内容量・数量・期限を基に達成度を計算します。</small>
+      <small className="category-meaning-note">通常のタップではこの分類の詳細ページへ移動します。登録した内容量・数量・期限を基に達成度を計算します。</small>
       <div className="modal-actions"><button type="button" className="primary-button" onClick={onClose}><Check />確認しました</button></div>
     </section>
   </div>;

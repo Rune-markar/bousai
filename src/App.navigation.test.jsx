@@ -169,7 +169,7 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByText('内容量未登録の水は日数に含みません')).toBeVisible();
   });
 
-  it('家から備蓄を開き、水位つき分類アイコンで一覧を絞り込める', async () => {
+  it('家から備蓄ダッシュボードを開き、水位つき分類から品目の詳細ページへ移動できる', async () => {
     render(<App />);
     const house = screen.getByRole('button', { name: '自宅の備蓄情報を開く' });
     fireEvent.click(house);
@@ -179,16 +179,42 @@ describe('電力設計ページの導線', () => {
     const categories = screen.getByRole('group', { name: '備蓄カテゴリ' });
     expect(within(categories).getAllByRole('button')).toHaveLength(6);
     const water = within(categories).getByRole('button', { name: '水分の備蓄を表示。7日目標の達成度 21%' });
-    expect(water).toHaveAttribute('aria-pressed', 'false');
     expect(within(water).getByText('21%')).toBeInTheDocument();
     expect(water.querySelector('[data-liquid-fill]').style.getPropertyValue('--fill-level')).toBe('21%');
     expect(water.querySelector('.liquid-glyph-fill')).toHaveAttribute('y', '46.9');
+    expect(screen.queryByRole('heading', { name: '飲料水 500ml' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'アルファ米' })).not.toBeInTheDocument();
 
     const food = within(categories).getByRole('button', { name: '食料の備蓄を表示。7日目標の達成度 21%' });
     fireEvent.click(food);
-    expect(food).toHaveAttribute('aria-pressed', 'true');
+    expect(window.location.hash).toBe('#/inventory-category/food');
+    await waitFor(() => expect(screen.getByRole('heading', { name: '食料の備蓄' })).toHaveFocus());
     expect(screen.getByRole('heading', { name: 'アルファ米' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '飲料水 500ml' })).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'メインナビゲーション' }).querySelector('[aria-current="page"]')).toHaveTextContent('備蓄');
+  });
+
+  it('備蓄ダッシュボードに直近のローリングストック対象を品名つきで表示する', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 5);
+    saved.inventory = saved.inventory.map((item) => item.id === 'rice'
+      ? { ...item, name: '今週食べるアルファ米', expiry: soon.toISOString().slice(0, 10), rotationEnabled: true, rotationLeadDays: 30 }
+      : { ...item, rotationEnabled: false });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+    const nextActions = screen.getByRole('region', { name: '次に使う・確認する備蓄' });
+    expect(within(nextActions).getByText('今週食べるアルファ米')).toBeInTheDocument();
+    expect(within(nextActions).getByText('消費時期です')).toBeInTheDocument();
+    expect(within(nextActions).getByText('今すぐ 1品')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '今週食べるアルファ米' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(nextActions).getByRole('button', { name: /今週食べるアルファ米/ }));
+    expect(window.location.hash).toBe('#/rolling');
+    expect(screen.getByRole('heading', { name: 'ローリングストック消費計画' })).toBeInTheDocument();
   });
 
   it('備蓄ガイドをメインから外し、右下の通知付きボタンからシンボル主体のスキルツリーを開く', async () => {
@@ -293,7 +319,7 @@ describe('電力設計ページの導線', () => {
     expect(within(dialog).getByText('飲料＋調理用')).toBeInTheDocument();
     expect(within(dialog).getByText('生活用水')).toBeInTheDocument();
     expect(within(dialog).getByText(/生活用水は3Lに含まれない/)).toBeInTheDocument();
-    expect(water).toHaveAttribute('aria-pressed', 'false');
+    expect(window.location.hash).toBe('#/inventory');
     fireEvent.click(within(dialog).getByRole('button', { name: '確認しました' }));
     expect(water).toHaveFocus();
   });
