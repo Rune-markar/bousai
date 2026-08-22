@@ -37,7 +37,22 @@ export default defineConfig(({ mode }) => {
   return {
     base: appBase,
     define: { 'import.meta.env.VITE_APP_ENV': JSON.stringify(environment.id) },
-    build: { outDir: environment.isDemo ? 'dist-demo' : 'dist' },
+    build: {
+      outDir: environment.isDemo ? 'dist-demo' : 'dist',
+      rolldownOptions: {
+        output: {
+          codeSplitting: {
+            groups: [
+              {
+                name: 'react-ui-runtime',
+                test: /node_modules[\\/](?:react|react-dom|scheduler|lucide-react)[\\/]/,
+                priority: 10,
+              },
+            ],
+          },
+        },
+      },
+    },
     server: { port: environment.isDemo ? 5174 : 5173, strictPort: true },
     preview: { port: environment.isDemo ? 4174 : 4173, strictPort: true },
     plugins: [
