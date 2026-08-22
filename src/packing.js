@@ -6,6 +6,7 @@ export const BAG_CAPACITY_PRESETS = {
 };
 
 export const PACKING_EFFICIENCY = 0.85;
+export const BAG_AUTO_MODES = Object.freeze(['inventory', 'ideal', 'custom']);
 
 export const BAG_VOLUME_EXAMPLES = [
   { symbol: '💧', label: '飲料水 500ml', volumeMl: 600 },
@@ -95,20 +96,30 @@ export function bagSettings(state, taskId) {
   if (!preset) return null;
   const stored = state.preparedness?.bagSettings?.[taskId] || {};
   const mode = stored.mode === 'custom' ? 'custom' : 'standard';
+  const autoMode = BAG_AUTO_MODES.includes(stored.autoMode) ? stored.autoMode : '';
+  const customIdealIds = [...new Set((Array.isArray(stored.customIdealIds) ? stored.customIdealIds : [])
+    .filter((value) => typeof value === 'string' && value.trim()))];
   const customCapacityL = Math.min(100, Math.max(1, Number(stored.customCapacityL) || preset.capacityL));
-  return { mode, customCapacityL, capacityL: mode === 'custom' ? customCapacityL : preset.capacityL, preset };
+  return { mode, autoMode, customIdealIds, customCapacityL, capacityL: mode === 'custom' ? customCapacityL : preset.capacityL, preset };
 }
 
 export function updateBagSettings(state, taskId, next) {
   if (!BAG_CAPACITY_PRESETS[taskId]) return state;
   const current = bagSettings(state, taskId);
   const mode = next.mode === 'custom' ? 'custom' : 'standard';
+  const autoMode = next.autoMode === undefined
+    ? current.autoMode
+    : BAG_AUTO_MODES.includes(next.autoMode) ? next.autoMode : '';
+  const customIdealIds = next.customIdealIds === undefined
+    ? current.customIdealIds
+    : [...new Set((Array.isArray(next.customIdealIds) ? next.customIdealIds : [])
+      .filter((value) => typeof value === 'string' && value.trim()))];
   const customCapacityL = Math.min(100, Math.max(1, Number(next.customCapacityL) || current.customCapacityL));
   return {
     ...state,
     preparedness: {
       ...state.preparedness,
-      bagSettings: { ...(state.preparedness?.bagSettings || {}), [taskId]: { mode, customCapacityL } },
+      bagSettings: { ...(state.preparedness?.bagSettings || {}), [taskId]: { mode, autoMode, customIdealIds, customCapacityL } },
       updatedAt: new Date().toISOString(),
     },
   };

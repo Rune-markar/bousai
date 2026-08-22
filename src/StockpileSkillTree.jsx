@@ -231,6 +231,7 @@ export default function StockpileSkillTree({
   const closeRef = useRef(null);
   const pressRef = useRef(null);
   const suppressClickRef = useRef(null);
+  const selectedTriggerRef = useRef(null);
   const claimRef = useRef(onClaim);
   const closeHandlerRef = useRef(onClose);
   const selectedNode = selectedId ? nodeMap.get(selectedId) || null : null;
@@ -285,6 +286,7 @@ export default function StockpileSkillTree({
     if (!node || node.state !== 'claimable' || event.button !== 0 || event.isPrimary === false) return;
     clearPress();
     const pointerId = event.pointerId;
+    const trigger = event.currentTarget;
     try { event.currentTarget.setPointerCapture?.(pointerId); } catch { /* Older browsers still get cancel/up events. */ }
     setPressingId(node.id);
     const timer = window.setTimeout(() => {
@@ -292,6 +294,7 @@ export default function StockpileSkillTree({
       pressRef.current = null;
       suppressClickRef.current = node.id;
       setPressingId(null);
+      selectedTriggerRef.current = trigger;
       setSelectedId(node.id);
       claimRef.current(node.id);
     }, holdDuration);
@@ -319,7 +322,13 @@ export default function StockpileSkillTree({
       return;
     }
     suppressClickRef.current = null;
-    setSelectedId(node.id);
+    selectedTriggerRef.current = event.currentTarget;
+    setSelectedId((current) => current === node.id ? null : node.id);
+  };
+
+  const closeDetail = () => {
+    setSelectedId(null);
+    window.requestAnimationFrame(() => selectedTriggerRef.current?.focus());
   };
 
   const interactionProps = (node) => ({
@@ -482,6 +491,7 @@ export default function StockpileSkillTree({
                   <span className="stockpile-skill-tree-state" data-state={selectedNode.state}>{STOCKPILE_SKILL_STATE_LABELS[selectedNode.state]}</span>
                   <h3>{selectedResource?.label || displayTitleForNode(selectedNode)}</h3>
                 </div>
+                <button type="button" aria-label="カードの詳細を閉じる" onClick={closeDetail}><X aria-hidden="true" /></button>
               </div>
               {selectedNode.detail && <p className="stockpile-skill-tree-detail-copy">{selectedNode.detail}</p>}
               <div className="stockpile-skill-tree-condition">

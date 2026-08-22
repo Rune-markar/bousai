@@ -231,7 +231,7 @@ export function createDefaultState() {
     household: 2,
     contact: { name: '家族の緊急メモ', phone: '', shelter: '', note: '災害用伝言ダイヤル 171' },
     completedTips: [],
-    preparedness: { completed: [], loadouts: {}, bagSettings: {}, disasterChecks: {}, taskVerifications: {}, stockpileSkillClaims: [], targetDays: 7, annualBudget: 0, updatedAt: '' },
+    preparedness: { completed: [], loadouts: {}, bagSettings: {}, bagPurchasePlan: [], disasterChecks: {}, taskVerifications: {}, stockpileSkillClaims: [], targetDays: 7, annualBudget: 0, updatedAt: '' },
     transactions: [],
     lastVisitAt: '',
     selectedCharacter: 'hikari',
@@ -320,7 +320,19 @@ export function normalizeState(input) {
     preparedness: {
       completed: Array.isArray(input.preparedness?.completed) ? input.preparedness.completed.filter((value) => typeof value === 'string') : [],
       loadouts: Object.fromEntries(Object.entries(input.preparedness?.loadouts || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
-      bagSettings: Object.fromEntries(Object.entries(input.preparedness?.bagSettings || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, { mode: value.mode === 'custom' ? 'custom' : 'standard', customCapacityL: Math.min(100, Math.max(1, Number(value.customCapacityL) || 20)) }])),
+      bagSettings: Object.fromEntries(Object.entries(input.preparedness?.bagSettings || {}).filter(([, value]) => value && typeof value === 'object').map(([key, value]) => [key, {
+        mode: value.mode === 'custom' ? 'custom' : 'standard',
+        autoMode: ['inventory', 'ideal', 'custom'].includes(value.autoMode) ? value.autoMode : '',
+        customIdealIds: [...new Set((Array.isArray(value.customIdealIds) ? value.customIdealIds : []).filter((item) => typeof item === 'string' && item.trim()))],
+        customCapacityL: Math.min(100, Math.max(1, Number(value.customCapacityL) || 20)),
+      }])),
+      bagPurchasePlan: [...new Map((Array.isArray(input.preparedness?.bagPurchasePlan) ? input.preparedness.bagPurchasePlan : [])
+        .filter((entry) => entry && typeof entry === 'object' && typeof entry.taskId === 'string' && typeof entry.itemId === 'string')
+        .map((entry) => [`${entry.taskId}:${entry.itemId}`, {
+          taskId: entry.taskId,
+          itemId: entry.itemId,
+          price: boundedNumber(entry.price, 0, 1000000, 0),
+        }])).values()],
       disasterChecks: Object.fromEntries(Object.entries(input.preparedness?.disasterChecks || {}).filter(([, value]) => Array.isArray(value)).map(([key, value]) => [key, [...new Set(value.filter((item) => typeof item === 'string'))]])),
       taskVerifications: Object.fromEntries(Object.entries(input.preparedness?.taskVerifications || {}).filter(([key, value]) => typeof key === 'string' && value && typeof value === 'object' && !Array.isArray(value)).map(([key, value]) => [key, {
         fingerprint: String(value.fingerprint || ''),

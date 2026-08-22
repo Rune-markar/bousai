@@ -328,7 +328,8 @@ describe('電力設計ページの導線', () => {
 
     expect(screen.getByRole('button', { name: '自宅の備蓄情報を開く' })).toHaveAccessibleDescription(/生活継続の目安 0\.0日分/);
     fireEvent.click(screen.getByRole('button', { name: '避難バッグを自動で準備' }));
-    expect(screen.getAllByText('選定できる備蓄がありません')).toHaveLength(2);
+    expect(screen.getAllByText('自動モードは未設定です')).toHaveLength(2);
+    expect(screen.getAllByText('方式を選ぶまで中身は配列しません')).toHaveLength(2);
   });
 
   it('在庫未登録でも命をつなぐ3分類を通知し、登録画面へ案内する', () => {
@@ -891,13 +892,36 @@ describe('電力設計ページの導線', () => {
     expect(purposeGuide).toHaveAttribute('open');
     expect(screen.getByText('危険から即座に逃げる')).toBeInTheDocument();
     expect(screen.getByText('避難先で数日を過ごす')).toBeInTheDocument();
-    expect(screen.getByText('一時避難を先に確保し、二次避難には残りの在庫を割り当てます。期限が近く、重要度の高い備蓄を優先します。')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /自動選定結果を開く/ })).toHaveLength(2);
+    expect(screen.getByText(/未設定のまま勝手に配列しません/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /自動モードを設定/ })).toHaveLength(2);
 
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     expect(within(desktopNavigation).queryByRole('button', { name: '避難バッグ' })).not.toBeInTheDocument();
     expect(within(desktopNavigation).queryByRole('button', { name: '防災力' })).not.toBeInTheDocument();
     expect(within(desktopNavigation).getByRole('button', { name: 'ホーム' })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('理想構成の不足品を防災予算計画へ追加し、想定単価を保存できる', async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '避難バッグを自動で準備' }));
+    fireEvent.click(screen.getAllByRole('button', { name: /自動モードを設定/ })[0]);
+    const loadoutDialog = screen.getByRole('dialog', { name: '1次避難バッグ' });
+    fireEvent.click(within(loadoutDialog).getByRole('radio', { name: /理想構成/ }));
+    const medicine = [...loadoutDialog.querySelectorAll('.ideal-balance-list article')].find((article) => article.textContent.includes('常用薬'));
+    fireEvent.click(within(medicine).getByRole('button', { name: '備蓄計画に追加' }));
+    expect(screen.getByRole('status')).toHaveTextContent('不足品を防災予算計画へ追加しました');
+    fireEvent.click(within(loadoutDialog).getByRole('button', { name: '装備ケースを閉じる' }));
+
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    expect(screen.getByText(/バッグ候補 1点/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
+    const budgetDialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
+    const bagPlan = within(budgetDialog).getByRole('region', { name: '避難バッグから追加した購入候補' });
+    expect(within(bagPlan).getByText('常用薬')).toBeInTheDocument();
+    fireEvent.change(within(bagPlan).getByLabelText('常用薬の想定単価'), { target: { value: '1800' } });
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).preparedness.bagPurchasePlan).toEqual([
+      { taskId: 'bag-primary', itemId: 'medicine', price: 1800 },
+    ]));
   });
 
   it('情報量の多い主要ページは要点から詳細を段階的に開ける', () => {
@@ -940,6 +964,7 @@ describe('電力設計ページの導線', () => {
 
   it('実物不足を主要備蓄の参考日数へまとめ、備蓄行と重複する一覧を作らない', () => {
     render(<App />);
+    expect(screen.queryByRole('button', { name: '備蓄品を追加' })).not.toBeInTheDocument();
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
     expect(document.querySelector('.app-shell')).toHaveClass('inventory-dashboard-active');

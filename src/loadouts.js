@@ -109,3 +109,34 @@ export function completeLoadout(state, taskId) {
   completed.add(taskId);
   return { ...state, preparedness: { ...state.preparedness, completed: [...completed], updatedAt: new Date().toISOString() } };
 }
+
+export function addBagPurchaseItem(state, taskId, itemId) {
+  const loadout = getLoadout(taskId);
+  if (!loadout?.items.some((item) => item.id === itemId)) return state;
+  const current = Array.isArray(state.preparedness?.bagPurchasePlan) ? state.preparedness.bagPurchasePlan : [];
+  if (current.some((entry) => entry.taskId === taskId && entry.itemId === itemId)) return state;
+  return {
+    ...state,
+    preparedness: {
+      ...state.preparedness,
+      bagPurchasePlan: [...current, { taskId, itemId, price: 0 }],
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+export function updateBagPurchaseItem(state, taskId, itemId, changes = {}) {
+  const current = Array.isArray(state.preparedness?.bagPurchasePlan) ? state.preparedness.bagPurchasePlan : [];
+  const exists = current.some((entry) => entry.taskId === taskId && entry.itemId === itemId);
+  if (!exists) return state;
+  const remove = changes.remove === true;
+  const nextPlan = remove
+    ? current.filter((entry) => entry.taskId !== taskId || entry.itemId !== itemId)
+    : current.map((entry) => entry.taskId === taskId && entry.itemId === itemId
+      ? { ...entry, price: Math.min(1000000, Math.max(0, Number(changes.price) || 0)) }
+      : entry);
+  return {
+    ...state,
+    preparedness: { ...state.preparedness, bagPurchasePlan: nextPlan, updatedAt: new Date().toISOString() },
+  };
+}

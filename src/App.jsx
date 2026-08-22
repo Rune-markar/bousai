@@ -14,7 +14,7 @@ import DisasterPreparedness from './DisasterPreparedness.jsx';
 import StockpileSkillTree from './StockpileSkillTree.jsx';
 import { createTransaction, loadState, normalizeInventoryItem, parseStateData, RECOVERY_KEY_PREFIX, STORAGE_KEY } from './state.js';
 import { defensePower, essentialPreparednessGates, preparednessProgress, togglePreparednessTask } from './preparedness.js';
-import { completeLoadout, getLoadout, loadoutStatus, updateLoadout } from './loadouts.js';
+import { addBagPurchaseItem, completeLoadout, getLoadout, loadoutStatus, updateBagPurchaseItem, updateLoadout } from './loadouts.js';
 import { autoPackInventory, bagSettings, updateBagSettings } from './packing.js';
 import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, respondToCharacter } from './characters.js';
 import { DISASTER_SCENARIOS, generateEmergencyPlan, simulateDisaster } from './emergency.js';
@@ -466,7 +466,7 @@ function App() {
         {nav.map(({ id, label, icon: Icon }) => <button aria-current={navigationPage === id ? 'page' : undefined} className={navigationPage === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
-      {['home', 'inventory', 'inventory-category'].includes(page) && !onboardingActive && <button
+      {['inventory', 'inventory-category'].includes(page) && !onboardingActive && <button
         type="button"
         className="stockpile-add-fab"
         aria-label={page === 'inventory-category' ? `${CATEGORY_META[pageTarget]?.label || ''}の備蓄品を追加` : '備蓄品を追加'}
@@ -895,8 +895,15 @@ function EvacuationBags({ state, setState, setToast, setPage, today }) {
   const [activeLoadout, setActiveLoadout] = useState(null);
   const primarySettings = bagSettings(state, 'bag-primary');
   const secondarySettings = bagSettings(state, 'bag-secondary');
-  const primaryPacking = useMemo(() => autoPackInventory(state.inventory, 'bag-primary', primarySettings.capacityL, state.household, { today }), [state.inventory, state.household, primarySettings.capacityL, today]);
-  const secondaryPacking = useMemo(() => autoPackInventory(state.inventory, 'bag-secondary', secondarySettings.capacityL, state.household, { reservedItems: primaryPacking.items, today }), [state.inventory, state.household, secondarySettings.capacityL, primaryPacking, today]);
+  const primaryPacking = useMemo(() => primarySettings.autoMode
+    ? autoPackInventory(state.inventory, 'bag-primary', primarySettings.capacityL, state.household, { today })
+    : null, [state.inventory, state.household, primarySettings, today]);
+  const secondaryPacking = useMemo(() => secondarySettings.autoMode
+    ? autoPackInventory(state.inventory, 'bag-secondary', secondarySettings.capacityL, state.household, {
+      reservedItems: primarySettings.autoMode === 'inventory' ? primaryPacking?.items || [] : [],
+      today,
+    })
+    : null, [state.inventory, state.household, secondarySettings, primarySettings.autoMode, primaryPacking, today]);
   const packingById = { 'bag-primary': primaryPacking, 'bag-secondary': secondaryPacking };
 
   const finishLoadout = () => {
@@ -920,26 +927,37 @@ function EvacuationBags({ state, setState, setToast, setPage, today }) {
       </div>
     </details>
 
-    <aside className="bag-auto-note" aria-label="自動選定の仕組み"><Sparkles /><div><b>在庫を更新すると、バッグの中身も自動で再計算</b><span>一時避難を先に確保し、二次避難には残りの在庫を割り当てます。期限が近く、重要度の高い備蓄を優先します。</span></div></aside>
+    <aside className="bag-auto-note" aria-label="自動選定の仕組み"><Sparkles /><div><b>自動モードを設定したバッグだけ、中身を配列</b><span>備蓄からの自動選定、理想構成、自分で選ぶ構成の3方式から選べます。未設定のまま勝手に配列しません。</span></div></aside>
 
     <div className="evacuation-stage-flow" aria-label="避難段階を選択">
       {evacuationBagStages.map((stage, index) => {
         const packing = packingById[stage.id];
         const settings = stage.id === 'bag-primary' ? primarySettings : secondarySettings;
-        const totalUnits = packing.items.reduce((sum, item) => sum + item.quantity, 0);
+        const loadout = getLoadout(stage.id);
+        const plannedItems = settings.autoMode === 'inventory'
+          ? packing?.items || []
+          : settings.autoMode === 'ideal'
+            ? loadout.items
+            : settings.autoMode === 'custom'
+              ? loadout.items.filter((item) => settings.customIdealIds.includes(item.id))
+              : [];
+        const totalUnits = settings.autoMode === 'inventory'
+          ? plannedItems.reduce((sum, item) => sum + item.quantity, 0)
+          : plannedItems.length;
+        const modeLabel = settings.autoMode === 'inventory' ? '備蓄から選定' : settings.autoMode === 'ideal' ? '理想構成' : settings.autoMode === 'custom' ? '自分で選択' : '未設定';
         return <article className={`evacuation-stage-card ${stage.id === 'bag-primary' ? 'primary-stage' : 'secondary-stage'}`} key={stage.id}>
           <header><span className="bag-stage-number">{stage.step}</span><div><small>{stage.label}</small><h2>{stage.title}</h2><p>{stage.timing}</p></div><Backpack /></header>
           <p className="bag-stage-description">{stage.description}</p>
-          <div className="bag-plan-summary"><span><small>バッグ容量</small><b>{settings.capacityL}L</b></span><span><small>自動選定</small><b>{packing.items.length}<em>品目</em></b></span><span><small>収納単位</small><b>{totalUnits}<em>点</em></b></span><span><small>使用容量</small><b>{(packing.usedMl / 1000).toFixed(1)}<em>L</em></b></span></div>
-          <div className="bag-preview-list">{packing.items.length ? packing.items.slice(0, 4).map((item) => <span key={item.id}><b>{item.name}</b><small>{item.quantity}{item.unit}</small></span>) : <p><AlertTriangle />選定できる備蓄がありません</p>}{packing.items.length > 4 && <em>ほか {packing.items.length - 4}品目</em>}</div>
-          {stage.id === 'bag-secondary' && <p className="bag-reserved-summary">一時避難バッグの {primaryPacking.items.reduce((sum, item) => sum + item.quantity, 0)}点は重複させず確保済み</p>}
-          <button type="button" className="bag-open-planner" onClick={() => setActiveLoadout(stage.id)}><Sparkles /><span><b>自動選定結果を開く</b><small>容量変更・不足品・実物確認</small></span><ChevronRight /></button>
+          {settings.autoMode ? <><div className="bag-plan-summary"><span><small>バッグ容量</small><b>{settings.capacityL}L</b></span><span><small>自動モード</small><b className="bag-mode-summary">{modeLabel}</b></span><span><small>構成品</small><b>{plannedItems.length}<em>品目</em></b></span><span><small>{settings.autoMode === 'inventory' ? '収納単位' : '選択数'}</small><b>{totalUnits}<em>点</em></b></span></div>
+          <div className="bag-preview-list">{plannedItems.length ? plannedItems.slice(0, 4).map((item) => <span key={item.id}><b>{item.name}</b><small>{settings.autoMode === 'inventory' ? `${item.quantity}${item.unit}` : '構成に含む'}</small></span>) : <p><AlertTriangle />構成に含める物がありません</p>}{plannedItems.length > 4 && <em>ほか {plannedItems.length - 4}品目</em>}</div></> : <div className="bag-mode-unset"><Sparkles /><span><b>自動モードは未設定です</b><small>方式を選ぶまで中身は配列しません</small></span></div>}
+          {stage.id === 'bag-secondary' && settings.autoMode === 'inventory' && primarySettings.autoMode === 'inventory' && <p className="bag-reserved-summary">一時避難バッグの {(primaryPacking?.items || []).reduce((sum, item) => sum + item.quantity, 0)}点は重複させず確保済み</p>}
+          <button type="button" className="bag-open-planner" onClick={() => setActiveLoadout(stage.id)}><Sparkles /><span><b>{settings.autoMode ? '自動モードを確認・変更' : '自動モードを設定'}</b><small>3方式・不足品・実物確認</small></span><ChevronRight /></button>
         </article>;
       })}
     </div>
 
     <p className="bag-safety-note"><ShieldCheck />自動選定は収納計画です。実際にバッグへ入れた後、画面内の「現物確認」で一つずつ確認してください。</p>
-    {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} today={today} />}
+    {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onAddPurchase={(itemId) => { setState((old) => addBagPurchaseItem(old, activeLoadout, itemId)); setToast('不足品を防災予算計画へ追加しました'); }} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} today={today} />}
   </section>;
 }
 
@@ -1167,6 +1185,7 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
         : budgetProjection.months < 12
           ? `約${budgetProjection.months}か月で到達`
           : `約${(budgetProjection.months / 12).toFixed(1)}年で到達`;
+  const bagPurchaseCount = state.preparedness?.bagPurchasePlan?.length || 0;
   const nextRotation = summary.rotationQueue[0];
   const stockpileSkills = useMemo(() => buildStockpileSkillTree(state, { today }), [state, today]);
   useEffect(() => {
@@ -1337,7 +1356,7 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
             </button>
             <button type="button" className="stockpile-plan-card budget-plan-card" aria-label="防災予算計画を開く" onClick={() => setBudgetOpen(true)}>
               <span className="stockpile-plan-icon"><CalendarDays /></span>
-              <span><small>買う計画</small><b>防災予算計画</b><em>{budgetDuration}</em></span>
+              <span><small>買う計画</small><b>防災予算計画</b><em>{bagPurchaseCount ? `${budgetDuration}・バッグ候補 ${bagPurchaseCount}点` : budgetDuration}</em></span>
               <strong>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}<small>年間予算</small></strong><ChevronRight />
             </button>
           </div>
@@ -1591,6 +1610,12 @@ function BudgetPlannerDialog({ state, summary, setState, onClose, today }) {
   useDialogClose(onClose, dialogRef);
   const [budget, setBudget] = useState(state.preparedness?.annualBudget || 0);
   const projection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, budget, today), [state.inventory, state.household, state.preparedness?.targetDays, budget, today]);
+  const bagPurchaseItems = useMemo(() => (state.preparedness?.bagPurchasePlan || []).map((entry) => {
+    const loadout = getLoadout(entry.taskId);
+    const item = loadout?.items.find((candidate) => candidate.id === entry.itemId);
+    return item ? { ...entry, item, loadout } : null;
+  }).filter(Boolean), [state.preparedness?.bagPurchasePlan]);
+  const bagPurchaseKnownCost = bagPurchaseItems.reduce((sum, entry) => sum + Math.max(0, Number(entry.price) || 0), 0);
   const duration = !projection.costComplete ? '不足商品の単価登録後に表示します' : projection.months === null ? '年間予算を入力すると表示します' : projection.months === 0 ? '目標日数を達成済み' : projection.months < 12 ? `約${projection.months}か月` : `約${(projection.months / 12).toFixed(1)}年`;
   const save = () => {
     setState((old) => ({ ...old, preparedness: { ...old.preparedness, annualBudget: budget } }));
@@ -1609,7 +1634,8 @@ function BudgetPlannerDialog({ state, summary, setState, onClose, today }) {
       const plannedText = item.plannedComponents?.length ? formatComponents(item.plannedComponents) : `${item.plannedQuantity}${recommendation?.unit || ''}`;
       return <li className={!item.hasPrice ? 'needs-price' : item.plannedQuantity === 0 ? 'deferred' : ''} key={item.key}><span className="purchase-order">{item.order}</span><span><small>{item.label}・現在 {formatDays(item.currentDays)}日分</small><b>{recommendation?.name || `${item.label}の商品`}</b><em>{requiredText}</em></span><strong>{budget === 0 ? '予算入力後に割当' : item.plannedQuantity > 0 ? <><small>今年買う</small><span>{plannedText}</span><em>¥{item.plannedCost.toLocaleString()}</em></> : item.hasPrice ? '翌年以降' : '単価未登録'}</strong></li>;
     })}</ol> : <div className="empty-small"><Check />目標日数分を確保済みです</div>}</section>
-    <p className="dialog-note">主要備蓄の参考日数が短い分野を先にし、同じ場合は水・食料・携帯トイレの順で提案します。グラフは登録済みの内容量・単価と一定の予算投入を前提にした概算で、価格変動や購入単位により実績は変わります。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={save}><Check />この年間予算で保存</button></div>
+    <section className="bag-purchase-plan" aria-labelledby="bag-purchase-plan-title"><header><div><span className="kicker">EVACUATION BAG CANDIDATES</span><h3 id="bag-purchase-plan-title">避難バッグから追加した購入候補</h3></div><strong>{bagPurchaseItems.length}点{bagPurchaseKnownCost > 0 ? `・¥${bagPurchaseKnownCost.toLocaleString()}` : ''}</strong></header>{bagPurchaseItems.length ? <ul>{bagPurchaseItems.map((entry) => <li key={`${entry.taskId}:${entry.itemId}`}><span aria-hidden="true">{entry.item.symbol}</span><span><small>{entry.loadout.title}</small><b>{entry.item.name}</b></span><label><span>想定単価</span><input aria-label={`${entry.item.name}の想定単価`} type="number" min="0" max="1000000" step="100" value={entry.price || 0} onChange={(event) => setState((old) => updateBagPurchaseItem(old, entry.taskId, entry.itemId, { price: event.target.value }))} /><i>円</i></label><button type="button" aria-label={`${entry.item.name}を購入候補から外す`} onClick={() => setState((old) => updateBagPurchaseItem(old, entry.taskId, entry.itemId, { remove: true }))}><X /></button></li>)}</ul> : <div className="empty-small"><ShoppingBasket />理想構成の不足品をタップすると、ここへ追加されます</div>}</section>
+    <p className="dialog-note">主要備蓄の参考日数が短い分野を先にし、同じ場合は水・食料・携帯トイレの順で提案します。避難バッグの購入候補は主要備蓄とは分けて表示し、想定単価を入力できます。グラフは主要備蓄の登録済み内容量・単価による概算です。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={save}><Check />この年間予算で保存</button></div>
   </section></div>;
 }
 

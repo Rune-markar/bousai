@@ -106,6 +106,21 @@ describe('StockpileSkillTree', () => {
     expect(screen.getByRole('button', { name: '達成を確定' })).toBeDisabled();
   });
 
+  it('選択中のカードを再タップ、または詳細の閉じるボタンで詳細を閉じられる', () => {
+    render(<StockpileSkillTree nodes={nodes} onClaim={onClaim} onClose={onClose} />);
+    const water = screen.getByRole('button', { name: '飲料水3日分、現在3日分、確認できます' });
+
+    fireEvent.click(water);
+    expect(screen.getByRole('button', { name: 'カードの詳細を閉じる' })).toBeInTheDocument();
+    fireEvent.click(water);
+    expect(screen.queryByRole('button', { name: 'カードの詳細を閉じる' })).not.toBeInTheDocument();
+
+    fireEvent.click(water);
+    fireEvent.click(screen.getByRole('button', { name: 'カードの詳細を閉じる' }));
+    expect(screen.queryByRole('button', { name: 'カードの詳細を閉じる' })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('650msの長押しでclaimし、pointer cancelと大きな移動では中止する', () => {
     vi.useFakeTimers();
     render(<StockpileSkillTree nodes={nodes} onClaim={onClaim} onClose={onClose} />);

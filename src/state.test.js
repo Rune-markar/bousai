@@ -9,7 +9,7 @@ describe('state migration', () => {
     expect(state.onboarding.completed).toBe(true);
     expect(state.inventory[0]).toMatchObject({ id: 'old', name: '水', quantity: 2 });
     expect(state.inventory[0].productId).toBe('legacy:old');
-    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, disasterChecks: {}, taskVerifications: {}, stockpileSkillClaims: [], targetDays: 7, annualBudget: 0, updatedAt: '' });
+    expect(state.preparedness).toEqual({ completed: [], loadouts: {}, bagSettings: {}, bagPurchasePlan: [], disasterChecks: {}, taskVerifications: {}, stockpileSkillClaims: [], targetDays: 7, annualBudget: 0, updatedAt: '' });
     expect(state.inventory[0].packingVolumeMl).toBe(0);
     expect(state.inventory[0].foodWeightG).toBe(0);
     expect(state.inventory[0]).toMatchObject({ waterPurpose: 'needs-review', verificationStatus: 'needs-review', verificationReason: 'ambiguous-water' });
@@ -24,6 +24,18 @@ describe('state migration', () => {
     expect(normalizeState({ preparedness: { targetDays: 999 } }).preparedness).toMatchObject({ targetDays: 30, requestedHorizonDays: 999 });
     expect(normalizeState({ preparedness: { targetDays: 0 } }).preparedness.targetDays).toBe(7);
     expect(normalizeState({ preparedness: { targetDays: 'Infinity' } }).preparedness.targetDays).toBe(7);
+  });
+
+  it('normalizes bag modes and purchase candidates without duplicates', () => {
+    const state = normalizeState({ preparedness: {
+      bagSettings: { 'bag-primary': { mode: 'custom', autoMode: 'custom', customCapacityL: 25, customIdealIds: ['water', 'water', 'medicine'] } },
+      bagPurchasePlan: [
+        { taskId: 'bag-primary', itemId: 'medicine', price: 1800 },
+        { taskId: 'bag-primary', itemId: 'medicine', price: 2200 },
+      ],
+    } });
+    expect(state.preparedness.bagSettings['bag-primary']).toMatchObject({ mode: 'custom', autoMode: 'custom', customCapacityL: 25, customIdealIds: ['water', 'medicine'] });
+    expect(state.preparedness.bagPurchasePlan).toEqual([{ taskId: 'bag-primary', itemId: 'medicine', price: 2200 }]);
   });
 
   it('starts a new user with no unverified physical inventory', () => {

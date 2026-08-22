@@ -36,6 +36,13 @@ describe('inventory auto packing', () => {
     expect(bagSettings(changed, 'bag-primary')).toMatchObject({ mode: 'custom', capacityL: 27 });
   });
 
+  it('keeps auto mode unset until explicitly selected and persists custom ideal items', () => {
+    const state = { preparedness: { bagSettings: {} } };
+    expect(bagSettings(state, 'bag-primary')).toMatchObject({ autoMode: '', customIdealIds: [] });
+    const changed = updateBagSettings(state, 'bag-primary', { autoMode: 'custom', customIdealIds: ['water', 'medicine', 'water'] });
+    expect(bagSettings(changed, 'bag-primary')).toMatchObject({ autoMode: 'custom', customIdealIds: ['water', 'medicine'] });
+  });
+
   it('identifies a different purpose and explanation for each evacuation stage', () => {
     expect(EVACUATION_BAG_PROFILES['bag-primary']).toMatchObject({ stageLabel: '一時避難' });
     expect(EVACUATION_BAG_PROFILES['bag-secondary']).toMatchObject({ stageLabel: '2次避難' });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completeLoadout, getLoadout, loadoutStatus, requiredLoadoutItemIds, updateLoadout } from './loadouts.js';
+import { addBagPurchaseItem, completeLoadout, getLoadout, loadoutStatus, requiredLoadoutItemIds, updateBagPurchaseItem, updateLoadout } from './loadouts.js';
 
 const state = { preparedness: { completed: [], loadouts: {}, updatedAt: '' } };
 
@@ -29,5 +29,14 @@ describe('practical loadouts', () => {
     const ready = completeLoadout(updateLoadout(state, 'light-fire', required), 'light-fire');
     const changed = updateLoadout(ready, 'light-fire', required.slice(1));
     expect(changed.preparedness.completed).not.toContain('light-fire');
+  });
+
+  it('adds each missing bag item to the purchase plan once and keeps its price', () => {
+    const added = addBagPurchaseItem(state, 'bag-primary', 'medicine');
+    expect(added.preparedness.bagPurchasePlan).toEqual([{ taskId: 'bag-primary', itemId: 'medicine', price: 0 }]);
+    expect(addBagPurchaseItem(added, 'bag-primary', 'medicine')).toBe(added);
+    const priced = updateBagPurchaseItem(added, 'bag-primary', 'medicine', { price: 1800 });
+    expect(priced.preparedness.bagPurchasePlan[0].price).toBe(1800);
+    expect(updateBagPurchaseItem(priced, 'bag-primary', 'medicine', { remove: true }).preparedness.bagPurchasePlan).toEqual([]);
   });
 });
