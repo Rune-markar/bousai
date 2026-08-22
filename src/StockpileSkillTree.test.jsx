@@ -46,21 +46,27 @@ describe('StockpileSkillTree', () => {
     vi.useRealTimers();
   });
 
-  it('1日・3日・7日を縦に並べ、各段階で3資源が分岐して合流する', () => {
+  it('3カテゴリを固定列にし、1日・3日・7日の横達成ラインで区切る', () => {
     const { container } = render(<StockpileSkillTree nodes={nodes} household={2} onClaim={onClaim} onClose={onClose} />);
 
     expect(screen.getByRole('dialog', { name: '備蓄スキルツリー' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'わが家の備蓄レベル樹形図' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '1日 → 3日 → 7日へ育てる' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '3つの列を達成ラインまでそろえる' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: '備蓄カテゴリ' })).toHaveTextContent('飲料水');
+    expect(screen.getByRole('group', { name: '備蓄カテゴリ' })).toHaveTextContent('食料（重量換算）');
+    expect(screen.getByRole('group', { name: '備蓄カテゴリ' })).toHaveTextContent('携帯トイレ');
     expect(screen.getByRole('group', { name: '1日分の水・食料・携帯トイレ' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '3日分の水・食料・携帯トイレ' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: '7日分の水・食料・携帯トイレ' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '飲料水3日分、現在3日分、確認できます' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '食料（重量換算）3日分、現在2日分、未達成' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '携帯トイレ3日分、現在3日分、再確認' })).toBeInTheDocument();
-    expect(screen.getAllByText(/6L \/ 日/)).toHaveLength(3);
-    expect(screen.getAllByText(/900g \/ 日/)).toHaveLength(3);
-    expect(screen.getAllByText(/10回 \/ 日/)).toHaveLength(3);
+    expect(screen.getByText('6L / 日')).toBeInTheDocument();
+    expect(screen.getByText('900g / 日')).toBeInTheDocument();
+    expect(screen.getByText('10回 / 日')).toBeInTheDocument();
+    expect(screen.getByLabelText('1日分の達成ライン')).toHaveTextContent('1日分');
+    expect(screen.getByLabelText('3日分の達成ライン')).toHaveTextContent('最低目安');
+    expect(screen.getByLabelText('7日分の達成ライン')).toHaveTextContent('推奨目安');
 
     expect(screen.getByRole('button', { name: '主要備蓄3日分、2/3項目到達、未達成' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '主要備蓄7日分、0/3項目到達、未達成' })).toBeInTheDocument();
@@ -69,14 +75,19 @@ describe('StockpileSkillTree', () => {
     expect(container.querySelectorAll('.stockpile-skill-stage')).toHaveLength(3);
   });
 
-  it('安全・家族固有・暮らしの継続を量から分割し、具体名を表示する', () => {
+  it('共通・家族ごと・達成後の充実を数量表から分割して表示する', () => {
     render(<StockpileSkillTree nodes={nodes} onClaim={onClaim} onClose={onClose} />);
 
-    expect(screen.getByRole('heading', { name: '安全・家族固有の備え' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '共通・個別・充実を分ける' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '共通：安全を先に確認' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '家族ごと：個別用品を整える' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '備蓄量と並行する安全確認、確認できます' })).toHaveTextContent('住まい・避難・連絡・薬');
     expect(screen.getByRole('button', { name: '家族固有品を登録する、確認できます' })).toHaveTextContent('薬・乳幼児・ペット');
     expect(screen.getByRole('button', { name: '停電時の選択肢を足す、未達成' })).toHaveTextContent('医療電源・通信・灯り');
-    expect(screen.getByLabelText('3日分から枝分かれする備え')).toContainElement(screen.getByRole('button', { name: '停電時の選択肢を足す、未達成' }));
+    const expansion = screen.getByRole('region', { name: '達成後に広げる：暮らしを充実' });
+    expect(expansion).toContainElement(screen.getByRole('button', { name: '停電時の選択肢を足す、未達成' }));
+    expect(within(expansion).getAllByRole('button')[0]).toHaveAccessibleName('停電時の選択肢を足す、未達成');
+    expect(screen.getByRole('button', { name: '停電時の選択肢を足す、未達成' })).toHaveTextContent('3日分から解放');
   });
 
   it('資源カードのタップで条件を表示し、明示ボタンから達成を確定できる', () => {
