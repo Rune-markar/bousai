@@ -429,7 +429,7 @@ function App() {
   </section> : null);
 
   return (
-    <div className={`app-shell environment-${APP_ENVIRONMENT.id}${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
+    <div className={`app-shell environment-${APP_ENVIRONMENT.id}${page === 'home' ? ' home-active' : ''}${page === 'inventory' ? ' inventory-dashboard-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
       {state.storageRecovery?.blocked && <section ref={recoveryAlertRef} className="storage-recovery-alert" role="alert">
         <AlertTriangle />
         <span><b>保存データを安全に読み込めませんでした</b><small>{state.storageRecovery.reason === 'read-error' ? '端末の保存領域を読み取れません。元データへ書き込まず停止しています。再読み込みしても続く場合は、ブラウザの保存設定を確認してください。' : <>{state.storageRecovery.reason === 'future-schema' ? 'このアプリより新しい形式です。' : 'データ形式が壊れている可能性があります。'}元データは上書きしていません。{state.storageRecovery.backupStored ? '別の保存キーにも複製しましたが、この画面を離れる前に保護データをファイル保存してください。' : '別キーへの複製はできなかったため、空の状態で続ける前に保護データをファイル保存してください。'}</>}</small></span>
@@ -445,7 +445,7 @@ function App() {
       </header>
 
       <main key={stateViewRevision} ref={mainRef} {...backgroundA11y}>
-        {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
+        {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} powerEntryRef={powerEntryRef} />}
         {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} today={currentDay} onStateReplaced={discardLocalDrafts} latestStateRef={latestStateRef} />}
         {page === 'inventory-category' && <Inventory categoryKey={pageTarget} state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} today={currentDay} onStateReplaced={discardLocalDrafts} latestStateRef={latestStateRef} />}
         {page === 'stockpile-skills' && !onboardingActive && <StockpileSkillsPage state={state} setState={setState} setToast={setToast} onClose={() => setPage('inventory', { replace: true })} today={currentDay} />}
@@ -465,6 +465,13 @@ function App() {
       <nav className="mobile-nav" aria-label="モバイルナビゲーション" {...chromeA11y}>
         {nav.map(({ id, label, icon: Icon }) => <button aria-current={navigationPage === id ? 'page' : undefined} className={navigationPage === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
+
+      {['home', 'inventory', 'inventory-category'].includes(page) && !onboardingActive && <button
+        type="button"
+        className="stockpile-add-fab"
+        aria-label={page === 'inventory-category' ? `${CATEGORY_META[pageTarget]?.label || ''}の備蓄品を追加` : '備蓄品を追加'}
+        onClick={() => setModal(page === 'inventory-category' ? { newItemCategory: pageTarget } : 'new')}
+      ><Plus aria-hidden="true" /><span>備蓄品を追加</span></button>}
 
       {modal && <ItemModal item={modal === 'new' || modal?.newItemCategory || modal?.newLotFrom ? null : modal} initialItem={modal?.newLotFrom || null} initialCategory={modal?.newItemCategory || ''} suggestedQuantity={modal?.suggestedQuantity} inventory={state.inventory} onClose={() => setModal(null)} onSave={(form) => {
         const { registrationMode, ...values } = form;
@@ -691,7 +698,7 @@ function SceneShelterGraphic() {
   </svg>;
 }
 
-function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef }) {
+function Dashboard({ state, summary, setState, setPage, powerEntryRef }) {
   const [targetOpen, setTargetOpen] = useState(false);
   const [shelterOpen, setShelterOpen] = useState(false);
   const defense = useMemo(() => defensePower(state, summary), [state, summary]);
@@ -766,7 +773,6 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
       </button>
       <nav className="home-utility-actions" aria-label="ホームのクイック操作">
         <button ref={powerEntryRef} aria-label="停電時の電力を設計" onClick={() => setPage('power')}><Zap /><span><b>電力設計</b><small>蓄電池・太陽光</small></span><ChevronRight /></button>
-        <button className="quick-add" onClick={() => setModal('new')}><PackagePlus /><span><b>備蓄を追加</b><small>すぐに登録</small></span><Plus /></button>
       </nav>
     </div>
     {targetOpen && <TargetDaysDialog value={defense.targetDays} onClose={() => setTargetOpen(false)} onSave={(value) => { setTargetDays(value); setTargetOpen(false); }} />}
@@ -1136,7 +1142,7 @@ function StockpileSkillsPage({ state, setState, setToast, onClose, today }) {
     household={state.household}
     onClaim={handleClaim}
     onClose={onClose}
-    description="水・食料・携帯トイレを3日・7日の共通ラインへそろえ、家庭固有の備えは量と分けて確認します。"
+    description="水・食料・携帯トイレを1日・3日・7日の順に下へ育て、家庭固有の備えは量と分けて確認します。"
   />;
 }
 
@@ -1313,40 +1319,44 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
         : `${entry.daysToRotate}日後に消費開始`;
 
   if (!selectedCategory) return <section className="wrap page-section inventory-page inventory-dashboard-page">
-    <div className="page-title"><div><span className="kicker">STOCKPILE DASHBOARD</span><h1>わが家の備蓄</h1><p>備蓄全体の状態と、次に対応する品目をここで確認します。</p></div><div className="page-actions"><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />現在データを保存</button><button className="secondary-button" disabled={!importArmed} title={!importArmed ? '誤復元に備え、先に現在データをファイル保存してください' : undefined} onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details><button className="primary-button" onClick={() => setModal('new')}><Plus />備蓄品を追加</button></div></div>
+    <div className="page-title"><div><span className="kicker">STOCKPILE DASHBOARD</span><h1>わが家の備蓄</h1><p>備蓄全体の状態と、次に対応する品目をここで確認します。</p></div><div className="page-actions"><details className="data-management"><summary><Download />データ管理</summary><div><button className="secondary-button" onClick={exportData}><Download />現在データを保存</button><button className="secondary-button" disabled={!importArmed} title={!importArmed ? '誤復元に備え、先に現在データをファイル保存してください' : undefined} onClick={() => importRef.current?.click()}><Upload />復元</button></div><input ref={importRef} hidden type="file" accept="application/json" onChange={importData} /></details></div></div>
     <div className="summary-strip inventory-summary-strip"><div><span>主要備蓄の参考日数</span><b>{formatDays(summary.householdStockpileDays ?? summary.survivalDays)}日</b></div><div><span>{state.preparedness?.targetDays || 7}日目標まで</span><b>{budgetProjection.costComplete ? `約¥${budgetProjection.totalCost.toLocaleString()}` : '単価確認中'}</b></div><div><span>年間予算</span><b>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}</b></div><div className="inventory-summary-actions"><button type="button" aria-label="主要備蓄の参考日数と実物不足を開く" onClick={() => setCalculationOpen(true)}><CircleHelp />日数と不足</button></div></div>
-    <section className="card stockpile-next-actions" aria-labelledby="stockpile-next-actions-title">
-      <header><div><span className="stockpile-next-actions-icon"><RefreshCw /></span><div><span className="kicker">NEXT ROTATION</span><h2 id="stockpile-next-actions-title">次に使う・確認する備蓄</h2><p>期限と消費開始日が近い順です。品目名を確認してから計画ページへ進めます。</p></div></div><span className={summary.rotationDueCount ? 'stockpile-action-count urgent' : 'stockpile-action-count'}>{summary.rotationDueCount ? `今すぐ ${summary.rotationDueCount}品` : upcomingRotationCount ? `30日以内 ${upcomingRotationCount}品` : '今すぐの対応なし'}</span></header>
-      {rotationPreview.length ? <div className="stockpile-next-list">{rotationPreview.map((entry) => <button type="button" key={entry.key} className={entry.status} aria-label={`${entry.nextLot.name}。${rotationStatus(entry)}。ローリングストック計画を開く`} onClick={() => setPage('rolling')}><span className="stockpile-next-status">{rotationStatus(entry)}</span><span><b>{entry.nextLot.name}</b><small>期限 {entry.nextLot.expiry}・在庫 {entry.totalQuantity}{entry.nextLot.unit}</small></span><ChevronRight /></button>)}</div> : <div className="stockpile-next-empty"><Check /><span><b>期限付きの消費予定はありません</b><small>備蓄品に期限を登録すると、次の対応がここに表示されます。</small></span></div>}
-    </section>
-    <section className="stockpile-plan-hub" aria-labelledby="stockpile-plan-title">
-      <header><div><span className="kicker">STOCKPILE PLANS</span><h2 id="stockpile-plan-title">使う計画と、買う計画</h2></div><p>在庫を循環させながら、必要な備蓄を予算内で揃えます。</p></header>
-      <div className="stockpile-plan-grid">
-        <button type="button" className="stockpile-plan-card rotation-plan-card" aria-label="ローリングストック計画を開く" onClick={() => setPage('rolling')}>
-          <span className="stockpile-plan-icon"><RefreshCw /></span>
-          <span><small>使う計画</small><b>ローリングストック</b><em>{summary.rotationDueCount ? `いま消費時期の備蓄 ${summary.rotationDueCount}品` : nextRotation ? `次は ${nextRotation.nextLot.name}` : '期限を登録すると消費順を提案'}</em></span>
-          <strong>{summary.rotationQueue.length}<small>品を計画中</small></strong><ChevronRight />
-        </button>
-        <button type="button" className="stockpile-plan-card budget-plan-card" aria-label="防災予算計画を開く" onClick={() => setBudgetOpen(true)}>
-          <span className="stockpile-plan-icon"><CalendarDays /></span>
-          <span><small>買う計画</small><b>防災予算計画</b><em>{budgetDuration}</em></span>
-          <strong>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}<small>年間予算</small></strong><ChevronRight />
-        </button>
+    <div className="inventory-dashboard-workspace">
+      <div className="inventory-dashboard-planning">
+        <section className="card stockpile-next-actions" aria-labelledby="stockpile-next-actions-title">
+          <header><div><span className="stockpile-next-actions-icon"><RefreshCw /></span><div><span className="kicker">NEXT ROTATION</span><h2 id="stockpile-next-actions-title">次に使う・確認する備蓄</h2><p>期限と消費開始日が近い順です。品目名を確認してから計画ページへ進めます。</p></div></div><span className={summary.rotationDueCount ? 'stockpile-action-count urgent' : 'stockpile-action-count'}>{summary.rotationDueCount ? `今すぐ ${summary.rotationDueCount}品` : upcomingRotationCount ? `30日以内 ${upcomingRotationCount}品` : '今すぐの対応なし'}</span></header>
+          {rotationPreview.length ? <div className="stockpile-next-list">{rotationPreview.map((entry) => <button type="button" key={entry.key} className={entry.status} aria-label={`${entry.nextLot.name}。${rotationStatus(entry)}。ローリングストック計画を開く`} onClick={() => setPage('rolling')}><span className="stockpile-next-status">{rotationStatus(entry)}</span><span><b>{entry.nextLot.name}</b><small>期限 {entry.nextLot.expiry}・在庫 {entry.totalQuantity}{entry.nextLot.unit}</small></span><ChevronRight /></button>)}</div> : <div className="stockpile-next-empty"><Check /><span><b>期限付きの消費予定はありません</b><small>備蓄品に期限を登録すると、次の対応がここに表示されます。</small></span></div>}
+        </section>
+        <section className="stockpile-plan-hub" aria-labelledby="stockpile-plan-title">
+          <header><div><span className="kicker">STOCKPILE PLANS</span><h2 id="stockpile-plan-title">使う計画と、買う計画</h2></div><p>在庫を循環させながら、必要な備蓄を予算内で揃えます。</p></header>
+          <div className="stockpile-plan-grid">
+            <button type="button" className="stockpile-plan-card rotation-plan-card" aria-label="ローリングストック計画を開く" onClick={() => setPage('rolling')}>
+              <span className="stockpile-plan-icon"><RefreshCw /></span>
+              <span><small>使う計画</small><b>ローリングストック</b><em>{summary.rotationDueCount ? `いま消費時期の備蓄 ${summary.rotationDueCount}品` : nextRotation ? `次は ${nextRotation.nextLot.name}` : '期限を登録すると消費順を提案'}</em></span>
+              <strong>{summary.rotationQueue.length}<small>品を計画中</small></strong><ChevronRight />
+            </button>
+            <button type="button" className="stockpile-plan-card budget-plan-card" aria-label="防災予算計画を開く" onClick={() => setBudgetOpen(true)}>
+              <span className="stockpile-plan-icon"><CalendarDays /></span>
+              <span><small>買う計画</small><b>防災予算計画</b><em>{budgetDuration}</em></span>
+              <strong>{budgetProjection.annualBudget ? `¥${budgetProjection.annualBudget.toLocaleString()}` : '未設定'}<small>年間予算</small></strong><ChevronRight />
+            </button>
+          </div>
+        </section>
       </div>
-    </section>
-    <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
-      <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>各分類を開くと、その分類の品目一覧・数量変更・編集を行えます。</p></div></header>
-      <div className="inventory-category-grid" role="group" aria-label="備蓄カテゴリ">
-        <span className="visually-hidden" id="category-long-press-instruction">選ぶと分類別の詳細ページへ移動します。長押しすると分類の意味と備蓄目安を表示します。キーボードではIキーでも開けます。</span>
-        {categories.map((category) => <InventoryCategoryButton
-          category={category}
-          key={category.key}
-          progressLabel={category.targetConfigured ? `${category.score}%` : '目標未設定'}
-          onExplain={() => setMeaningCategory(category)}
-          onSelect={() => setPage('inventory-category', { target: category.key })}
-        />)}
-      </div>
-    </section>
+      <section className="inventory-category-picker" aria-labelledby="inventory-category-title">
+        <header><div><span className="kicker">STOCKPILE CATEGORIES</span><h2 id="inventory-category-title">分類から備蓄を選ぶ</h2><p>各分類を開くと、その分類の品目一覧・数量変更・編集を行えます。</p></div></header>
+        <div className="inventory-category-grid" role="group" aria-label="備蓄カテゴリ">
+          <span className="visually-hidden" id="category-long-press-instruction">選ぶと分類別の詳細ページへ移動します。長押しすると分類の意味と備蓄目安を表示します。キーボードではIキーでも開けます。</span>
+          {categories.map((category) => <InventoryCategoryButton
+            category={category}
+            key={category.key}
+            progressLabel={category.targetConfigured ? `${category.score}%` : '目標未設定'}
+            onExplain={() => setMeaningCategory(category)}
+            onSelect={() => setPage('inventory-category', { target: category.key })}
+          />)}
+        </div>
+      </section>
+    </div>
     <button
       ref={skillEntryRef}
       type="button"
@@ -1363,7 +1373,7 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
   </section>;
 
   return <section className="wrap page-section inventory-page inventory-category-page">
-    <div className="page-title inventory-category-title"><div><span className="kicker">CATEGORY DETAIL</span><h1>{selectedCategory.label}の備蓄</h1><p>{selectedCategory.itemCount}品目を登録中。数量・期限・内容量を品目ごとに管理します。</p></div><div className="page-actions"><button type="button" className="secondary-button" onClick={() => setPage('inventory')}><ArrowLeft />備蓄ダッシュボードへ</button><button className="primary-button" onClick={() => setModal({ newItemCategory: selectedCategory.key })}><Plus />備蓄品を追加</button></div></div>
+    <div className="page-title inventory-category-title"><div><span className="kicker">CATEGORY DETAIL</span><h1>{selectedCategory.label}の備蓄</h1><p>{selectedCategory.itemCount}品目を登録中。数量・期限・内容量を品目ごとに管理します。</p></div><div className="page-actions"><button type="button" className="secondary-button" onClick={() => setPage('inventory')}><ArrowLeft />備蓄ダッシュボードへ</button></div></div>
     <aside className="inventory-category-guidance"><span className="guidance-category-icon" style={{ '--category': selectedCategory.color }}><CategoryIcon category={selectedCategory.key} /></span><div><small>{selectedCategory.progressBasis}の達成度 {selectedCategory.targetConfigured ? `${selectedCategory.score}%` : '目標未設定'}</small><b>{itemCategoryGuidance[selectedCategory.key].title}</b><p>{itemCategoryGuidance[selectedCategory.key].primary}</p></div>{selectedCategory.key === 'hygiene' && <button type="button" aria-label="携帯トイレ7日分の目安" onClick={() => setBenchmarkOpen(true)}><CircleHelp />目安を確認</button>}</aside>
     <div className="inventory-tools"><label className="search"><Search /><input aria-label="備蓄品を検索" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`${selectedCategory.label}から検索`} /></label></div>
     <div className="inventory-list" aria-label={`${selectedCategory.label}の備蓄品目`}>
@@ -1377,7 +1387,7 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
         </div>
         <div className="quick-actions"><button disabled={item.needsVerification} title={item.needsVerification ? '実物確認後に記録できます' : undefined} aria-label={`${item.name}を消費・廃棄`} onClick={() => setConsumeItem(item)}><Minus /></button><button aria-label={`${item.name}を新しい期限ロットとして補充`} onClick={() => setModal({ newLotFrom: item, suggestedQuantity: 1 })}><Plus /></button><button aria-label={`${item.name}を編集`} onClick={() => setModal(item)}><Pencil /></button><button aria-label={`${item.name}を削除`} className="danger" onClick={() => remove(item.id)}><Trash2 /></button></div>
       </article>)}
-      {!rows.length && <div className="empty-state">{state.inventory.length ? <Search /> : <PackagePlus />}<h3>{state.inventory.length ? '該当する備蓄品がありません' : '実物を確認して備蓄を登録'}</h3><p>{state.inventory.length ? '検索条件を変えてみてください。' : 'このアプリは未確認のサンプル在庫を加算しません。手元にある品から登録してください。'}</p>{!state.inventory.length && <button type="button" className="primary-button" onClick={() => setModal({ newItemCategory: selectedCategory.key })}><Plus />最初の備蓄品を追加</button>}</div>}
+      {!rows.length && <div className="empty-state">{state.inventory.length ? <Search /> : <PackagePlus />}<h3>{state.inventory.length ? '該当する備蓄品がありません' : '実物を確認して備蓄を登録'}</h3><p>{state.inventory.length ? '検索条件を変えてみてください。' : 'このアプリは未確認のサンプル在庫を加算しません。右下の追加ボタンから、手元にある品を登録してください。'}</p></div>}
     </div>
     <details className="card inventory-history-panel">
       <summary><span><History /><b>消費履歴と傾向</b><small>必要なときに開く</small></span><ChevronRight /></summary>

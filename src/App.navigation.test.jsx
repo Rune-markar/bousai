@@ -657,7 +657,7 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByRole('heading', { name: 'ローリングストック消費計画' })).toBeInTheDocument();
   });
 
-  it('備蓄ガイドをメインから外し、右下の通知付きボタンから家庭別の達成ラインを開く', async () => {
+  it('備蓄ガイドをメインから外し、通知付きボタンから縦型樹形図を開く', async () => {
     const saved = createDefaultState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.household = 1;
@@ -673,7 +673,7 @@ describe('電力設計ページの導線', () => {
 
     expect(window.location.hash).toBe('#/stockpile-skills');
     const dialog = screen.getByRole('dialog', { name: '備蓄スキルツリー' });
-    const food = within(dialog).getByRole('button', { name: '食料（重量換算）、現在3日分、確認できます' });
+    const food = within(dialog).getByRole('button', { name: '食料（重量換算）3日分、現在3日分、確認できます' });
     expect(food).toHaveTextContent('食料（重量換算）');
     expect(food.querySelector('.lucide-utensils')).toBeInTheDocument();
     expect(food.closest('li')).toHaveAttribute('data-state', 'claimable');
@@ -699,12 +699,12 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
     fireEvent.click(screen.getByRole('button', { name: /備蓄スキルツリーを開く/ }));
 
-    const food = screen.getByRole('button', { name: '食料（重量換算）、現在3日分、確認できます' });
+    const food = screen.getByRole('button', { name: '食料（重量換算）3日分、現在3日分、確認できます' });
     fireEvent.pointerDown(food, { pointerId: 7, isPrimary: true, button: 0, clientX: 20, clientY: 20 });
     act(() => vi.advanceTimersByTime(STOCKPILE_SKILL_LONG_PRESS_MS));
 
-    expect(screen.getByRole('button', { name: '食料（重量換算）、現在3日分、確認済み' })).toBeInTheDocument();
-    expect(container.querySelector('.stockpile-skill-resource-lane[data-category="food"]')).toHaveAttribute('data-reached-three', 'true');
+    expect(screen.getByRole('button', { name: '食料（重量換算）3日分、現在3日分、確認済み' })).toBeInTheDocument();
+    expect(container.querySelector('.stockpile-skill-stage[data-days="3"] [data-category="food"]')).toHaveAttribute('data-state', 'claimed');
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).preparedness.stockpileSkillClaims).toEqual(['food-1', 'food-3']);
 
     fireEvent.click(screen.getByRole('button', { name: '備蓄スキルツリーを閉じる' }));
@@ -938,6 +938,10 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
+    expect(document.querySelector('.app-shell')).toHaveClass('inventory-dashboard-active');
+    const independentAddButton = screen.getByRole('button', { name: '備蓄品を追加' });
+    expect(independentAddButton).toHaveClass('stockpile-add-fab');
+    expect(independentAddButton.closest('.inventory-dashboard-page')).toBeNull();
     expect(screen.queryByRole('heading', { name: '目標まで、実物であといくつ？' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '最優先の補充' })).not.toBeInTheDocument();
     expect(screen.getByText('主要備蓄の参考日数')).toBeInTheDocument();
@@ -949,7 +953,7 @@ describe('電力設計ページの導線', () => {
     expect(within(runwayDialog).getByText('カセットコンロ')).toBeInTheDocument();
     fireEvent.click(within(runwayDialog).getByRole('button', { name: '閉じる' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '備蓄品を追加' }));
+    fireEvent.click(independentAddButton);
     const dialog = screen.getByRole('dialog', { name: '備蓄品を追加' });
     expect(within(dialog).getByText('1人1日 3食')).toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText('カテゴリ'), { target: { value: 'water' } });

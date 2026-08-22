@@ -17,7 +17,7 @@ const STOCKPILE_SKILL_STATE_LABELS = Object.freeze({
 
 const VALID_STATES = new Set(Object.keys(STOCKPILE_SKILL_STATE_LABELS));
 const MOVE_CANCEL_DISTANCE = 12;
-const VISIBLE_LINE_DAYS = Object.freeze([3, 7]);
+const TREE_DAYS = Object.freeze([1, 3, 7]);
 
 const formatNumber = (value) => {
   const numeric = Math.max(0, Number(value) || 0);
@@ -79,84 +79,48 @@ const normalizeNodes = (nodes) => {
 
 const targetDays = (node) => Math.max(0, Number(node.progress?.target) || Number.parseInt(String(node.tier || ''), 10) || 0);
 
-const pickResourceNode = (nodes) => {
-  const visible = nodes
-    .filter((node) => VISIBLE_LINE_DAYS.includes(targetDays(node)))
-    .sort((left, right) => targetDays(left) - targetDays(right));
-  if (!visible.length) return nodes[0] || null;
-  return [...visible].reverse().find((node) => node.state === 'review')
-    || [...visible].reverse().find((node) => node.state === 'claimable')
-    || [...visible].reverse().find((node) => node.state === 'claimed')
-    || visible[0];
-};
-
 const buildPresentation = (nodes) => {
   const resources = Object.entries(resourceDefinitions).map(([category, definition]) => {
     const categoryNodes = nodes
       .filter((node) => node.kind === 'resource' && node.category === category)
       .sort((left, right) => targetDays(left) - targetDays(right));
     const current = categoryNodes.reduce((maximum, node) => Math.max(maximum, Number(node.progress?.current) || 0), 0);
-    return { category, definition, nodes: categoryNodes, current, activeNode: pickResourceNode(categoryNodes) };
+    return { category, definition, nodes: categoryNodes, current };
   }).filter((resource) => resource.nodes.length);
 
   const milestoneByDays = new Map(nodes
     .filter((node) => node.kind === 'milestone')
     .map((node) => [targetDays(node), node]));
-  const lines = VISIBLE_LINE_DAYS.map((days) => ({
-    days,
-    node: milestoneByDays.get(days) || null,
-    reachedCount: resources.filter((resource) => resource.current >= days).length,
-    resourceCount: resources.length,
-  })).filter((line) => line.node);
-
-  const safetyNodes = nodes.filter((node) => node.kind === 'safety');
-  const familyNodes = nodes.filter((node) => node.id === 'diversity-personal');
-  const continuityNodes = nodes.filter((node) => (
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const branchNodes = nodes.filter((node) => (
     node.kind === 'diversity' && node.id !== 'diversity-personal'
   ) || (node.kind === 'milestone' && targetDays(node) >= 30));
+  const branchDay = (node) => node.parents.reduce((maximum, parentId) => (
+    Math.max(maximum, targetDays(nodeMap.get(parentId) || {}))
+  ), 0);
+  const stages = TREE_DAYS.map((days) => ({
+    days,
+    milestone: milestoneByDays.get(days) || null,
+    resources: resources.map((resource) => ({
+      ...resource,
+      node: resource.nodes.find((node) => targetDays(node) === days) || null,
+    })).filter((resource) => resource.node),
+    reachedCount: resources.filter((resource) => resource.current >= days).length,
+    resourceCount: resources.length,
+    branches: branchNodes.filter((node) => branchDay(node) === days),
+  })).filter((stage) => stage.resources.length || stage.milestone || stage.branches.length);
+
+  const independentNodes = nodes.filter((node) => node.kind === 'safety' || node.id === 'diversity-personal');
   const organizedIds = new Set([
     ...resources.flatMap((resource) => resource.nodes.map((node) => node.id)),
-    ...lines.map((line) => line.node.id),
-    ...safetyNodes.map((node) => node.id),
-    ...familyNodes.map((node) => node.id),
-    ...continuityNodes.map((node) => node.id),
-    ...nodes.filter((node) => node.kind === 'milestone' && targetDays(node) < 3).map((node) => node.id),
+    ...stages.flatMap((stage) => [stage.milestone?.id, ...stage.branches.map((node) => node.id)].filter(Boolean)),
+    ...independentNodes.map((node) => node.id),
   ]);
-  const otherNodes = nodes.filter((node) => !organizedIds.has(node.id));
 
   return {
-    resources,
-    lines,
-    groups: [
-      {
-        id: 'safety',
-        eyebrow: '安全は日数と別',
-        title: '住まい・連絡・薬',
-        description: '量の達成を待たず、先に確認します。',
-        nodes: safetyNodes,
-      },
-      {
-        id: 'family',
-        eyebrow: '家族ごとに違う',
-        title: 'わが家の個別用品',
-        description: '常用薬、乳幼児、ペットなどを分けて確認します。',
-        nodes: familyNodes,
-      },
-      {
-        id: 'continuity',
-        eyebrow: '暮らしを続ける',
-        title: '電源・食の幅・休息',
-        description: '同じ物の上積みとは分け、使い方と代替手段を整えます。',
-        nodes: continuityNodes,
-      },
-      {
-        id: 'other',
-        eyebrow: '記録の土台',
-        title: '備蓄データ',
-        description: '数量・内容量・期限を記録します。',
-        nodes: otherNodes,
-      },
-    ].filter((group) => group.nodes.length),
+    stages,
+    independentNodes,
+    otherNodes: nodes.filter((node) => !organizedIds.has(node.id)),
   };
 };
 
@@ -204,7 +168,7 @@ export default function StockpileSkillTree({
   onClaim = () => {},
   onClose = () => {},
   title = '備蓄スキルツリー',
-  description = 'わが家の備えを用途で分け、3日・7日の達成ラインへそろえます。',
+  description = '水・食料・携帯トイレの枝を、1日・3日・7日の順に下へ育てます。',
   initialSelectedId = null,
   longPressMs = STOCKPILE_SKILL_LONG_PRESS_MS,
 }) {
@@ -369,7 +333,7 @@ export default function StockpileSkillTree({
       </header>
 
       <div className="stockpile-skill-tree-main">
-        <section className="stockpile-skill-tree-map" aria-label="わが家の備蓄達成ライン">
+        <section className="stockpile-skill-tree-map" aria-label="わが家の備蓄レベル樹形図">
           <div className="stockpile-skill-tree-guide">
             <p id={instructionId}>カードをタップして条件を確認。達成可能なカードは約{Math.round(holdDuration / 100) / 10}秒の長押しでも確定できます。</p>
             <ul aria-label="カードの状態">
@@ -380,131 +344,90 @@ export default function StockpileSkillTree({
           </div>
 
           <div className="stockpile-skill-tree-content" data-no-horizontal-scroll="true">
-            {presentation.resources.length ? <section className="stockpile-skill-quantity" aria-labelledby={`stockpile-quantity-${instanceId}`}>
-              <header className="stockpile-skill-section-heading">
-                <div>
-                  <span>命をつなぐ量</span>
-                  <h3 id={`stockpile-quantity-${instanceId}`}>3つを同じラインまでそろえる</h3>
-                </div>
+            {presentation.independentNodes.length ? <section className="stockpile-skill-independent" aria-labelledby={`stockpile-independent-${instanceId}`}>
+              <header><span>量の達成を待たない</span><h3 id={`stockpile-independent-${instanceId}`}>安全・家族固有の備え</h3><p>住まい、連絡、薬、乳幼児、ペット用品は日数と別に先に確認します。</p></header>
+              <ul>
+                {presentation.independentNodes.map((node) => {
+                  const selected = selectedId === node.id;
+                  return <li key={node.id} data-state={node.state} className={`${pressingId === node.id ? 'is-pressing' : ''} ${selected ? 'is-selected' : ''}`}>
+                    <button
+                      type="button"
+                      className="stockpile-skill-node stockpile-skill-independent-node"
+                      data-state={node.state}
+                      aria-label={`${displayTitleForNode(node)}、${STOCKPILE_SKILL_STATE_LABELS[node.state]}`}
+                      aria-pressed={selected}
+                      aria-controls={panelId}
+                      aria-describedby={node.state === 'claimable' ? instructionId : undefined}
+                      style={{ '--stockpile-skill-hold-duration': `${holdDuration}ms` }}
+                      {...interactionProps(node)}
+                    ><SkillIdentity node={node} /><span><b>{displayTitleForNode(node)}</b><small>{iconDetailForNode(node)}</small></span><em>{STOCKPILE_SKILL_STATE_LABELS[node.state]}</em></button>
+                  </li>;
+                })}
+              </ul>
+            </section> : null}
+
+            {presentation.stages.length ? <section className="stockpile-skill-flow" aria-labelledby={`stockpile-flow-${instanceId}`}>
+              <header className="stockpile-skill-flow-heading">
+                <div><span>下へ進む備蓄の樹形図</span><h3 id={`stockpile-flow-${instanceId}`}>1日 → 3日 → 7日へ育てる</h3></div>
                 <p>{people}人家族の期限切れ・確認待ちを除いた在庫で計算</p>
               </header>
-
-              <div className="stockpile-skill-quantity-board">
-                <div className="stockpile-skill-resource-chart" aria-label="水・食料・携帯トイレの現在日数">
-                  <div className="stockpile-skill-chart-scale" aria-hidden="true">
-                    <span>現在量</span>
-                    <span className="stockpile-skill-chart-scale-lines">
-                      <b style={{ '--line-position': `${(3 / 7) * 100}%` }}>3日</b>
-                      <b style={{ '--line-position': '100%' }}>7日</b>
-                    </span>
-                  </div>
-                  <ul className="stockpile-skill-resource-list">
-                    {presentation.resources.map((resource) => {
-                      const { activeNode, definition } = resource;
-                      const currentLabel = formatNumber(resource.current);
-                      const selected = selectedId === activeNode?.id;
-                      const progress = `${Math.min(100, (resource.current / 7) * 100)}%`;
+              <ol className="stockpile-skill-vertical-tree" aria-label="備蓄を1日から7日へ増やす縦型樹形図">
+                {presentation.stages.map((stage) => <li className="stockpile-skill-stage" data-days={stage.days} key={stage.days}>
+                  <header className="stockpile-skill-stage-label"><span>{stage.days === 1 ? '着手点' : stage.days === 3 ? '最低目安' : '推奨目安'}</span><b>{stage.days}日分</b><small>{stage.reachedCount} / {stage.resourceCount}項目到達</small></header>
+                  <ul className="stockpile-skill-branch-row" role="group" aria-label={`${stage.days}日分の水・食料・携帯トイレ`}>
+                    {stage.resources.map(({ category, definition, current, node }) => {
+                      const selected = selectedId === node.id;
                       const ResourceIcon = definition.Icon;
-                      return <li
-                        key={resource.category}
-                        className={`stockpile-skill-resource-lane ${pressingId === activeNode?.id ? 'is-pressing' : ''} ${selected ? 'is-selected' : ''}`}
-                        data-category={resource.category}
-                        data-state={activeNode?.state || 'locked'}
-                        data-reached-three={resource.current >= 3 ? 'true' : 'false'}
-                        data-reached-seven={resource.current >= 7 ? 'true' : 'false'}
-                      >
+                      return <li key={node.id} data-category={category} data-state={node.state} className={`${pressingId === node.id ? 'is-pressing' : ''} ${selected ? 'is-selected' : ''}`}>
                         <button
                           type="button"
-                          aria-label={`${definition.label}、現在${currentLabel}日分、${STOCKPILE_SKILL_STATE_LABELS[activeNode?.state || 'locked']}`}
+                          className="stockpile-skill-node stockpile-skill-resource-node"
+                          data-state={node.state}
+                          aria-label={`${definition.label}${stage.days}日分、現在${formatNumber(current)}日分、${STOCKPILE_SKILL_STATE_LABELS[node.state]}`}
                           aria-pressed={selected}
                           aria-controls={panelId}
-                          aria-describedby={activeNode?.state === 'claimable' ? instructionId : undefined}
+                          aria-describedby={node.state === 'claimable' ? instructionId : undefined}
                           style={{ '--stockpile-skill-hold-duration': `${holdDuration}ms` }}
-                          {...interactionProps(activeNode)}
-                        >
-                          <span className="stockpile-skill-resource-label">
-                            <span className={`stockpile-skill-resource-icon is-${definition.tone}`} aria-hidden="true"><ResourceIcon /></span>
-                            <span><b>{definition.label}</b><small>{definition.purpose}</small></span>
-                          </span>
-                          <span className="stockpile-skill-resource-progress">
-                            <span className="stockpile-skill-resource-value"><b>{currentLabel}</b>日分 <small>{definition.daily(people)}</small></span>
-                            <span className="stockpile-skill-track" style={{ '--resource-progress': progress }} aria-hidden="true">
-                              <i className="stockpile-skill-track-fill" />
-                              <i className="stockpile-skill-track-line is-three" />
-                              <i className="stockpile-skill-track-line is-seven" />
-                              <i className="stockpile-skill-track-point" />
-                            </span>
-                            <small className="stockpile-skill-resource-formula">基準：{definition.formula(people)}</small>
-                          </span>
-                        </button>
+                          {...interactionProps(node)}
+                        ><span className={`stockpile-skill-resource-icon is-${definition.tone}`} aria-hidden="true"><ResourceIcon /></span><span><b>{definition.label}</b><small>現在 {formatNumber(current)}日 / {stage.days}日</small><i>{definition.daily(people)}・{definition.formula(people)}</i></span><em>{STOCKPILE_SKILL_STATE_LABELS[node.state]}</em></button>
                       </li>;
                     })}
                   </ul>
-                </div>
-
-                <aside className="stockpile-skill-line-rail" aria-label="達成ライン一覧">
-                  <h4>達成ライン</h4>
-                  <ol>
-                    {presentation.lines.map((line) => {
-                      const selected = selectedId === line.node.id;
-                      return <li key={line.days} data-state={line.node.state}>
-                        <button
-                          type="button"
-                          className={`stockpile-skill-line-card ${pressingId === line.node.id ? 'is-pressing' : ''}`}
-                          data-state={line.node.state}
-                          aria-label={`${line.days}日ライン、${line.reachedCount}/${line.resourceCount}項目到達、${STOCKPILE_SKILL_STATE_LABELS[line.node.state]}`}
-                          aria-pressed={selected}
-                          aria-controls={panelId}
-                          aria-describedby={line.node.state === 'claimable' ? instructionId : undefined}
-                          style={{ '--stockpile-skill-hold-duration': `${holdDuration}ms` }}
-                          {...interactionProps(line.node)}
-                        >
-                          <span>{line.days === 3 ? '最低目安' : '推奨目安'}</span>
-                          <b>{line.days}日ライン</b>
-                          <small>{line.reachedCount}/{line.resourceCount}項目</small>
-                          <i aria-hidden="true">{line.node.state === 'claimed' ? '✓' : line.node.state === 'review' ? '!' : '→'}</i>
-                        </button>
-                      </li>;
-                    })}
-                  </ol>
-                  <p>3項目が同じ線へ届くと達成</p>
-                </aside>
-              </div>
-            </section> : null}
-
-            {presentation.groups.length ? <section className="stockpile-skill-household" aria-labelledby={`stockpile-household-${instanceId}`}>
-              <header className="stockpile-skill-section-heading">
-                <div>
-                  <span>家庭の事情で分ける</span>
-                  <h3 id={`stockpile-household-${instanceId}`}>量とは別に確認するもの</h3>
-                </div>
-              </header>
-              <div className="stockpile-skill-household-groups">
-                {presentation.groups.map((group) => <section key={group.id} className="stockpile-skill-household-group" data-group={group.id}>
-                  <header><span>{group.eyebrow}</span><h4>{group.title}</h4><p>{group.description}</p></header>
-                  <ul>
-                    {group.nodes.map((node) => {
+                  {stage.milestone && <button
+                    type="button"
+                    className={`stockpile-skill-node stockpile-skill-milestone ${pressingId === stage.milestone.id ? 'is-pressing' : ''} ${selectedId === stage.milestone.id ? 'is-selected' : ''}`}
+                    data-state={stage.milestone.state}
+                    aria-label={`${displayTitleForNode(stage.milestone)}、${stage.reachedCount}/${stage.resourceCount}項目到達、${STOCKPILE_SKILL_STATE_LABELS[stage.milestone.state]}`}
+                    aria-pressed={selectedId === stage.milestone.id}
+                    aria-controls={panelId}
+                    aria-describedby={stage.milestone.state === 'claimable' ? instructionId : undefined}
+                    style={{ '--stockpile-skill-hold-duration': `${holdDuration}ms` }}
+                    {...interactionProps(stage.milestone)}
+                  ><House aria-hidden="true" /><span><small>{stage.days === 1 ? '3枝が合流' : stage.days === 3 ? '公的な最低目安' : '公的な推奨目安'}</small><b>{displayTitleForNode(stage.milestone)}</b></span><em>{STOCKPILE_SKILL_STATE_LABELS[stage.milestone.state]}</em></button>}
+                  {stage.branches.length ? <div className="stockpile-skill-side-branches" aria-label={`${stage.days}日分から枝分かれする備え`}>
+                    <span>ここから量以外へ枝分かれ</span>
+                    <ul>{stage.branches.map((node) => {
                       const selected = selectedId === node.id;
                       return <li key={node.id} data-state={node.state} className={`${pressingId === node.id ? 'is-pressing' : ''} ${selected ? 'is-selected' : ''}`}>
                         <button
                           type="button"
+                          className="stockpile-skill-node stockpile-skill-branch-node"
+                          data-state={node.state}
                           aria-label={`${displayTitleForNode(node)}、${STOCKPILE_SKILL_STATE_LABELS[node.state]}`}
                           aria-pressed={selected}
                           aria-controls={panelId}
                           aria-describedby={node.state === 'claimable' ? instructionId : undefined}
                           style={{ '--stockpile-skill-hold-duration': `${holdDuration}ms` }}
                           {...interactionProps(node)}
-                        >
-                          <SkillIdentity node={node} />
-                          <span className="stockpile-skill-household-copy"><b>{displayTitleForNode(node)}</b><small>{iconDetailForNode(node)}</small></span>
-                          <span className="stockpile-skill-card-state" data-state={node.state}>{STOCKPILE_SKILL_STATE_LABELS[node.state]}</span>
-                        </button>
+                        ><SkillIdentity node={node} /><span><b>{displayTitleForNode(node)}</b><small>{iconDetailForNode(node)}</small></span><em>{STOCKPILE_SKILL_STATE_LABELS[node.state]}</em></button>
                       </li>;
-                    })}
-                  </ul>
-                </section>)}
-              </div>
+                    })}</ul>
+                  </div> : null}
+                </li>)}
+              </ol>
             </section> : null}
+
+            {presentation.otherNodes.length ? <section className="stockpile-skill-other"><h3>そのほかの備え</h3><ul>{presentation.otherNodes.map((node) => <li key={node.id}><button type="button" className="stockpile-skill-node" data-state={node.state} aria-label={`${displayTitleForNode(node)}、${STOCKPILE_SKILL_STATE_LABELS[node.state]}`} {...interactionProps(node)}><SkillIdentity node={node} /><span><b>{displayTitleForNode(node)}</b></span><em>{STOCKPILE_SKILL_STATE_LABELS[node.state]}</em></button></li>)}</ul></section> : null}
 
             {!normalizedNodes.length && <div className="stockpile-skill-tree-empty"><PackageCheck aria-hidden="true" /><p>表示できる備蓄スキルはまだありません。</p></div>}
           </div>
@@ -541,7 +464,7 @@ export default function StockpileSkillTree({
           </> : <>
             <span className="stockpile-skill-tree-empty-symbol" aria-hidden="true"><HeartHandshake /></span>
             <h3>カードを選択</h3>
-            <p>現在量、達成ライン、家族ごとの確認内容をここに表示します。</p>
+            <p>枝のカードを選ぶと、現在量と達成条件をここに表示します。</p>
           </>}
         </aside>
       </div>
