@@ -3,6 +3,7 @@ import { Check, ChevronDown, ListChecks, PackageCheck, RotateCcw, ShieldCheck, S
 import { itemStats } from './domain.js';
 import { getLoadout, loadoutStatus } from './loadouts.js';
 import { autoPackInventory, bagSettings, BAG_VOLUME_EXAMPLES } from './packing.js';
+import BagInventoryGrid from './BagInventoryGrid.jsx';
 
 const itemSymbol = (category) => category === 'water' ? '💧' : category === 'food' ? '🍚' : category === 'hygiene' ? '🧼' : category === 'light' ? '🔋' : '📦';
 const autoModeLabels = { inventory: '備蓄から自動選定', ideal: '理想構成', custom: '自分で選ぶ' };
@@ -14,8 +15,11 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
   const [selectedId, setSelectedId] = useState('');
   const [mobilePanel, setMobilePanel] = useState('suggestion');
   const [modePickerOpen, setModePickerOpen] = useState(() => !bagSettings(state, taskId)?.autoMode);
+  const [packingPhase, setPackingPhase] = useState('idle');
+  const [packingRunId, setPackingRunId] = useState(0);
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
+  const packingTimerRef = useRef(null);
   const settings = bagSettings(state, taskId);
   const autoMode = settings?.autoMode || '';
   const customIdealIds = settings?.customIdealIds || [];
@@ -40,7 +44,16 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
     setSelectedId('');
     setMobilePanel('suggestion');
     setModePickerOpen(!bagSettings(state, taskId)?.autoMode);
+    setPackingPhase('idle');
   }, [taskId]);
+
+  const packingSignature = packing?.items.map((item) => `${item.id}:${item.quantity}:${item.totalMl}`).join('|') || '';
+  useEffect(() => {
+    window.clearTimeout(packingTimerRef.current);
+    if (autoMode === 'inventory') setPackingPhase('idle');
+  }, [autoMode, packingSignature, settings?.capacityL]);
+
+  useEffect(() => () => window.clearTimeout(packingTimerRef.current), []);
 
   useEffect(() => {
     const previousFocus = document.activeElement;
@@ -99,6 +112,13 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
     onBagSettings({ ...settings, autoMode });
     setModePickerOpen(false);
   };
+  const startAutoPlacement = () => {
+    window.clearTimeout(packingTimerRef.current);
+    setPackingRunId((run) => run + 1);
+    setPackingPhase('packing');
+    const duration = Math.min(1700, 620 + (packing?.items.length || 0) * 95);
+    packingTimerRef.current = window.setTimeout(() => setPackingPhase('done'), duration);
+  };
   const toggleCustomIdeal = (itemId) => {
     const ids = new Set(customIdealIds);
     ids.has(itemId) ? ids.delete(itemId) : ids.add(itemId);
@@ -150,8 +170,17 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
               {settings.mode === 'custom' ? <label><span>実容量</span><input type="number" min="1" max="100" step="0.5" value={settings.customCapacityL} onChange={(event) => onBagSettings({ ...settings, mode: 'custom', customCapacityL: event.target.value })} /><i>L</i></label> : <p><b>{settings.preset.label}</b><span>{settings.preset.source}</span></p>}
               <div className="capacity-meter"><span><i style={{ width: `${Math.min(100, packing.utilization)}%` }} /></span><p><b>{(packing.usedMl / 1000).toFixed(1)}L</b><small> / 実用域 {(packing.usableCapacityMl / 1000).toFixed(1)}L・{packing.utilization}%</small></p></div>
             </div>
-            <div className="packing-result-stack">
-              <section className="auto-pack-result"><h4>バッグへ入れる物</h4><div className="auto-pack-list">{packing.items.length ? packing.items.map((entry) => <article key={entry.id}><span className="pack-item-icon">{itemSymbol(entry.category)}</span><div><b>{entry.name}</b><small>{entry.quantity}{entry.unit}・{(entry.totalMl / 1000).toFixed(2)}L</small></div><em className={entry.volumeSource === 'user' ? 'measured' : ''}>{entry.reason}・{entry.volumeLabel}</em></article>) : <p className="auto-pack-empty">容量内に選定できる登録済み備蓄がありません。</p>}</div></section>
+            <div className="packing-result-stack visual-packing-stack">
+              <section className={`bag-packing-visual phase-${packingPhase}`} aria-labelledby="bag-packing-visual-title">
+                <header><div><span>VISUAL AUTO PACK</span><h4 id="bag-packing-visual-title">備蓄品をバッグへ自動配置</h4></div><small>面積は登録・推定した収納容量に比例</small></header>
+                <div className="bag-packing-stage">
+                  <section className="packing-stock-source" aria-label="自動配置前の備蓄品"><div className="packing-zone-label"><Warehouse /><span><b>備蓄品</b><small>{packing.items.length}品目</small></span></div><div className="packing-source-rack">{packing.items.length ? packingPhase === 'done' ? <p className="packing-source-complete"><Check />バッグへ移動しました</p> : packing.items.map((entry, index) => <article key={`${packingRunId}-${entry.id}`} className={packingPhase === 'packing' ? 'leaving' : ''} style={{ '--pack-order': index }}><span>{itemSymbol(entry.category)}</span><div><b>{entry.name}</b><small>{entry.quantity}{entry.unit}・{(entry.totalMl / 1000).toFixed(2)}L</small><em>{entry.reason}・{entry.volumeLabel}</em></div></article>) : <p className="auto-pack-empty">配置できる備蓄品がありません</p>}</div></section>
+                  <span className="packing-transfer-arrow" aria-hidden="true">→</span>
+                  <section className="packing-bag-target" aria-label="避難バッグの配置結果"><div className="packing-zone-label"><PackageCheck /><span><h4>バッグへ入れる物</h4><small>{settings.capacityL}L・実用域 {(packing.usableCapacityMl / 1000).toFixed(1)}L</small></span></div><BagInventoryGrid items={packingPhase === 'idle' ? [] : packing.items} usableCapacityMl={packing.usableCapacityMl} runId={packingRunId} animate={packingPhase === 'packing'} /></section>
+                </div>
+                <button type="button" className="packing-run-button" disabled={!packing.items.length || packingPhase === 'packing'} onClick={startAutoPlacement}><Sparkles />{packingPhase === 'idle' ? '自動配置を実行' : packingPhase === 'packing' ? 'バッグへ配置中…' : 'もう一度詰め直す'}</button>
+                <p className="packing-visual-note">見た目は容量比較の目安です。形状・重量バランスは実際のバッグで確認してください。</p>
+              </section>
               <details className="packing-reference"><summary>現状の備蓄品と容量目安を確認 <span>{owned.length}品</span></summary><div className="packing-reference-body"><section><h4>現状の備蓄品</h4><p>期限切れ・登録内容の確認待ちは、自動選定から除外します。</p><div className="owned-stock-list">{owned.length ? owned.map((item) => { const proposed = proposedById.get(item.id); const stats = itemStats(item, today); const excludedLabel = stats.isExpired ? '期限切れ・選定外' : stats.needsVerification ? '確認待ち・選定外' : ''; return <article key={item.id}><span>{itemSymbol(item.category)}</span><div><b>{item.name}</b><small>在庫 {item.quantity}{item.unit}</small></div>{excludedLabel ? <i>{excludedLabel}</i> : proposed ? <em>バッグへ {proposed.quantity}{proposed.unit}</em> : <i>在庫のみ</i>}</article>; }) : <p>登録済みの備蓄品がありません。</p>}</div></section><div className="volume-examples" aria-label="容量の比較例">{BAG_VOLUME_EXAMPLES.map((item) => <span key={item.label}>{item.symbol}<b>{item.label}</b><small>約{item.volumeMl}ml</small></span>)}</div></div></details>
             </div>
             <div className="packing-gap"><b>在庫データから確認できない必需品</b>{missingRequired.length ? <div>{missingRequired.map((item) => <span key={item.id}>{item.symbol} {item.name}</span>)}</div> : <p><Check /> 必需品は在庫提案または確認済みです</p>}</div>

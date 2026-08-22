@@ -64,6 +64,18 @@ describe('避難バッグの自動判定表示', () => {
     expect(handlers.onChange).not.toHaveBeenCalled();
   });
 
+  it('自動配置を押すと備蓄カードが移動し、容量比例のバッグ面を表示する', () => {
+    render(<PracticalLoadout taskId="bag-primary" state={state} {...handlers} />);
+    expect(screen.getByRole('button', { name: '自動配置を実行' })).toBeInTheDocument();
+    expect(screen.queryByRole('listitem', { name: /飲料水 500ml 2本/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '自動配置を実行' }));
+
+    expect(screen.getByRole('button', { name: 'バッグへ配置中…' })).toBeDisabled();
+    expect(screen.getByRole('listitem', { name: /飲料水 500ml 2本 収納容量1\.20リットル/ })).toBeInTheDocument();
+    expect(document.querySelector('.packing-source-rack article.leaving')).toBeInTheDocument();
+  });
+
   it('古い完了記録が残っていても必須品が未確認なら完了表示にしない', () => {
     const staleState = {
       ...state,

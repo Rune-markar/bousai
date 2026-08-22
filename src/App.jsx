@@ -10,6 +10,7 @@ import { CATEGORY_META, consumeByRotation, FIRST_GOAL_CATEGORY_PRIORITY, FOOD_GR
 import BarcodeScanner from './BarcodeScanner.jsx';
 import PowerEcosystem from './PowerEcosystem.jsx';
 import PracticalLoadout from './PracticalLoadout.jsx';
+import BagInventoryGrid from './BagInventoryGrid.jsx';
 import DisasterPreparedness from './DisasterPreparedness.jsx';
 import StockpileSkillTree from './StockpileSkillTree.jsx';
 import { createTransaction, loadState, normalizeInventoryItem, parseStateData, RECOVERY_KEY_PREFIX, STORAGE_KEY } from './state.js';
@@ -949,7 +950,7 @@ function EvacuationBags({ state, setState, setToast, setPage, today }) {
           <header><span className="bag-stage-number">{stage.step}</span><div><small>{stage.label}</small><h2>{stage.title}</h2><p>{stage.timing}</p></div><Backpack /></header>
           <p className="bag-stage-description">{stage.description}</p>
           {settings.autoMode ? <><div className="bag-plan-summary"><span><small>バッグ容量</small><b>{settings.capacityL}L</b></span><span><small>自動モード</small><b className="bag-mode-summary">{modeLabel}</b></span><span><small>構成品</small><b>{plannedItems.length}<em>品目</em></b></span><span><small>{settings.autoMode === 'inventory' ? '収納単位' : '選択数'}</small><b>{totalUnits}<em>点</em></b></span></div>
-          <div className="bag-preview-list">{plannedItems.length ? plannedItems.slice(0, 4).map((item) => <span key={item.id}><b>{item.name}</b><small>{settings.autoMode === 'inventory' ? `${item.quantity}${item.unit}` : '構成に含む'}</small></span>) : <p><AlertTriangle />構成に含める物がありません</p>}{plannedItems.length > 4 && <em>ほか {plannedItems.length - 4}品目</em>}</div></> : <div className="bag-mode-unset"><Sparkles /><span><b>自動モードは未設定です</b><small>方式を選ぶまで中身は配列しません</small></span></div>}
+          {settings.autoMode === 'inventory' && packing?.items.length ? <div className="bag-preview-grid"><BagInventoryGrid compact items={packing.items} usableCapacityMl={packing.usableCapacityMl} label={`${stage.title}の容量配置プレビュー`} /><small>面積は収納容量の比較目安</small></div> : <div className="bag-preview-list">{plannedItems.length ? plannedItems.slice(0, 4).map((item) => <span key={item.id}><b>{item.name}</b><small>{settings.autoMode === 'inventory' ? `${item.quantity}${item.unit}` : '構成に含む'}</small></span>) : <p><AlertTriangle />構成に含める物がありません</p>}{plannedItems.length > 4 && <em>ほか {plannedItems.length - 4}品目</em>}</div>}</> : <div className="bag-mode-unset"><Sparkles /><span><b>自動モードは未設定です</b><small>方式を選ぶまで中身は配列しません</small></span></div>}
           {stage.id === 'bag-secondary' && settings.autoMode === 'inventory' && primarySettings.autoMode === 'inventory' && <p className="bag-reserved-summary">一時避難バッグの {(primaryPacking?.items || []).reduce((sum, item) => sum + item.quantity, 0)}点は重複させず確保済み</p>}
           <button type="button" className="bag-open-planner" onClick={() => setActiveLoadout(stage.id)}><Sparkles /><span><b>{settings.autoMode ? '自動モードを確認・変更' : '自動モードを設定'}</b><small>3方式・不足品・実物確認</small></span><ChevronRight /></button>
         </article>;
