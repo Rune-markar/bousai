@@ -28,12 +28,20 @@ describe('buildStockpileGuideline', () => {
 
   it('登録品に一致した分類を返し、導線先でその品を隠さない', () => {
     const result = buildStockpileGuideline(summary(7), [
-      { name: 'チョコレート', category: 'comfort', quantity: 1, expiry: '' },
+      { name: 'チョコレート', category: 'comfort', quantity: 1, expiry: '2030-01-01' },
       { name: '常用薬', category: 'hygiene', quantity: 1, expiry: '' },
-    ]);
+    ], new Date('2026-08-20T00:00:00'));
 
     expect(result.branches.find((branch) => branch.id === 'food-variety')).toMatchObject({ registered: true, matchedCategory: 'comfort' });
     expect(result.branches.find((branch) => branch.id === 'personal')).toMatchObject({ registered: true, matchedCategory: 'hygiene' });
+  });
+
+  it('comfort分類の食品は期限確認済みになるまで食の多様性へ数えない', () => {
+    const result = buildStockpileGuideline(summary(7), [
+      { name: 'チョコレート', category: 'comfort', quantity: 1, expiry: '' },
+    ], new Date('2026-08-20T00:00:00'));
+
+    expect(result.branches.find((branch) => branch.id === 'food-variety').registered).toBe(false);
   });
 
   it('薬用日用品を家族固有の常用薬と誤判定しない', () => {

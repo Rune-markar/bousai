@@ -1,5 +1,5 @@
 import { essentialPreparednessGates } from './preparedness.js';
-import { isDrinkingCookingWater } from './domain.js';
+import { isDrinkingCookingWater, portableToiletItemKind } from './domain.js';
 
 export const CHARACTERS = [
   { id: 'akane', name: '風守アカネ', short: 'アカネ', disaster: '強風・台風', tone: '元気でおせっかい', color: '#d86b52', mark: '風', image: 'characters/kazemori-akane.webp', imageAlt: '防災ラジオと固定用ロープを持つ風守アカネ' },
@@ -19,12 +19,12 @@ const voices = {
 
 const ADVICE_CATEGORY_PRIORITY = Object.freeze({ water: 0, food: 1, hygiene: 2, light: 3, heat: 4, comfort: 5 });
 const RESOURCE_GATES = [
-  { key: 'water', category: 'water', name: '飲料・調理用水', daysKey: 'waterDays', matches: (item) => !item.needsVerification && isDrinkingCookingWater(item) && Number(item.volumeMl) > 0 },
-  { key: 'food', category: 'food', name: '食料', daysKey: 'foodDays', matches: (item) => item.category === 'food' && !item.needsVerification && Number(item.foodWeightG) > 0 },
+  { key: 'water', category: 'water', name: '飲料・調理用水', daysKey: 'waterDays', matches: (item) => !item.needsVerification && isDrinkingCookingWater(item) && Number(item.volumeMl) > 0, reviewMatches: (item) => item.needsVerification && item.category === 'water' && item.waterPurpose !== 'utility' },
+  { key: 'food', category: 'food', name: '食料', daysKey: 'foodDays', matches: (item) => item.category === 'food' && !item.needsVerification && Number(item.foodWeightG) > 0, reviewMatches: (item) => item.needsVerification && item.category === 'food' },
   // A row-level shortage cannot tell whether the missing side is a bag or a
   // coagulant. Keep this advice in safe "days remaining" terms instead of
   // directing the user to buy whichever component row happens to be short.
-  { key: 'toilet', category: 'hygiene', name: '携帯トイレ', daysKey: 'toiletDays', matches: () => false },
+  { key: 'toilet', category: 'hygiene', name: '携帯トイレ', daysKey: 'toiletDays', matches: () => false, reviewMatches: (item) => item.needsVerification && Boolean(portableToiletItemKind(item)) },
 ];
 
 function formatMissingDays(days) {
@@ -32,13 +32,15 @@ function formatMissingDays(days) {
   return Number.isInteger(missing) ? missing : missing.toFixed(1);
 }
 
-function resourceShortage(rows, summary) {
+function essentialResourceAction(rows, summary) {
   for (const resource of RESOURCE_GATES) {
     const days = Number(summary?.[resource.daysKey]) || 0;
     if (days >= 3) continue;
+    const review = rows.find((item) => resource.reviewMatches(item));
+    if (review) return { kind: 'review', item: review };
     const row = rows.find((item) => resource.matches(item) && item.shortage > 0);
-    if (row) return row;
-    return { id: null, name: resource.name, category: resource.category, shortage: formatMissingDays(days), unit: '日分' };
+    if (row) return { kind: 'shortage', item: row };
+    return { kind: 'shortage', item: { id: null, name: resource.name, category: resource.category, shortage: formatMissingDays(days), unit: '日分' } };
   }
   return null;
 }
@@ -50,8 +52,15 @@ export function getCharacter(id) {
 export function buildCharacterAdvice(state, summary) {
   const character = getCharacter(state.selectedCharacter);
   const rows = [...(summary?.rows || [])].sort((a, b) => (ADVICE_CATEGORY_PRIORITY[a.category] ?? 6) - (ADVICE_CATEGORY_PRIORITY[b.category] ?? 6) || ({ high: 0, medium: 1, low: 2, ok: 3 }[a.priority] ?? 4) - ({ high: 0, medium: 1, low: 2, ok: 3 }[b.priority] ?? 4));
-  const essentialShortage = resourceShortage(rows, summary);
-  if (essentialShortage) return { kind: 'shortage', itemId: essentialShortage.id || undefined, text: voices[character.id].shortage(essentialShortage), action: '補充計画を見る', page: 'inventory' };
+  const essentialAction = essentialResourceAction(rows, summary);
+  if (essentialAction?.kind === 'review') {
+    const review = essentialAction.item;
+    return { kind: 'data-review', itemId: review.id, text: `${review.name}は登録内容の確認が必要です。補充する前に、実物の期限・分類・用途を確認してください。`, action: '登録内容を確認', page: 'inventory' };
+  }
+  if (essentialAction?.kind === 'shortage') {
+    const shortage = essentialAction.item;
+    return { kind: 'shortage', itemId: shortage.id || undefined, text: voices[character.id].shortage(shortage), action: '補充計画を見る', page: 'inventory' };
+  }
 
   const essential = essentialPreparednessGates(state, summary);
   // Water/toilet gates are pure quantity gates already handled above. Food
@@ -59,9 +68,11 @@ export function buildCharacterAdvice(state, summary) {
   const otherGate = essential.gates.find((gate) => !gate.complete && !['water', 'toilet'].includes(gate.key));
   if (otherGate) return { kind: 'safety-check', text: voices[character.id].gate(otherGate), action: otherGate.statusLabel, page: otherGate.page };
 
+  const review = rows.find((item) => item.needsVerification);
+  if (review) return { kind: 'data-review', itemId: review.id, text: `${review.name}は登録内容の確認が必要です。補充する前に、実物の期限・分類・用途を確認してください。`, action: '登録内容を確認', page: 'inventory' };
   const expired = rows.find((item) => item.isExpired);
   if (expired) return { kind: 'expired', itemId: expired.id, text: voices[character.id].expired(expired), action: '期限切れを処理する', page: 'inventory' };
-  const shortage = rows.find((item) => item.shortage > 0);
+  const shortage = rows.find((item) => item.shortage > 0 && !item.needsVerification);
   const expiring = rows.find((item) => item.isExpiring);
   if (shortage) return { kind: 'shortage', itemId: shortage.id, text: voices[character.id].shortage(shortage), action: '補充計画を見る', page: 'inventory' };
   if (expiring) return { kind: 'expiry', itemId: expiring.id, text: voices[character.id].expiry(expiring), action: '期限を記録する', page: 'inventory' };

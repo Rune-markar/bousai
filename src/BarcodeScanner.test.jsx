@@ -33,6 +33,19 @@ describe('BarcodeScanner offline lookup', () => {
     expect(openChooser).toHaveBeenCalledOnce();
   });
 
+  it('does not resolve an empty Enter submission to a barcode-less local item', () => {
+    const onBarcode = vi.fn();
+    const onProduct = vi.fn();
+    render(<BarcodeScanner localProducts={[{ barcode: '', name: '手入力の備蓄品', category: 'food' }]} onBarcode={onBarcode} onProduct={onProduct} />);
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'バーコード番号' }), { key: 'Enter' });
+
+    expect(onBarcode).toHaveBeenCalledWith('');
+    expect(onProduct).not.toHaveBeenCalled();
+    expect(lookupProductFromBrowser).not.toHaveBeenCalled();
+    expect(screen.queryByText('手入力の備蓄品')).not.toBeInTheDocument();
+  });
+
   it('attempts lookup while offline so a service-worker cached product can be used', async () => {
     const product = { barcode: '3017620422003', name: 'Cached Nutella', category: 'comfort' };
     const onProduct = vi.fn();

@@ -41,8 +41,8 @@ describe('emergency planning', () => {
 
   it('scores essential stock by selected-day coverage instead of per-item target ratios', () => {
     const thinSummary = inventorySummary([
-      { name: '水500ml', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 1, target: 1, volumeMl: 500 },
-      { name: '非常食150g', category: 'food', tier: 1, quantity: 1, target: 1, foodWeightG: 150 },
+      { name: '水500ml', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 1, target: 1, volumeMl: 500, expiry: '2099-12-31' },
+      { name: '非常食150g', category: 'food', tier: 1, quantity: 1, target: 1, foodWeightG: 150, expiry: '2099-12-31' },
       { name: 'ウェットティッシュ', category: 'hygiene', tier: 1, quantity: 1, target: 1 },
       { name: 'LEDライト', category: 'light', tier: 1, quantity: 1, target: 1 },
     ], 1);

@@ -51,8 +51,16 @@ export function isDrinkingCookingWater(item = {}) {
   return /(飲料|飲み水|保存水|ミネラルウォーター|ペットボトル|drinking|potable)/i.test(text);
 }
 
+function isCoreExpiryVerified(item) {
+  const requiresExpiryVerification = item.category === 'food' || isDrinkingCookingWater(item);
+  if (!requiresExpiryVerification) return true;
+  if (isValidLocalDate(item.expiry)) return true;
+  return item.category === 'food' && item.expiryMode === 'no-date-confirmed';
+}
+
 function isUnexpiredInventoryItem(item, today = new Date()) {
   if (item.verificationStatus === 'needs-review') return false;
+  if (!isCoreExpiryVerified(item)) return false;
   const currentDate = localDateKey(today);
   return !item.expiry || (isValidLocalDate(item.expiry) && currentDate && String(item.expiry) >= currentDate);
 }
@@ -64,17 +72,40 @@ const TOILET_STRONG_BAG_PATTERN = /(便袋|排便袋|排泄袋)/;
 const TOILET_CONTEXTUAL_BAG_PATTERN = /(汚物袋|処理袋|交換袋|トイレ(?:交換用|専用|用|の)?袋)/;
 const TOILET_STRONG_COAGULANT_PATTERN = /(凝固剤|凝固材)/;
 const TOILET_CONTEXTUAL_COAGULANT_PATTERN = /(吸水剤|吸水シート)/;
-const NON_TOILET_COMPONENT_CONTEXT_PATTERN = /(ペット|犬|猫|おむつ|オムツ|生ごみ|油処理|廃油|清掃|掃除|嘔吐|血液)/;
-const TOILET_STANDALONE_KIT_PATTERN = /トイレ(?:\s*[（(][^）)]*[）)])?\s*$/;
-const TOILET_DIRECT_COMPLETE_MARKER_PATTERN = /トイレ\s*(?:セット|キット|\d+\s*回(?:分)?)(?:\s|$)/;
+const NON_TOILET_COMPONENT_CONTEXT_PATTERN = /(ペット|犬|猫|おむつ|オムツ|生ごみ|食用油|天ぷら油|油用|油処理|油(?:を)?固|油凝固|廃油|清掃|掃除|嘔吐|血液)/;
+const TOILET_COMPONENT_ACCESSORY_SUFFIX = '(?:消臭剤|消臭液|スプーン|ホルダー|ケース|カバー|収納|容器|ポーチ|スタンド|クリップ|留め具|ブラシ|洗剤|手袋)';
+const TOILET_COMPONENT_ACCESSORY_CONNECTOR = '(?:(?:専用|用|の|向け)[\\s　]*){0,2}(?:計量[\\s　]*)?';
+const TOILET_BAG_ACCESSORY_RELATION_PATTERN = new RegExp(`(?:便袋|排便袋|排泄袋|汚物袋|処理袋|交換袋|トイレ(?:交換用|専用|用|の)?袋)[\\s　]*${TOILET_COMPONENT_ACCESSORY_CONNECTOR}${TOILET_COMPONENT_ACCESSORY_SUFFIX}`);
+const TOILET_COAGULANT_ACCESSORY_RELATION_PATTERN = new RegExp(`(?:凝固剤|凝固材|吸水剤|吸水シート)[\\s　]*${TOILET_COMPONENT_ACCESSORY_CONNECTOR}${TOILET_COMPONENT_ACCESSORY_SUFFIX}`);
+const TOILET_COMPONENT_DEPENDENCY_CONNECTOR = '[\\s　]*(?:(?:専用|用|の|向け)[\\s　]*)+';
+const TOILET_BAG_FOR_COAGULANT_PATTERN = new RegExp(`(?:便袋|排便袋|排泄袋|汚物袋|処理袋|交換袋|トイレ(?:交換用|専用|用|の)?袋)${TOILET_COMPONENT_DEPENDENCY_CONNECTOR}(?:凝固剤|凝固材|吸水剤|吸水シート)`);
+const TOILET_COAGULANT_FOR_BAG_PATTERN = new RegExp(`(?:凝固剤|凝固材|吸水剤|吸水シート)${TOILET_COMPONENT_DEPENDENCY_CONNECTOR}(?:便袋|排便袋|排泄袋|汚物袋|処理袋|交換袋|トイレ(?:交換用|専用|用|の)?袋)`);
+const TOILET_COMPONENT_ABSENCE_WORD = '(?:別売(?:り)?|(?:付属|同梱)(?:品)?(?:は)?(?:なし|無し|ありません)|(?:付属|同梱)(?:しない|しません|していない|していません|されない|されません)|含まれ(?:ない|ません)|なし|無し|不要|要(?:別途)?購入|別途(?:[\\s　]*(?:用意|準備|購入|必要))?)';
+const TOILET_COMPONENT_ABSENCE_MARKER = `[\\s　]*[（(]?[\\s　]*(?:(?:は|を|が)[\\s　]*)?${TOILET_COMPONENT_ABSENCE_WORD}`;
+const TOILET_BAG_ABSENT_PATTERN = new RegExp(`(?:便袋|排便袋|排泄袋|汚物袋|処理袋|交換袋|トイレ(?:交換用|専用|用|の)?袋)${TOILET_COMPONENT_ABSENCE_MARKER}`);
+const TOILET_COAGULANT_ABSENT_PATTERN = new RegExp(`(?:凝固剤|凝固材|吸水剤|吸水シート)${TOILET_COMPONENT_ABSENCE_MARKER}`);
+const TOILET_COMPONENT_LIST_CONNECTOR = '[\\s　]*(?:と|・|\/|／|、|および|及び)[\\s　]*';
+const TOILET_LISTED_COMPONENTS_ABSENT_PATTERN = new RegExp(`(?:(?:便袋|排便袋|排泄袋|汚物袋|処理袋|交換袋)${TOILET_COMPONENT_LIST_CONNECTOR}(?:凝固剤|凝固材|吸水剤|吸水シート)|(?:凝固剤|凝固材|吸水剤|吸水シート)${TOILET_COMPONENT_LIST_CONNECTOR}(?:便袋|排便袋|排泄袋|汚物袋|処理袋|交換袋))[\\s　]*(?:は|を|が|とも|はいずれも|は両方とも|両方とも)?[\\s　]*${TOILET_COMPONENT_ABSENCE_WORD}`);
+const TOILET_EXPLICIT_NON_CONSUMABLE_PATTERN = /(?:掃除|清掃|洗剤|ブラシ|トイレットペーパー|防臭袋|ポリ袋|手袋|目隠し|ポンチョ|テント|便座|本体|収納|保管|ケース|カバー|ポーチ|ホルダー|説明書|手順書|マニュアル)/;
+const TOILET_COMPONENT_COMPATIBILITY_PATTERN = new RegExp(`(?:(?:便袋|排便袋|排泄袋|汚物袋|処理袋|交換袋)${TOILET_COMPONENT_LIST_CONNECTOR}(?:凝固剤|凝固材|吸水剤|吸水シート)|(?:凝固剤|凝固材|吸水剤|吸水シート)${TOILET_COMPONENT_LIST_CONNECTOR}(?:便袋|排便袋|排泄袋|汚物袋|処理袋|交換袋))[\\s　]*(?:に)?対応`);
+const TOILET_STANDALONE_KIT_PATTERN = /トイレ\s*$/;
+const TOILET_DIRECT_COMPLETE_MARKER_PATTERN = /トイレ\s*(?:(?:セット|キット)(?:\s*[（(]?\s*\d+\s*回(?:分)?\s*[）)]?)?|[（(]?\s*\d+\s*回(?:分)?\s*[）)]?)\s*$/;
 
 export function portableToiletItemKind(item) {
   if (item.category !== 'hygiene') return null;
   const name = String(item.name || '');
   if (NON_TOILET_COMPONENT_CONTEXT_PATTERN.test(name)) return null;
+  if (TOILET_LISTED_COMPONENTS_ABSENT_PATTERN.test(name)) return null;
+  if (TOILET_EXPLICIT_NON_CONSUMABLE_PATTERN.test(name) || TOILET_COMPONENT_COMPATIBILITY_PATTERN.test(name)) return null;
   const hasToiletContext = TOILET_CONTEXT_PATTERN.test(name);
-  const hasBag = TOILET_STRONG_BAG_PATTERN.test(name) || (hasToiletContext && TOILET_CONTEXTUAL_BAG_PATTERN.test(name));
-  const hasCoagulant = TOILET_STRONG_COAGULANT_PATTERN.test(name) || (hasToiletContext && TOILET_CONTEXTUAL_COAGULANT_PATTERN.test(name));
+  const hasBag = !TOILET_BAG_ACCESSORY_RELATION_PATTERN.test(name)
+    && !TOILET_BAG_FOR_COAGULANT_PATTERN.test(name)
+    && !TOILET_BAG_ABSENT_PATTERN.test(name)
+    && (TOILET_STRONG_BAG_PATTERN.test(name) || (hasToiletContext && TOILET_CONTEXTUAL_BAG_PATTERN.test(name)));
+  const hasCoagulant = !TOILET_COAGULANT_ACCESSORY_RELATION_PATTERN.test(name)
+    && !TOILET_COAGULANT_FOR_BAG_PATTERN.test(name)
+    && !TOILET_COAGULANT_ABSENT_PATTERN.test(name)
+    && (TOILET_STRONG_COAGULANT_PATTERN.test(name) || (hasToiletContext && TOILET_CONTEXTUAL_COAGULANT_PATTERN.test(name)));
   if (hasBag && hasCoagulant) return 'kit';
   // An explicit single component is not a complete toilet, even when the name
   // also contains a broad product phrase such as "携帯トイレ" or "セット".
@@ -84,7 +115,8 @@ export function portableToiletItemKind(item) {
   // Broad words such as "portable toilet" are not enough when another noun
   // follows: it may be a mat, sheet, pouch, or an unknown accessory. Accept a
   // standalone toilet name or a completion marker directly after "toilet".
-  if (hasKitName && (TOILET_STANDALONE_KIT_PATTERN.test(name) || TOILET_DIRECT_COMPLETE_MARKER_PATTERN.test(name))) return 'kit';
+  const explicitlyIncomplete = TOILET_BAG_ABSENT_PATTERN.test(name) || TOILET_COAGULANT_ABSENT_PATTERN.test(name);
+  if (!explicitlyIncomplete && hasKitName && (TOILET_STANDALONE_KIT_PATTERN.test(name) || TOILET_DIRECT_COMPLETE_MARKER_PATTERN.test(name))) return 'kit';
   return null;
 }
 
@@ -118,6 +150,18 @@ export const createInitialInventory = () => [
   { id: 'coffee', name: 'ドリップコーヒー', category: 'comfort', tier: 3, unit: '袋', quantity: 6, target: 6, price: 85, expiry: daysFromNow(180), note: '気持ちを落ち着けるもの' },
 ];
 
+const calendarDayOrdinal = (value) => {
+  if (!isValidLocalDate(value)) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  return Date.UTC(year, month - 1, day) / 86400000;
+};
+
+const calendarDayDifference = (from, to) => {
+  const start = calendarDayOrdinal(from);
+  const end = calendarDayOrdinal(to);
+  return start === null || end === null ? null : end - start;
+};
+
 export function itemStats(item, today = new Date()) {
   const target = Math.max(Number(item.target) || 0, 0);
   const quantity = Math.max(Number(item.quantity) || 0, 0);
@@ -125,21 +169,18 @@ export function itemStats(item, today = new Date()) {
   let daysToCheck = null;
   let daysToRotationReminder = null;
   const hasInvalidExpiry = Boolean(item.expiry) && !isValidLocalDate(item.expiry);
+  const hasMissingCoreExpiry = !item.expiry && !isCoreExpiryVerified(item);
   if (item.expiry && !hasInvalidExpiry) {
-    const start = new Date(`${localDateKey(today)}T00:00:00`);
-    const end = new Date(`${item.expiry}T00:00:00`);
-    daysToExpiry = Math.ceil((end - start) / 86400000);
+    daysToExpiry = calendarDayDifference(localDateKey(today), item.expiry);
   }
   if (item.nextCheck) {
-    const start = new Date(`${localDateKey(today)}T00:00:00`);
-    daysToCheck = Math.ceil((new Date(`${item.nextCheck}T00:00:00`) - start) / 86400000);
+    daysToCheck = calendarDayDifference(localDateKey(today), item.nextCheck);
   }
   if (item.rotationReminderDate) {
-    const start = new Date(`${localDateKey(today)}T00:00:00`);
-    daysToRotationReminder = Math.ceil((new Date(`${item.rotationReminderDate}T00:00:00`) - start) / 86400000);
+    daysToRotationReminder = calendarDayDifference(localDateKey(today), item.rotationReminderDate);
   }
   const isExpired = daysToExpiry !== null && daysToExpiry < 0;
-  const needsVerification = item.verificationStatus === 'needs-review' || hasInvalidExpiry;
+  const needsVerification = item.verificationStatus === 'needs-review' || hasInvalidExpiry || hasMissingCoreExpiry;
   const usableQuantity = isExpired || needsVerification ? 0 : quantity;
   const shortage = Math.max(target - usableQuantity, 0);
   const ratio = target ? usableQuantity / target : usableQuantity ? 1 : 0;
@@ -232,7 +273,7 @@ export function inventorySummary(items, household = 2, today = new Date()) {
   const rows = effectiveItems.map((item) => ({ ...item, ...itemStats(item, today) }));
   const usableItems = new Set(usableInventory(effectiveItems, today));
   const readinessRows = rows.map((item, index) => usableItems.has(effectiveItems[index]) ? item : { ...item, ratio: 0 });
-  const notificationRows = rows.filter((item) => item.shortage > 0 || item.isExpiring || item.isCheckDue || item.isRotationReminderDue);
+  const notificationRows = rows.filter((item) => item.needsVerification || item.shortage > 0 || item.isExpiring || item.isCheckDue || item.isRotationReminderDue);
   const tierWeight = (tier) => ({ 1: 3, 2: 2, 3: 1 }[tier] || 1);
   const categoryScores = Object.keys(CATEGORY_META).map((key) => {
     const categoryRows = readinessRows.filter((item) => item.category === key
@@ -268,6 +309,11 @@ export function inventorySummary(items, household = 2, today = new Date()) {
     { key: 'toilet', category: 'hygiene', label: '携帯トイレ', currentDays: toiletDays },
   ].filter((resource) => resource.currentDays < 3).map((resource) => ({
     ...resource,
+    blockedByReview: rows.some((item) => item.needsVerification && (
+      (resource.key === 'water' && item.category === 'water' && item.waterPurpose !== 'utility')
+      || (resource.key === 'food' && item.category === 'food')
+      || (resource.key === 'toilet' && Boolean(portableToiletItemKind(item)))
+    )),
     missingDays: Math.max(0, 3 - resource.currentDays),
     shortage: threeDayNeeds.get(resource.key)?.shortage || 0,
     unit: threeDayNeeds.get(resource.key)?.unit || '回分',
@@ -297,9 +343,9 @@ export function inventorySummary(items, household = 2, today = new Date()) {
     rotationReminderDueCount: rows.filter((item) => item.isRotationReminderDue).length,
     itemNotificationCount: notificationRows.length,
     essentialNotificationGaps,
-    notificationCount: notificationRows.length + essentialNotificationGaps.length,
+    notificationCount: notificationRows.length + essentialNotificationGaps.filter((gap) => !gap.blockedByReview).length,
     replenishmentCost: rows.reduce((sum, item) => sum + item.replenishmentCost, 0),
-    replenishmentPlan: rows.filter((item) => item.shortage > 0).sort((a, b) => {
+    replenishmentPlan: rows.filter((item) => item.shortage > 0 && !item.needsVerification).sort((a, b) => {
       const priority = { high: 0, medium: 1, low: 2 };
       return (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3)
         || (priority[a.replenishmentPriority] ?? a.tier) - (priority[b.replenishmentPriority] ?? b.tier)

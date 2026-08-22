@@ -11,6 +11,11 @@ import { createDefaultState, RECOVERY_KEY_PREFIX, SCHEMA_VERSION, STORAGE_KEY } 
 
 const createSeededState = () => ({ ...createDefaultState(), inventory: createInitialInventory() });
 
+const openInventoryCategory = (categoryName) => {
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+  fireEvent.click(within(screen.getByRole('group', { name: '備蓄カテゴリ' })).getByRole('button', { name: categoryName }));
+};
+
 describe('電力設計ページの導線', () => {
   beforeEach(() => {
     if (!globalThis.localStorage) {
@@ -34,6 +39,7 @@ describe('電力設計ページの導線', () => {
     cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('初回は3ステップで家族人数、備蓄目標、連絡先を設定する', async () => {
@@ -104,6 +110,62 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByRole('status')).toHaveTextContent('現在のデータを端末へ保存しました');
   });
 
+  it('別タブの更新を検知すると自動上書きを止め、現タブ保存後に最新データを読み込む', async () => {
+    render(<App />);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).lastVisitAt).not.toBe(''));
+    fireEvent.click(screen.getByRole('button', { name: /備蓄日数の目標/ }));
+    expect(screen.getByRole('dialog', { name: '目標備蓄日数を変更' })).toBeInTheDocument();
+    const externalState = { ...JSON.parse(localStorage.getItem(STORAGE_KEY)), household: 4 };
+    const externalRaw = JSON.stringify(externalState);
+    localStorage.setItem(STORAGE_KEY, externalRaw);
+    window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY, newValue: externalRaw, storageArea: localStorage }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('別のタブで保存データが変更されました');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(externalRaw);
+    const loadLatest = within(alert).getByRole('button', { name: '最新データを読み込む' });
+    expect(loadLatest).toBeDisabled();
+
+    const BrowserUrl = globalThis.URL;
+    vi.stubGlobal('URL', Object.assign(class MockUrl extends BrowserUrl {}, {
+      createObjectURL: vi.fn(() => 'blob:unsaved-state'),
+      revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(within(alert).getByRole('button', { name: 'このタブを保存' }));
+    expect(loadLatest).toBeEnabled();
+    fireEvent.click(loadLatest);
+
+    await waitFor(() => expect(screen.queryByText('別のタブで保存データが変更されました')).not.toBeInTheDocument());
+    expect(screen.queryByRole('dialog', { name: '目標備蓄日数を変更' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('家族4人')).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).household).toBe(4);
+  });
+
+  it('別タブのlocalStorage.clearをデータ競合として検知する', async () => {
+    render(<App />);
+    await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull());
+    const BrowserUrl = globalThis.URL;
+    vi.stubGlobal('URL', Object.assign(class MockUrl extends BrowserUrl {}, {
+      createObjectURL: vi.fn(() => 'blob:unsaved-state'),
+      revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    localStorage.clear();
+    window.dispatchEvent(new StorageEvent('storage', { key: null, newValue: null, storageArea: localStorage }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('別のタブで保存データが削除されました');
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    const restoreCurrent = within(alert).getByRole('button', { name: 'このタブを端末へ戻す' });
+    expect(restoreCurrent).toBeDisabled();
+    fireEvent.click(within(alert).getByRole('button', { name: 'このタブを保存' }));
+    fireEvent.click(restoreCurrent);
+
+    await waitFor(() => expect(localStorage.getItem(STORAGE_KEY)).not.toBeNull());
+    expect(screen.getByRole('status')).toHaveTextContent('このタブのデータを端末へ戻しました');
+  });
+
   it('壊れた保存データを上書きせず、背景操作を止めて利用者の確認を待つ', async () => {
     localStorage.setItem(STORAGE_KEY, '{broken');
     const { container } = render(<App />);
@@ -115,8 +177,19 @@ describe('電力設計ページの導線', () => {
     expect(container.querySelector('main')).toHaveAttribute('inert');
     expect(container.querySelector('main')).toHaveAttribute('aria-hidden', 'true');
     expect(container.querySelector('.topbar')).toHaveAttribute('inert');
-    await waitFor(() => expect(within(alert).getByRole('button', { name: '保護データを保存' })).toHaveFocus());
-    fireEvent.click(within(alert).getByRole('button', { name: '空の状態で続ける' }));
+    const downloadButton = within(alert).getByRole('button', { name: '保護データを保存' });
+    const continueButton = within(alert).getByRole('button', { name: '空の状態で続ける' });
+    await waitFor(() => expect(downloadButton).toHaveFocus());
+    expect(continueButton).toBeDisabled();
+    const BrowserUrl = globalThis.URL;
+    vi.stubGlobal('URL', Object.assign(class MockUrl extends BrowserUrl {}, {
+      createObjectURL: vi.fn(() => 'blob:protected-state'),
+      revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(downloadButton);
+    expect(continueButton).toBeEnabled();
+    fireEvent.click(continueButton);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(container.querySelector('main')).not.toHaveAttribute('inert');
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory).toEqual([]);
@@ -134,7 +207,7 @@ describe('電力設計ページの導線', () => {
 
     const alert = screen.getByRole('alert');
     const continueButton = within(alert).getByRole('button', { name: '空の状態で続ける' });
-    expect(alert).toHaveTextContent('空の状態で続ける前にファイル保存してください');
+    expect(alert).toHaveTextContent('空の状態で続ける前に保護データをファイル保存してください');
     expect(continueButton).toBeDisabled();
     expect(localStorage.getItem(STORAGE_KEY)).toBe('{broken');
   });
@@ -142,6 +215,18 @@ describe('電力設計ページの導線', () => {
   it('未来形式のファイル復元を拒否し、現在データを保つ', async () => {
     render(<App />);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    const BrowserUrl = globalThis.URL;
+    vi.stubGlobal('URL', Object.assign(class MockUrl extends BrowserUrl {}, {
+      createObjectURL: vi.fn(() => 'blob:current-state'),
+      revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(screen.getByText('データ管理'));
+    const dataManagement = screen.getByText('データ管理').closest('details');
+    const restoreButton = within(dataManagement).getByRole('button', { name: '復元' });
+    expect(restoreButton).toBeDisabled();
+    fireEvent.click(within(dataManagement).getByRole('button', { name: '現在データを保存' }));
+    expect(restoreButton).toBeEnabled();
     const before = localStorage.getItem(STORAGE_KEY);
     const fileInput = document.querySelector('input[type="file"]');
 
@@ -154,6 +239,14 @@ describe('電力設計ページの導線', () => {
   it('ファイル復元前の現在データを別キーへ保護し、保護失敗時は置換しない', async () => {
     render(<App />);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    const BrowserUrl = globalThis.URL;
+    vi.stubGlobal('URL', Object.assign(class MockUrl extends BrowserUrl {}, {
+      createObjectURL: vi.fn(() => 'blob:current-state'),
+      revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(screen.getByText('データ管理'));
+    fireEvent.click(screen.getByRole('button', { name: '現在データを保存' }));
     const before = localStorage.getItem(STORAGE_KEY);
     const originalSetItem = Storage.prototype.setItem;
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function setItem(key, value) {
@@ -168,6 +261,58 @@ describe('電力設計ページの導線', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('現在のデータを保護できなかったため、復元を中止しました'));
     expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
     expect(screen.queryByText('保存食')).not.toBeInTheDocument();
+  });
+
+  it('復元前に保存した後でデータが変わった場合は、再保存するまで復元を許可しない', async () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    const BrowserUrl = globalThis.URL;
+    vi.stubGlobal('URL', Object.assign(class MockUrl extends BrowserUrl {}, {
+      createObjectURL: vi.fn(() => 'blob:current-state'),
+      revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    fireEvent.click(screen.getByText('データ管理'));
+    const dataManagement = screen.getByText('データ管理').closest('details');
+    const restoreButton = within(dataManagement).getByRole('button', { name: '復元' });
+    fireEvent.click(within(dataManagement).getByRole('button', { name: '現在データを保存' }));
+    expect(restoreButton).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
+    const dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
+    fireEvent.change(within(dialog).getByLabelText(/毎年の備蓄予算/), { target: { value: '12000' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'この年間予算で保存' }));
+
+    await waitFor(() => expect(restoreButton).toBeDisabled());
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [{ text: vi.fn().mockResolvedValue('{}') }] } });
+    expect(screen.getByRole('status')).toHaveTextContent('現在データが変わったため、もう一度ファイル保存してから復元してください');
+  });
+
+  it('ファイル読込待ち中に現在データが変わった場合も復元を中止する', async () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    const BrowserUrl = globalThis.URL;
+    vi.stubGlobal('URL', Object.assign(class MockUrl extends BrowserUrl {}, {
+      createObjectURL: vi.fn(() => 'blob:current-state'),
+      revokeObjectURL: vi.fn(),
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    fireEvent.click(screen.getByText('データ管理'));
+    fireEvent.click(screen.getByRole('button', { name: '現在データを保存' }));
+    let resolveFile;
+    const delayedText = vi.fn(() => new Promise((resolve) => { resolveFile = resolve; }));
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [{ text: delayedText }] } });
+
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: 'ホーム' }));
+    fireEvent.click(screen.getByRole('button', { name: 'オプションを開く' }));
+    fireEvent.click(screen.getByRole('button', { name: '家族人数を1人増やす' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+    await act(async () => resolveFile(JSON.stringify({ ...createDefaultState(), onboarding: { completed: true }, household: 9 })));
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('現在データが変わったため、もう一度ファイル保存してから復元してください'));
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).household).toBe(3);
   });
 
   it('新規利用者の未確認在庫・生活継続日数・バッグ提案をゼロから始める', () => {
@@ -202,6 +347,52 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByRole('heading', { name: 'わが家の備蓄' })).toBeInTheDocument();
   });
 
+  it('主要備蓄が確認待ちの間は補充を促さず、先に実物確認を案内する', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...createDefaultState(),
+      onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' },
+      household: 1,
+      inventory: [
+        { id: 'water-review', name: '保存水 2L', category: 'water', waterPurpose: 'drinking-cooking', unit: '本', quantity: 10, target: 10, volumeMl: 2000 },
+        { id: 'food-ready', name: '保存食', category: 'food', unit: '食', quantity: 3, target: 3, foodWeightG: 450, expiry: '2099-12-31' },
+        { id: 'toilet-ready', name: '携帯トイレ', category: 'hygiene', unit: '回分', quantity: 15, target: 15 },
+      ],
+    }));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '通知一覧を開く（1件）' }));
+    const dialog = screen.getByRole('dialog', { name: '今、対応すること' });
+    expect(within(dialog).getByRole('heading', { name: '主要備蓄を先に確認' })).toBeInTheDocument();
+    expect(within(dialog).getByText('確認後に不足量を再計算します')).toBeInTheDocument();
+    expect(within(dialog).getByText('保存水 2L')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('heading', { name: '主要備蓄の補充' })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /補充/ })).not.toBeInTheDocument();
+  });
+
+  it('通知から不足していた期限を入力すると確認待ちをその場で解消する', async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...createDefaultState(),
+      onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' },
+      household: 1,
+      inventory: [{ id: 'water-review', productId: 'manual:water-review', name: '保存水 2L', category: 'water', waterPurpose: 'drinking-cooking', unit: '本', quantity: 10, target: 10, volumeMl: 2000 }],
+    }));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '通知一覧を開く（3件）' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: '今、対応すること' })).getByRole('button', { name: /保存水 2L/ }));
+    const itemDialog = screen.getByRole('dialog', { name: '備蓄品を編集' });
+    fireEvent.change(within(itemDialog).getByLabelText('期限または交換日'), { target: { value: '2099-12-31' } });
+    fireEvent.click(within(itemDialog).getByRole('button', { name: '保存する' }));
+
+    await waitFor(() => {
+      const item = JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory[0];
+      expect(item.expiry).toBe('2099-12-31');
+      expect(item).not.toHaveProperty('verificationStatus');
+      expect(item).not.toHaveProperty('verificationReason');
+    });
+    expect(screen.queryByText('期限または交換日を確認してください')).not.toBeInTheDocument();
+  });
+
   it('理由不明の確認待ち在庫も実物確認後に安全計算へ戻せる', async () => {
     const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
@@ -209,7 +400,7 @@ describe('電力設計ページの導線', () => {
     saved.inventory = [{ ...saved.inventory[0], id: 'generic-review', productId: 'manual:generic-review', quantity: 6, target: 6, verificationStatus: 'needs-review' }];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    openInventoryCategory(/水分の備蓄を表示/);
 
     expect(screen.getByText('登録内容を確認してください')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '飲料水 500mlの登録内容を実物と確認して在庫に反映' }));
@@ -219,7 +410,36 @@ describe('電力設計ページの導線', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory[0]).not.toHaveProperty('verificationReason');
   });
 
-  it('旧版の固定IDでも水用途を直すまで確認済みにできない', async () => {
+  it('同一バーコードの矛盾は1ロットの実物編集で共有定義をそろえて解消する', async () => {
+    const barcode = '4900000000000';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...createDefaultState(),
+      schemaVersion: SCHEMA_VERSION,
+      onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' },
+      household: 1,
+      inventory: [
+        { id: 'food-a', productId: `gtin:${barcode}`, barcode, name: '保存食', category: 'food', unit: '袋', tier: 1, quantity: 1, target: 2, foodWeightG: 100, expiry: '2099-12-31' },
+        { id: 'food-b', productId: `gtin:${barcode}`, barcode, name: '保存食', category: 'food', unit: '袋', tier: 1, quantity: 1, target: 0, foodWeightG: 10000, expiry: '2099-11-30' },
+      ],
+    }));
+    render(<App />);
+    openInventoryCategory(/食料の備蓄を表示/);
+
+    expect(screen.getAllByText('同じバーコードの登録内容が一致しません')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: /登録内容を実物と確認して在庫に反映/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: '保存食を編集' })[0]);
+    const dialog = screen.getByRole('dialog', { name: '備蓄品を編集' });
+    fireEvent.change(within(dialog).getByText('1単位あたりの食料重量（g）').closest('label').querySelector('input'), { target: { value: '150' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
+
+    await waitFor(() => {
+      const lots = JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory;
+      expect(lots.map((item) => item.foodWeightG)).toEqual([150, 150]);
+      expect(lots.every((item) => !item.verificationStatus && !item.verificationReason)).toBe(true);
+    });
+  });
+
+  it('旧版の水用途は編集画面で明示すると確認待ちを解消する', async () => {
     const legacyWater = {
       ...createInitialInventory()[0],
       name: '水タンク',
@@ -236,20 +456,19 @@ describe('電力設計ページの導線', () => {
       inventory: [legacyWater],
     }));
     render(<App />);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    openInventoryCategory(/水分の備蓄を表示/);
 
     expect(screen.getByText('水の用途を確認してください')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '水タンクの登録内容を実物と確認して在庫に反映' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '水タンクを編集' }));
     const dialog = screen.getByRole('dialog', { name: '備蓄品を編集' });
     fireEvent.change(within(dialog).getByLabelText('水の用途'), { target: { value: 'drinking-cooking' } });
+    fireEvent.change(within(dialog).getByLabelText('期限または交換日'), { target: { value: '2099-12-31' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
 
-    const confirm = screen.getByRole('button', { name: '水タンクの登録内容を実物と確認して在庫に反映' });
-    fireEvent.click(confirm);
     await waitFor(() => {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory[0];
-      expect(saved).toMatchObject({ waterPurpose: 'drinking-cooking', volumeMl: 1000 });
+      expect(saved).toMatchObject({ waterPurpose: 'drinking-cooking', volumeMl: 1000, expiry: '2099-12-31' });
       expect(saved).not.toHaveProperty('verificationStatus');
       expect(saved).not.toHaveProperty('verificationReason');
     });
@@ -359,6 +578,20 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByText('内容量未登録の水は日数に含みません')).toBeVisible();
   });
 
+  it('期限切れ・確認待ちの主要備蓄を生活継続日数から除外したことを吹き出しに明記する', () => {
+    const saved = createSeededState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = saved.inventory.map((item) => item.id === 'water'
+      ? { ...item, expiry: '', expiryMode: 'unknown' }
+      : item);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+
+    const house = screen.getByRole('button', { name: '自宅の備蓄情報を開く' });
+    expect(within(house).getByText('主要備蓄の期限切れ・確認待ちは日数から除外')).toBeVisible();
+    expect(house).toHaveAccessibleDescription(/主要備蓄の期限切れ・確認待ちは日数から除外/);
+  });
+
   it('重量日数が目標を満たしても食料構成の未確認を吹き出し内に残す', () => {
     const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
@@ -376,7 +609,7 @@ describe('電力設計ページの導線', () => {
     expect(house).toHaveAccessibleDescription(/食料の構成・家族適合は未確認/);
   });
 
-  it('家から備蓄を開き、水位つき分類アイコンで一覧を絞り込める', async () => {
+  it('家から備蓄ダッシュボードを開き、水位つき分類から品目の詳細ページへ移動できる', async () => {
     render(<App />);
     const house = screen.getByRole('button', { name: '自宅の備蓄情報を開く' });
     fireEvent.click(house);
@@ -386,20 +619,46 @@ describe('電力設計ページの導線', () => {
     const categories = screen.getByRole('group', { name: '備蓄カテゴリ' });
     expect(within(categories).getAllByRole('button')).toHaveLength(6);
     const water = within(categories).getByRole('button', { name: '水分の備蓄を表示。7日目標の達成度 21%' });
-    expect(water).toHaveAttribute('aria-pressed', 'false');
     expect(within(water).getByText('21%')).toBeInTheDocument();
     expect(water.querySelector('[data-liquid-fill]').style.getPropertyValue('--fill-level')).toBe('21%');
     expect(water.querySelector('.liquid-glyph-fill')).toHaveAttribute('y', '46.9');
+    expect(screen.queryByRole('heading', { name: '飲料水 500ml' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'アルファ米' })).not.toBeInTheDocument();
 
     const food = within(categories).getByRole('button', { name: '食料の備蓄を表示。7日目標の達成度 21%' });
     fireEvent.click(food);
-    expect(food).toHaveAttribute('aria-pressed', 'true');
+    expect(window.location.hash).toBe('#/inventory-category/food');
+    await waitFor(() => expect(screen.getByRole('heading', { name: '食料の備蓄' })).toHaveFocus());
     expect(screen.getByRole('heading', { name: 'アルファ米' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '飲料水 500ml' })).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'メインナビゲーション' }).querySelector('[aria-current="page"]')).toHaveTextContent('備蓄');
   });
 
-  it('備蓄ガイドをメインから外し、右下の通知付きボタンからシンボル主体のスキルツリーを開く', async () => {
+  it('備蓄ダッシュボードに直近のローリングストック対象を品名つきで表示する', () => {
     const saved = createSeededState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    const soon = new Date();
+    soon.setDate(soon.getDate() + 5);
+    saved.inventory = saved.inventory.map((item) => item.id === 'rice'
+      ? { ...item, name: '今週食べるアルファ米', expiry: soon.toISOString().slice(0, 10), rotationEnabled: true, rotationLeadDays: 30 }
+      : { ...item, rotationEnabled: false });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+    const nextActions = screen.getByRole('region', { name: '次に使う・確認する備蓄' });
+    expect(within(nextActions).getByText('今週食べるアルファ米')).toBeInTheDocument();
+    expect(within(nextActions).getByText('消費時期です')).toBeInTheDocument();
+    expect(within(nextActions).getByText('今すぐ 1品')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '今週食べるアルファ米' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(nextActions).getByRole('button', { name: /今週食べるアルファ米/ }));
+    expect(window.location.hash).toBe('#/rolling');
+    expect(screen.getByRole('heading', { name: 'ローリングストック消費計画' })).toBeInTheDocument();
+  });
+
+  it('備蓄ガイドをメインから外し、右下の通知付きボタンから家庭別の達成ラインを開く', async () => {
+    const saved = createDefaultState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.household = 1;
     saved.inventory = [{ id: 'food-test', name: '保存食', category: 'food', tier: 1, unit: '袋', quantity: 3, target: 3, price: 100, foodWeightG: 450, expiry: '2030-01-01' }];
@@ -408,25 +667,25 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
 
     expect(screen.queryByRole('group', { name: '備蓄レベルの樹形図' })).not.toBeInTheDocument();
-    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 2件' });
+    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 1件' });
     expect(launcher.querySelector('.stockpile-skill-launcher-alert')).toHaveTextContent('!');
     fireEvent.click(launcher);
 
     expect(window.location.hash).toBe('#/stockpile-skills');
     const dialog = screen.getByRole('dialog', { name: '備蓄スキルツリー' });
-    const food = within(dialog).getByRole('button', { name: '食料・重量換算3日分、達成可能' });
-    expect(food).toHaveTextContent('🍚');
-    expect(food).not.toHaveTextContent('食料');
+    const food = within(dialog).getByRole('button', { name: '食料（重量換算）、現在3日分、確認できます' });
+    expect(food).toHaveTextContent('食料（重量換算）');
+    expect(food.querySelector('.lucide-utensils')).toBeInTheDocument();
     expect(food.closest('li')).toHaveAttribute('data-state', 'claimable');
     fireEvent.click(food);
-    expect(within(dialog).getByRole('heading', { name: '食料・重量換算3日分' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: '食料（重量換算）' })).toBeInTheDocument();
     expect(within(dialog).getByText(/登録重量による参考換算/)).toBeInTheDocument();
     expect(within(dialog).getAllByText(/栄養・アレルギー・調理可否は別に確認/)).toHaveLength(2);
     expect(within(dialog).getByRole('link', { name: /根拠を確認：農林水産省/ })).toHaveAttribute('href', expect.stringContaining('maff.go.jp'));
 
     fireEvent.click(within(dialog).getByRole('button', { name: '備蓄スキルツリーを閉じる' }));
     expect(window.location.hash).toBe('#/inventory');
-    await waitFor(() => expect(screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 2件' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('button', { name: '備蓄スキルツリーを開く。達成確認可能 1件' })).toHaveFocus());
   });
 
   it('達成可能ノードの長押しで祖先と経路を達成色にし、確認済み状態を保存する', async () => {
@@ -440,13 +699,12 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
     fireEvent.click(screen.getByRole('button', { name: /備蓄スキルツリーを開く/ }));
 
-    const food = screen.getByRole('button', { name: '食料・重量換算3日分、達成可能' });
+    const food = screen.getByRole('button', { name: '食料（重量換算）、現在3日分、確認できます' });
     fireEvent.pointerDown(food, { pointerId: 7, isPrimary: true, button: 0, clientX: 20, clientY: 20 });
     act(() => vi.advanceTimersByTime(STOCKPILE_SKILL_LONG_PRESS_MS));
 
-    expect(screen.getByRole('button', { name: '食料・重量換算1日分、達成済み' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '食料・重量換算3日分、達成済み' })).toBeInTheDocument();
-    expect(container.querySelectorAll('.stockpile-skill-tree-connector.is-active').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole('button', { name: '食料（重量換算）、現在3日分、確認済み' })).toBeInTheDocument();
+    expect(container.querySelector('.stockpile-skill-resource-lane[data-category="food"]')).toHaveAttribute('data-reached-three', 'true');
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).preparedness.stockpileSkillClaims).toEqual(['food-1', 'food-3']);
 
     fireEvent.click(screen.getByRole('button', { name: '備蓄スキルツリーを閉じる' }));
@@ -464,7 +722,7 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
 
-    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。再確認が必要 2件' });
+    const launcher = screen.getByRole('button', { name: '備蓄スキルツリーを開く。再確認が必要 1件' });
     expect(launcher).toHaveClass('has-review');
     expect(launcher.querySelector('.stockpile-skill-launcher-alert')).toHaveTextContent('!');
   });
@@ -502,7 +760,7 @@ describe('電力設計ページの導線', () => {
     expect(within(dialog).getByText('飲料＋調理用')).toBeInTheDocument();
     expect(within(dialog).getByText('生活用水')).toBeInTheDocument();
     expect(within(dialog).getByText(/生活用水は3Lに含まれない/)).toBeInTheDocument();
-    expect(water).toHaveAttribute('aria-pressed', 'false');
+    expect(window.location.hash).toBe('#/inventory');
     fireEvent.click(within(dialog).getByRole('button', { name: '確認しました' }));
     expect(water).toHaveFocus();
   });
@@ -609,14 +867,13 @@ describe('電力設計ページの導線', () => {
   it('防災力ページに旧電力プランナーを埋め込まない', () => {
     render(<App />);
 
-    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
-    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '防災力' }));
+    fireEvent.click(screen.getByRole('button', { name: /備えの進捗 .* の詳細を開く/ }));
 
     expect(screen.getByRole('heading', { name: '防災力ロードマップ' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '停電時の電力を、一つの流れで設計' })).not.toBeInTheDocument();
   });
 
-  it('ホームと常設ナビから避難バッグの自動選定へ直接移動できる', () => {
+  it('避難バッグはホームの避難導線へ合流し、常設ナビを増やさない', () => {
     render(<App />);
 
     const scene = screen.getByRole('region', { name: '自宅から避難先までの備え' });
@@ -634,14 +891,16 @@ describe('電力設計ページの導線', () => {
     expect(screen.getAllByRole('button', { name: /自動選定結果を開く/ })).toHaveLength(2);
 
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
-    expect(within(desktopNavigation).getByRole('button', { name: '避難バッグ' })).toHaveAttribute('aria-current', 'page');
+    expect(within(desktopNavigation).queryByRole('button', { name: '避難バッグ' })).not.toBeInTheDocument();
+    expect(within(desktopNavigation).queryByRole('button', { name: '防災力' })).not.toBeInTheDocument();
+    expect(within(desktopNavigation).getByRole('button', { name: 'ホーム' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('情報量の多い主要ページは要点から詳細を段階的に開ける', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
 
-    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '防災力' }));
+    fireEvent.click(screen.getByRole('button', { name: /備えの進捗 .* の詳細を開く/ }));
     const roadmap = screen.getByText('6段階の防災マップ').closest('details');
     expect(roadmap).not.toHaveAttribute('open');
     expect(screen.getByRole('heading', { name: 'いまは、これだけ' })).toBeInTheDocument();
@@ -714,10 +973,13 @@ describe('電力設計ページの導線', () => {
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
     expect(screen.getByText('7日目標まで')).toBeInTheDocument();
-    expect(screen.getByText('年間予算')).toBeInTheDocument();
-    expect(screen.getByText('未設定')).toBeInTheDocument();
+    const planHub = screen.getByRole('region', { name: '使う計画と、買う計画' });
+    expect(within(planHub).getByText('年間予算')).toBeInTheDocument();
+    expect(within(planHub).getByText('未設定')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    expect(screen.getByRole('heading', { name: '使う計画と、買う計画' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ローリングストック計画を開く' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     const dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     expect(within(dialog).getByRole('heading', { name: '今年、何から買うか' })).toBeInTheDocument();
     expect(within(dialog).getByRole('heading', { name: '予算を変えると、到達時期がすぐ変わります' })).toBeInTheDocument();
@@ -749,7 +1011,7 @@ describe('電力設計ページの導線', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
     fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     const dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
 
     expect(within(dialog).getByText('目標まで 非常用凝固剤 5個＋携帯トイレ 5回分・概算 ¥350')).toBeInTheDocument();
@@ -762,7 +1024,7 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
-    const trigger = screen.getByRole('button', { name: '年間購入計画を開く' });
+    const trigger = screen.getByRole('button', { name: '防災予算計画を開く' });
     trigger.focus();
     fireEvent.click(trigger);
     let dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
@@ -775,9 +1037,9 @@ describe('電力設計ページの導線', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(screen.queryByRole('dialog', { name: '予算で、いつ何を揃えるか' })).not.toBeInTheDocument();
-    expect(screen.getByText('未設定')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: '使う計画と、買う計画' })).getByText('未設定')).toBeInTheDocument();
     expect(trigger).toHaveFocus();
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    fireEvent.click(trigger);
     dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
     expect(annualBudget).toHaveValue(0);
@@ -787,14 +1049,14 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     let dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     fireEvent.change(within(dialog).getByLabelText(/毎年の備蓄予算/), { target: { value: '12000' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'この年間予算で保存' }));
 
     expect(screen.queryByRole('dialog', { name: '予算で、いつ何を揃えるか' })).not.toBeInTheDocument();
-    expect(screen.getByText('¥12,000')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    expect(within(screen.getByRole('region', { name: '使う計画と、買う計画' })).getByText('¥12,000')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '防災予算計画を開く' }));
     dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     expect(within(dialog).getByLabelText(/毎年の備蓄予算/)).toHaveValue(12000);
   });
@@ -815,7 +1077,7 @@ describe('電力設計ページの導線', () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
-    fireEvent.click(screen.getByRole('button', { name: 'ローリングストック計画' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ローリングストック計画を開く' }));
 
     expect(screen.getByText('期限切れ')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '1本を消費として記録' })).not.toBeInTheDocument();
@@ -845,7 +1107,7 @@ describe('電力設計ページの導線', () => {
     }];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    openInventoryCategory(/水分の備蓄を表示/);
     fireEvent.click(screen.getByRole('button', { name: 'カード上の期限切れ飲料水を消費・廃棄' }));
 
     const dialog = screen.getByRole('dialog', { name: 'カード上の期限切れ飲料水を記録' });
@@ -874,7 +1136,7 @@ describe('電力設計ページの導線', () => {
     }];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    openInventoryCategory(/食料の備蓄を表示/);
     fireEvent.click(screen.getByRole('button', { name: '日付境界の保存食を消費・廃棄' }));
 
     let dialog = screen.getByRole('dialog', { name: '日付境界の保存食を記録' });
@@ -901,7 +1163,7 @@ describe('電力設計ページの導線', () => {
     ];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    openInventoryCategory(/食料の備蓄を表示/);
     fireEvent.click(screen.getAllByRole('button', { name: '共有目標の保存食を消費・廃棄' })[0]);
     const dialog = screen.getByRole('dialog', { name: '共有目標の保存食を記録' });
     fireEvent.change(within(dialog).getByLabelText(/数量/), { target: { value: 10 } });
@@ -924,7 +1186,7 @@ describe('電力設計ページの導線', () => {
     ];
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    openInventoryCategory(/水分の備蓄を表示/);
     fireEvent.click(screen.getAllByRole('button', { name: '誤登録の商品を編集' })[0]);
     const dialog = screen.getByRole('dialog', { name: '備蓄品を編集' });
     fireEvent.change(within(dialog).getByLabelText('品目名'), { target: { value: '正しい保存食' } });
@@ -941,7 +1203,7 @@ describe('電力設計ページの導線', () => {
 
   it('同じ商品の新しい期限ロットで直した商品情報を既存ロットにも反映する', () => {
     render(<App />);
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    openInventoryCategory(/水分の備蓄を表示/);
     fireEvent.click(screen.getByRole('button', { name: '飲料水 500mlを新しい期限ロットとして補充' }));
     const dialog = screen.getByRole('dialog', { name: '新しい期限ロットを追加' });
     fireEvent.change(within(dialog).getByLabelText('品目名'), { target: { value: '生活用水 2L' } });
@@ -1075,7 +1337,10 @@ describe('電力設計ページの導線', () => {
     expect(within(dialog).getByLabelText('目標数')).toHaveValue(12);
     expect(within(dialog).getByLabelText('単位')).toHaveValue('本');
     expect(within(dialog).getByLabelText('重要度')).toHaveValue('2');
-    expect(within(dialog).getByLabelText('期限（任意）')).toHaveValue('');
+    const expiry = within(dialog).getByLabelText('期限または交換日');
+    expect(expiry).toHaveValue('');
+    expect(expiry).toBeRequired();
+    fireEvent.change(expiry, { target: { value: '2032-01-01' } });
     expect(within(dialog).getByLabelText('単価（円）')).toHaveValue(148);
     expect(within(dialog).getByLabelText(/1単位あたりの収納容量/)).toHaveValue(650);
     expect(within(dialog).getByLabelText('保管場所')).toHaveValue('玄関右棚');
@@ -1091,7 +1356,7 @@ describe('電力設計ページの導線', () => {
       expect(lots).toHaveLength(2);
       const newLot = lots.find((entry) => entry.id !== 'destination-lot');
       expect(newLot).toMatchObject({
-        productId: `gtin:${destinationBarcode}`, quantity: 1, expiry: '', waterPurpose: 'drinking-cooking',
+        productId: `gtin:${destinationBarcode}`, quantity: 1, expiry: '2032-01-01', waterPurpose: 'drinking-cooking',
         unit: '本', tier: 2, price: 148, packingVolumeMl: 650, location: '玄関右棚',
         rotationEnabled: false, rotationLeadDays: 45, replenishmentPriority: 'low',
         replenishBy: '2027-02-03', purchaseFrom: '近所のスーパー',
@@ -1158,13 +1423,13 @@ describe('電力設計ページの導線', () => {
   it('備蓄検索は支援技術から名前で特定できる', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+    fireEvent.click(screen.getByRole('button', { name: /水分の備蓄を表示/ }));
     expect(screen.getByRole('textbox', { name: '備蓄品を検索' })).toBeInTheDocument();
   });
 
   it('ミッション完了後は次のミッション見出しへフォーカスする', async () => {
     render(<App />);
-    const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
-    fireEvent.click(within(desktopNavigation).getByRole('button', { name: '防災力' }));
+    fireEvent.click(screen.getByRole('button', { name: /備えの進捗 .* の詳細を開く/ }));
     fireEvent.click(screen.getAllByRole('button', { name: '地域の災害リスクを確認を達成にする' })[0]);
     await waitFor(() => expect(screen.getByRole('heading', { name: 'いまは、これだけ' })).toHaveFocus());
   });

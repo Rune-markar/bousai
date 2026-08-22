@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { buildStockpileSkillTree, claimStockpileSkill, STOCKPILE_SKILL_STATUS } from './stockpileSkills.js';
 
@@ -132,6 +133,39 @@ describe('stockpile skill tree', () => {
     expect(afterExpiry.summary.foodDays).toBe(0);
     expect(afterExpiry.byId['food-1'].status).toBe(STOCKPILE_SKILL_STATUS.REVIEW);
     expect(afterExpiry.byId['food-3']).toMatchObject({ status: STOCKPILE_SKILL_STATUS.REVIEW, conditionMet: false, claimed: true });
+  });
+
+  it('UTCより西でも日付文字列をローカル日付として扱い、前日期限を数えない', () => {
+    const moduleUrl = new URL('./stockpileSkills.js', import.meta.url).href;
+    const script = `
+      import { buildStockpileSkillTree } from ${JSON.stringify(moduleUrl)};
+
+      const state = {
+        household: 1,
+        inventory: [
+          { id: 'expired', name: '前日期限の保存食', category: 'food', quantity: 3, foodWeightG: 450, expiry: '2026-08-19' },
+          { id: 'today', name: '当日期限の保存食', category: 'food', quantity: 1, foodWeightG: 450, expiry: '2026-08-20' },
+        ],
+        contact: { shelter: '', phone: '', note: '' },
+        preparedness: { completed: [], loadouts: {}, stockpileSkillClaims: [] },
+      };
+      const model = buildStockpileSkillTree(state, { today: '2026-08-20' });
+      process.stdout.write(JSON.stringify({
+        foodDays: model.summary.foodDays,
+        oneDayStatus: model.byId['food-1'].status,
+        threeDayStatus: model.byId['food-3'].status,
+      }));
+    `;
+    const result = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
+      encoding: 'utf8',
+      env: { ...process.env, TZ: 'America/Los_Angeles' },
+    }));
+
+    expect(result).toEqual({
+      foodDays: 1,
+      oneDayStatus: STOCKPILE_SKILL_STATUS.CLAIMABLE,
+      threeDayStatus: STOCKPILE_SKILL_STATUS.LOCKED,
+    });
   });
 
   it('lockedまたは未知のノードはclaimせず同じstateを返す', () => {

@@ -6,8 +6,8 @@ import { ALL_PREPAREDNESS_TASKS, defensePower, essentialPreparednessGates, foodI
 const base = {
   household: 2,
   inventory: [
-    { category: 'water', waterPurpose: 'drinking-cooking', quantity: 36, target: 36, volumeMl: 500 },
-    { category: 'food', quantity: 6, target: 6, foodWeightG: 450 },
+    { category: 'water', waterPurpose: 'drinking-cooking', quantity: 36, target: 36, volumeMl: 500, expiry: '2099-12-31' },
+    { category: 'food', quantity: 6, target: 6, foodWeightG: 450, expiry: '2099-12-31' },
     { name: '携帯トイレ', category: 'hygiene', quantity: 30, target: 30 },
   ],
   contact: { shelter: '小学校', phone: '090-0000-0000', note: '171を使う' },

@@ -36,15 +36,47 @@ describe('避難バッグの自動判定表示', () => {
   it('自動提案だけでは実物確認済みにしない', () => {
     render(<PracticalLoadout taskId="bag-primary" state={state} {...handlers} />);
     expect(screen.queryByRole('button', { name: '必須品を一括確認' })).not.toBeInTheDocument();
-    expect(screen.getByText('保有備蓄から自動提案')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '1. 保有備蓄から自動選定' })).toBeInTheDocument();
     expect(screen.getByText('現状の備蓄品')).toBeInTheDocument();
-    expect(screen.getByText('バッグへの自動配置')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'バッグへ入れる物' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '自動選定' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /現物確認/ })).toHaveAttribute('aria-selected', 'false');
     expect(handlers.onChange).not.toHaveBeenCalled();
   });
 
-  it('理想構成はアイコンから詳細を開いて収納確認する', () => {
+  it('古い完了記録が残っていても必須品が未確認なら完了表示にしない', () => {
+    const staleState = {
+      ...state,
+      preparedness: { ...state.preparedness, completed: ['bag-primary'], loadouts: { 'bag-primary': [] } },
+    };
+    render(<PracticalLoadout taskId="bag-primary" state={staleState} {...handlers} />);
+
+    const incomplete = screen.getByRole('button', { name: /あと\d+点を確認/ });
+    expect(incomplete).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '装備確認済み' })).not.toBeInTheDocument();
+  });
+
+  it('期限切れ・確認待ちの在庫を表示しつつ自動選定外と明記する', () => {
+    const unsafeState = {
+      ...state,
+      inventory: [
+        { ...state.inventory[0], expiry: '2020-01-01' },
+        { id: 'food-review', name: '確認待ち食品', category: 'food', tier: 1, unit: '個', quantity: 2, expiry: '', expiryMode: 'unknown' },
+      ],
+    };
+    render(<PracticalLoadout taskId="bag-primary" state={unsafeState} today={new Date('2026-08-22T12:00:00')} {...handlers} />);
+    fireEvent.click(screen.getByText(/現状の備蓄品と容量目安を確認/));
+
+    expect(screen.getByText('期限切れ・選定外')).toBeInTheDocument();
+    expect(screen.getByText('確認待ち・選定外')).toBeInTheDocument();
+    expect(screen.getByText('期限切れ・登録内容の確認待ちは、自動選定から除外します。')).toBeInTheDocument();
+  });
+
+  it('現物確認は品名つきの項目から詳細を開いて収納確認する', () => {
     render(<PracticalLoadout taskId="bag-primary" state={state} {...handlers} />);
     expect(screen.getByText('参考予算（アプリ内概算）')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: /現物確認/ }));
+    expect(screen.getByRole('tab', { name: /現物確認/ })).toHaveAttribute('aria-selected', 'true');
     fireEvent.click(screen.getByRole('button', { name: '飲料水 500mlの詳細を表示' }));
     expect(screen.getByText('容量目安 1本 約600ml')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '実物を確認して収納' }));
@@ -54,5 +86,7 @@ describe('避難バッグの自動判定表示', () => {
   it('実容量入力に44pxのタッチ領域を確保する', () => {
     const stylesheet = readFileSync('src/styles.css', 'utf8');
     expect(stylesheet).toMatch(/\.bag-capacity-control input,\.modal input,\.modal select\{min-height:44px\}/);
+    expect(stylesheet).toMatch(/\.packing-reference>summary\{min-height:44px\}/);
+    expect(stylesheet).toMatch(/@media\(max-height:520px\)[\s\S]*?\.loadout-head>button\{width:44px;height:44px;min-height:44px;flex-basis:44px\}[\s\S]*?\.bag-planning-tabs button\{min-height:44px\}/);
   });
 });

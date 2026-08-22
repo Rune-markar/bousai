@@ -38,6 +38,7 @@ const DIVERSITY_BRANCHES = Object.freeze([
     actionLabel: '食料を確認',
     categories: ['food', 'comfort'],
     pattern: /(チョコ|菓子|ビスケット|ようかん|羊羹|あめ|飴|ナッツ|コーヒー|茶|調味料)/,
+    requiresFoodExpiryConfirmation: true,
   },
   {
     id: 'calm',
@@ -78,8 +79,13 @@ export function buildStockpileGuideline(summary = {}, inventory = [], today = ne
   }));
   const nextMilestone = milestones.find((milestone) => !milestone.complete)?.days ?? null;
   const usable = usableInventory(inventory, today);
-  const branches = DIVERSITY_BRANCHES.map(({ pattern, categories, ...branch }) => {
-    const matchedItem = usable.find((item) => categories.includes(item.category) && pattern.test(String(item.name || '')));
+  const branches = DIVERSITY_BRANCHES.map(({ pattern, categories, requiresFoodExpiryConfirmation = false, ...branch }) => {
+    const matchedItem = usable.find((item) => categories.includes(item.category)
+      && pattern.test(String(item.name || ''))
+      // Foods filed under the broad "comfort" category are outside the core
+      // expiry gate. Require a dated item here so an unknown-date snack cannot
+      // unlock the food-variety achievement.
+      && (!requiresFoodExpiryConfirmation || item.category === 'food' || Boolean(item.expiry)));
     return {
       ...branch,
       registered: Boolean(matchedItem),

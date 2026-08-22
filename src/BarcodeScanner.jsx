@@ -39,6 +39,12 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
     const code = digitsOnly(rawCode);
     setManualCode(code);
     onBarcode?.(code);
+    if (!code) {
+      setStatus('idle');
+      setMessage('');
+      setProduct(null);
+      return;
+    }
     setStatus('loading');
     setMessage('商品情報を照会しています…');
     setProduct(null);

@@ -38,7 +38,7 @@ const resourceNodes = (days, parentDays) => RESOURCE_SKILLS.map((resource) => ({
   title: `${resource.title}${resource.category === 'food' ? '・重量換算' : ''}${days}日分`,
   description: resource.category === 'food'
     ? `登録重量をアプリ内の参考値（1人1日450g）で換算して${days}日分以上です。栄養・アレルギー・調理可否は別に確認します。`
-    : `${resource.title}の期限内在庫が${days}日分以上です。`,
+    : `${resource.title}は、期限切れ・登録内容の確認待ちを除いた在庫が${days}日分以上です。`,
   tier: `${days}-day`,
   kind: 'resource',
   category: resource.category,
@@ -101,7 +101,7 @@ const baseNodes = [
   },
   ...STOCKPILE_DIVERSITY_SKILLS.map((branch) => ({
     ...branch,
-    description: `${branch.unlockDescription}、該当する期限内の実物を登録すると確認できます。`,
+    description: `${branch.unlockDescription}、期限切れ・登録内容の確認待ちを除いた該当品を登録すると確認できます。`,
     tier: 'diversity',
     kind: 'diversity',
     criterion: { type: 'diversity-branch', branchId: branch.guidelineBranchId },
@@ -112,8 +112,13 @@ export const STOCKPILE_SKILL_NODES = Object.freeze(baseNodes.map(freezeNode));
 
 const nodeDefinitionById = new Map(STOCKPILE_SKILL_NODES.map((node) => [node.id, node]));
 
+const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 const resolveDate = (options = {}) => {
-  const date = new Date(options.today ?? options.now ?? new Date());
+  const value = options.today ?? options.now ?? new Date();
+  const date = typeof value === 'string' && LOCAL_DATE_PATTERN.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
   return Number.isNaN(date.getTime()) ? new Date() : date;
 };
 

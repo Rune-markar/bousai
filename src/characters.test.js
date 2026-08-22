@@ -38,6 +38,32 @@ describe('character guidance', () => {
     expect(buildCharacterAdvice(safetyReadyState(), { rows: [expiringCoffee], waterDays: 3, foodDays: 3, toiletDays: 0 }).text).toContain('携帯トイレ');
   });
 
+  it('does not let an unrelated review item hide a critical water shortage', () => {
+    const coffeeReview = { id: 'coffee', name: 'コーヒー', category: 'comfort', needsVerification: true, shortage: 1, unit: '袋' };
+    const advice = buildCharacterAdvice(safetyReadyState(), { rows: [coffeeReview], waterDays: 0, foodDays: 3, toiletDays: 3 });
+
+    expect(advice.kind).toBe('shortage');
+    expect(advice.text).toContain('飲料・調理用水');
+    expect(advice.text).not.toContain('コーヒー');
+  });
+
+  it('does not let a utility-water review item hide a drinking-water shortage', () => {
+    const utilityReview = { id: 'utility', name: '生活用水', category: 'water', waterPurpose: 'utility', needsVerification: true, shortage: 1, unit: '箱' };
+    const advice = buildCharacterAdvice(safetyReadyState(), { rows: [utilityReview], waterDays: 0, foodDays: 3, toiletDays: 3 });
+
+    expect(advice.kind).toBe('shortage');
+    expect(advice.text).toContain('飲料・調理用水');
+  });
+
+  it('asks to verify a potentially drinkable water row before recommending more', () => {
+    const waterReview = { id: 'water', name: '用途未確認の水', category: 'water', waterPurpose: 'needs-review', needsVerification: true, shortage: 6, unit: '本' };
+    const advice = buildCharacterAdvice(safetyReadyState(), { rows: [waterReview], waterDays: 0, foodDays: 3, toiletDays: 3 });
+
+    expect(advice.kind).toBe('data-review');
+    expect(advice.itemId).toBe('water');
+    expect(advice.text).toContain('実物の期限・分類・用途を確認');
+  });
+
   it.each([
     '非常用トイレ用手袋セット',
     '携帯トイレ用防臭袋セット',

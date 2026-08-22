@@ -73,19 +73,63 @@ describe('state migration', () => {
     const state = normalizeState({ schemaVersion: 14, inventory: [water, { ...water, name: '別の保管場所の水' }] });
 
     expect(new Set(state.inventory.map((item) => item.id)).size).toBe(2);
+    expect(new Set(state.inventory.map((item) => item.productId)).size).toBe(2);
     expect(state.inventory).toHaveLength(2);
     expect(state.inventory.every((item) => item.verificationReason === 'legacy-sample' && item.verificationStatus === 'needs-review')).toBe(true);
     expect(inventorySummary(state.inventory, 2).waterDays).toBe(0);
   });
 
+  it('does not merge unrelated legacy products that reused the same row ID', () => {
+    const state = normalizeState({ schemaVersion: 14, inventory: [
+      { id: 'same', name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', unit: '本', quantity: 6, target: 6, volumeMl: 500, expiry: '2030-01-01' },
+      { id: 'same', name: '保存食', category: 'food', unit: '食', quantity: 3, target: 3, foodWeightG: 150, expiry: '2030-01-01' },
+    ] });
+
+    expect(state.inventory.map(({ id, productId, category, target }) => ({ id, productId, category, target }))).toEqual([
+      { id: 'same', productId: 'legacy:same', category: 'water', target: 6 },
+      { id: 'same-duplicate-2', productId: 'legacy:same-duplicate-2', category: 'food', target: 3 },
+    ]);
+  });
+
   it('does not double-count cloned per-lot targets from older versions', () => {
     const state = normalizeState({ schemaVersion: 14, inventory: [
-      { id: 'lot-a', productId: 'gtin:4900000000000', name: '保存食', category: 'food', quantity: 5, target: 10, foodWeightG: 150 },
-      { id: 'lot-b', productId: 'gtin:4900000000000', name: '保存食', category: 'food', quantity: 5, target: 10, foodWeightG: 150 },
+      { id: 'lot-a', productId: 'gtin:4900000000000', name: '保存食', category: 'food', quantity: 5, target: 10, foodWeightG: 150, expiry: '2099-12-31' },
+      { id: 'lot-b', productId: 'gtin:4900000000000', name: '保存食', category: 'food', quantity: 5, target: 10, foodWeightG: 150, expiry: '2099-12-31' },
     ] });
 
     expect(state.inventory.reduce((sum, item) => sum + item.target, 0)).toBe(10);
     expect(inventorySummary(state.inventory, 1).rows.reduce((sum, item) => sum + item.shortage, 0)).toBe(0);
+  });
+
+  it('canonicalizes v15 barcode identities without summing duplicate product targets', () => {
+    const barcode = '4900000000000';
+    const state = normalizeState({ schemaVersion: 15, inventory: [
+      { id: 'lot-a', productId: 'manual:first', barcode, name: '保存食', category: 'food', quantity: 3, target: 3, foodWeightG: 150, expiry: '2099-12-31' },
+      { id: 'lot-b', productId: 'manual:first', barcode, name: '保存食', category: 'food', quantity: 2, target: 2, foodWeightG: 150, expiry: '2099-12-31' },
+      { id: 'lot-c', productId: 'gtin:old-code', barcode, name: '保存食', category: 'food', quantity: 8, target: 8, foodWeightG: 150, expiry: '2099-12-31' },
+    ] });
+
+    expect(new Set(state.inventory.map((item) => item.productId))).toEqual(new Set([`gtin:${barcode}`]));
+    expect(state.inventory.reduce((sum, item) => sum + item.target, 0)).toBe(8);
+  });
+
+  it('quarantines conflicting safety fields across lots sharing one barcode', () => {
+    const barcode = '4900000000000';
+    const state = normalizeState({ schemaVersion: 14, household: 1, inventory: [
+      { id: 'lot-a', productId: 'manual:first', barcode, name: '保存食', category: 'food', unit: '袋', quantity: 1, target: 2, foodWeightG: 100, expiry: '2099-12-31' },
+      { id: 'lot-b', productId: 'manual:second', barcode, name: '保存食', category: 'food', unit: '袋', quantity: 1, target: 1, foodWeightG: 10000, expiry: '2099-12-31' },
+    ] });
+
+    expect(state.inventory.every((item) => item.verificationReason === 'product-conflict' && item.verificationStatus === 'needs-review')).toBe(true);
+    expect(inventorySummary(state.inventory, 1).foodDays).toBe(0);
+  });
+
+  it('does not preserve a stale GTIN identity after its barcode is removed', () => {
+    const state = normalizeState({ schemaVersion: 15, inventory: [
+      { id: 'manual-lot', productId: 'gtin:4900000000000', barcode: '', name: '手入力品', category: 'light', quantity: 1, target: 1 },
+    ] });
+
+    expect(state.inventory[0].productId).toBe('manual:manual-lot');
   });
 
   it('restores one identity for matching manual lots created by older replenishment', () => {
@@ -137,8 +181,8 @@ describe('state migration', () => {
 
   it('classifies water purpose and quarantines ambiguous water or invalid expiry dates', () => {
     const state = normalizeState({ schemaVersion: SCHEMA_VERSION, inventory: [
-      { id: 'potable', name: '水タンク', category: 'water', waterPurpose: 'drinking-cooking', quantity: 1 },
-      { id: 'explicit-potable', name: '生活用水と書かれた容器', category: 'water', waterPurpose: 'drinking-cooking', quantity: 1 },
+      { id: 'potable', name: '水タンク', category: 'water', waterPurpose: 'drinking-cooking', quantity: 1, expiry: '2099-12-31' },
+      { id: 'explicit-potable', name: '生活用水と書かれた容器', category: 'water', waterPurpose: 'drinking-cooking', quantity: 1, expiry: '2099-12-31' },
       { id: 'utility', name: '浴槽の水', category: 'water', waterPurpose: 'utility', quantity: 1 },
       { id: 'ambiguous', name: '水タンク', category: 'water', quantity: 1 },
       { id: 'invalid-purpose', name: '飲料水', category: 'water', waterPurpose: 'industrial', quantity: 1, volumeMl: 1000 },
@@ -156,6 +200,23 @@ describe('state migration', () => {
     expect(state.inventory.find((item) => item.id === 'review-purpose')).toMatchObject({ waterPurpose: 'needs-review', verificationStatus: 'needs-review', verificationReason: 'ambiguous-water' });
     expect(inventorySummary(state.inventory, 1).waterDays).toBe(0);
     expect(state.inventory.find((item) => item.id === 'invalid-expiry')).toMatchObject({ verificationStatus: 'needs-review', verificationReason: 'invalid-expiry' });
+  });
+
+  it('requires expiry confirmation only for food and drinking water', () => {
+    const state = normalizeState({ schemaVersion: SCHEMA_VERSION, inventory: [
+      { id: 'unknown-water', name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 1, volumeMl: 500 },
+      { id: 'unknown-food', name: '保存食', category: 'food', quantity: 1, foodWeightG: 150 },
+      { id: 'no-date-food', name: '期限表示のない食品', category: 'food', quantity: 1, foodWeightG: 150, expiryMode: 'no-date-confirmed' },
+      { id: 'utility', name: '浴槽の生活用水', category: 'water', waterPurpose: 'utility', quantity: 1, volumeMl: 1000 },
+      { id: 'toilet', name: '携帯トイレ', category: 'hygiene', quantity: 5 },
+    ] });
+
+    expect(state.inventory.find((item) => item.id === 'unknown-water')).toMatchObject({ verificationStatus: 'needs-review', verificationReason: 'missing-expiry' });
+    expect(state.inventory.find((item) => item.id === 'unknown-food')).toMatchObject({ verificationStatus: 'needs-review', verificationReason: 'missing-expiry' });
+    expect(state.inventory.find((item) => item.id === 'no-date-food')).toMatchObject({ expiryMode: 'no-date-confirmed' });
+    expect(state.inventory.find((item) => item.id === 'no-date-food').verificationStatus).toBeUndefined();
+    expect(state.inventory.find((item) => item.id === 'utility').verificationStatus).toBeUndefined();
+    expect(state.inventory.find((item) => item.id === 'toilet').verificationStatus).toBeUndefined();
   });
 
   it('preserves a current-schema shelter name even when it matches the setup example', () => {

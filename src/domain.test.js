@@ -1,5 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { buildRotationQueue, consumeByRotation, createInitialInventory, inventorySummary, isDrinkingCookingWater, isValidLocalDate, itemStats, localDateKey, normalizeStockpileTargetDays, portableToiletUses, redistributeProductTargets, stockpileBudgetProjection, stockpileUnitNeeds, transactionInsights, usableInventory } from './domain.js';
+
+const VERIFIED_EXPIRY = '2099-12-31';
 
 describe('itemStats', () => {
   it('不足数と補充費用を計算する', () => {
@@ -30,13 +33,30 @@ describe('itemStats', () => {
     expect(stats.daysToExpiry).toBe(item.expiry === '2026-02-30' ? null : 106);
     expect(stats.isExpiring).toBe(false);
   });
+
+  it('DST境界でも期限・点検・再通知を暦日で計算する', () => {
+    const moduleUrl = new URL('./domain.js', import.meta.url).href;
+    const script = `
+      import { itemStats } from ${JSON.stringify(moduleUrl)};
+      const autumn = itemStats({ quantity: 1, target: 1, expiry: '2026-11-02', nextCheck: '2026-11-02', rotationReminderDate: '2026-11-02' }, new Date('2026-10-03T12:00:00'));
+      const spring = itemStats({ quantity: 3, target: 3, expiry: '2026-03-08' }, new Date('2026-03-09T12:00:00'));
+      process.stdout.write(JSON.stringify({ autumn, spring }));
+    `;
+    const result = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
+      encoding: 'utf8',
+      env: { ...process.env, TZ: 'America/Los_Angeles' },
+    }));
+
+    expect(result.autumn).toMatchObject({ daysToExpiry: 30, daysToCheck: 30, daysToRotationReminder: 30, isExpiring: true });
+    expect(result.spring).toMatchObject({ daysToExpiry: -1, isExpired: true, usableQuantity: 0, shortage: 3 });
+  });
 });
 
 describe('stockpileBudgetProjection', () => {
   it('目標日数までの概算費用と年間予算から到達月数を返す', () => {
     const result = stockpileBudgetProjection([
-      { name: '水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 3, volumeMl: 1000, price: 100 },
-      { name: '食料', category: 'food', quantity: 3, foodWeightG: 450, price: 300 },
+      { name: '水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 3, volumeMl: 1000, price: 100, expiry: VERIFIED_EXPIRY },
+      { name: '食料', category: 'food', quantity: 3, foodWeightG: 450, price: 300, expiry: VERIFIED_EXPIRY },
       { name: '携帯トイレ', category: 'hygiene', quantity: 15, price: 50 },
     ], 1, 7, 12000);
     expect(result.resources.map((item) => item.currentDays)).toEqual([1, 3, 3]);
@@ -63,7 +83,7 @@ describe('stockpileBudgetProjection', () => {
   it('期限切れ品を在庫にも購入候補にも含めず、未期限の登録商品を提案する', () => {
     const result = stockpileBudgetProjection([
       { id: 'expired', name: '期限切れ水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, unit: '本', quantity: 10, volumeMl: 2000, price: 50, expiry: '2026-08-16' },
-      { id: 'fresh', name: '補充用の水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, unit: '本', quantity: 0, volumeMl: 2000, price: 100, expiry: '' },
+      { id: 'fresh', name: '補充用の水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, unit: '本', quantity: 0, volumeMl: 2000, price: 100, expiry: VERIFIED_EXPIRY },
     ], 1, 1, 1000, new Date('2026-08-17T12:00:00'));
 
     const water = result.resources.find((item) => item.key === 'water');
@@ -315,6 +335,108 @@ describe('portableToiletUses', () => {
     expect(portableToiletUses([{ name, category: 'hygiene', quantity: 35 }], today)).toBe(0);
   });
 
+  it.each(['便袋用消臭剤', '便袋の消臭剤', 'トイレ袋用ホルダー', 'トイレ袋のホルダー'])('does not pair the bag-related accessory %s with real coagulant', (name) => {
+    expect(portableToiletUses([
+      { name, category: 'hygiene', quantity: 35 },
+      { name: '非常用凝固剤', category: 'hygiene', quantity: 35 },
+    ], today)).toBe(0);
+  });
+
+  it.each([
+    '携帯トイレ 便袋・凝固剤 保管ケース',
+    '便袋・凝固剤の説明書',
+    '携帯トイレ 便袋・凝固剤交換手順書',
+    '携帯トイレ便袋・凝固剤収納ケース',
+    '簡易トイレ本体（便袋・凝固剤対応）',
+    '便袋・凝固剤対応の非常用トイレ便座',
+    '携帯トイレ用 便袋・凝固剤対応ホルダー',
+  ])('does not count the component accessory %s as disposal uses', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 35 }], today)).toBe(0);
+    expect(portableToiletUses([
+      { name, category: 'hygiene', quantity: 35 },
+      { name: '非常用便袋', category: 'hygiene', quantity: 35 },
+      { name: '非常用凝固剤', category: 'hygiene', quantity: 35 },
+    ], today)).toBe(35);
+  });
+
+  it.each([
+    '凝固剤用計量スプーン',
+    '凝固剤の計量スプーン',
+    '凝固剤計量スプーン',
+    '油用凝固剤',
+    '食用油凝固剤',
+    '天ぷら油凝固剤',
+  ])('does not pair the non-toilet coagulant product %s with a real toilet bag', (name) => {
+    expect(portableToiletUses([
+      { name: '非常用便袋', category: 'hygiene', quantity: 35 },
+      { name, category: 'hygiene', quantity: 35 },
+    ], today)).toBe(0);
+  });
+
+  it.each(['便袋用凝固剤', '便袋専用凝固剤', '便袋向け凝固剤', '便袋の凝固剤'])('treats the dependent coagulant %s as coagulant only', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 50 }], today)).toBe(0);
+    expect(portableToiletUses([
+      { name, category: 'hygiene', quantity: 50 },
+      { name: '非常用便袋', category: 'hygiene', quantity: 20 },
+    ], today)).toBe(20);
+  });
+
+  it.each(['凝固剤用便袋', '凝固剤専用便袋', '凝固剤向け便袋', '凝固剤の便袋'])('treats the dependent bag %s as bag only', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 50 }], today)).toBe(0);
+    expect(portableToiletUses([
+      { name, category: 'hygiene', quantity: 50 },
+      { name: '非常用凝固剤', category: 'hygiene', quantity: 20 },
+    ], today)).toBe(20);
+  });
+
+  it.each(['便袋・凝固剤', '便袋付き凝固剤', '凝固剤・便袋', '凝固剤付き便袋'])('keeps the explicit paired product %s as a complete kit', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 12 }], today)).toBe(12);
+  });
+
+  it.each(['非常用トイレセット 交換用マット', '携帯トイレキット 交換用シート', '災害用トイレセット 説明書', '非常用トイレ（交換用マット）', '携帯トイレ（説明書）', '災害用トイレ（専用ポーチ）', '携帯トイレ（便袋別売）', '携帯トイレ（凝固剤別売）'])('does not treat a kit marker followed by the accessory %s as disposal uses', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 35 }], today)).toBe(0);
+  });
+
+  it.each(['非常用トイレセット', '携帯トイレキット 35回分', '災害用トイレ 50回分', '携帯トイレ（50回分）'])('keeps the complete product %s as a kit', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 12 }], today)).toBe(12);
+  });
+
+  it.each(['凝固剤（便袋別売）', '便袋別売の凝固剤', '凝固剤 便袋なし', '便袋別途の凝固剤'])('treats %s as coagulant only when the bag is explicitly absent', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 15 }], today)).toBe(0);
+    expect(portableToiletUses([
+      { name, category: 'hygiene', quantity: 15 },
+      { name: '非常用便袋', category: 'hygiene', quantity: 9 },
+    ], today)).toBe(9);
+  });
+
+  it.each(['便袋（凝固剤別売）', '凝固剤別売の便袋', '便袋 凝固剤不要', '凝固剤別途の便袋'])('treats %s as bag only when the coagulant is explicitly absent', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 15 }], today)).toBe(0);
+    expect(portableToiletUses([
+      { name, category: 'hygiene', quantity: 15 },
+      { name: '非常用凝固剤', category: 'hygiene', quantity: 7 },
+    ], today)).toBe(7);
+  });
+
+  it.each(['携帯トイレ（便袋と凝固剤は別売）', '非常用トイレ 便袋・凝固剤別売', '簡易トイレ本体 便袋と凝固剤を別途用意', '携帯トイレ 凝固剤／便袋は付属なし', '災害用トイレ 便袋・凝固剤は付属しません'])('counts no component when %s says both are absent', (name) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 35 }], today)).toBe(0);
+    expect(portableToiletUses([
+      { name, category: 'hygiene', quantity: 35 },
+      { name: '非常用便袋', category: 'hygiene', quantity: 35 },
+      { name: '非常用凝固剤', category: 'hygiene', quantity: 35 },
+    ], today)).toBe(35);
+  });
+
+  it.each([
+    ['簡易トイレ（凝固剤が付属しません）', '非常用便袋'],
+    ['非常用トイレ（便袋は付属していません）', '非常用凝固剤'],
+  ])('does not count the explicitly absent component in %s', (name, counterpart) => {
+    expect(portableToiletUses([{ name, category: 'hygiene', quantity: 35 }], today)).toBe(0);
+    expect(portableToiletUses([
+      { name, category: 'hygiene', quantity: 35 },
+      { name: counterpart, category: 'hygiene', quantity: 35 },
+    ], today)).toBe(0);
+  });
+
   it.each(['携帯トイレ 便袋セット', '災害用トイレ 凝固剤セット', '携帯トイレ凝固剤', '災害用トイレ凝固剤10個', '非常用トイレ便袋', '簡易トイレ排便袋', '非常用トイレ排泄袋', '携帯トイレ用汚物袋', '簡易トイレ交換袋', '災害用トイレ処理袋', '携帯トイレ用吸水シート'])('does not mistake the single component %s for a complete kit', (name) => {
     expect(portableToiletUses([{ name, category: 'hygiene', quantity: 35 }], today)).toBe(0);
   });
@@ -406,8 +528,8 @@ describe('inventorySummary', () => {
 
   it('目標を超えた在庫で総合点が100を超えない', () => {
     const summary = inventorySummary([
-      { category: 'food', tier: 1, quantity: 20, target: 10, foodWeightG: 150, price: 100, expiry: '' },
-      { category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 5, target: 10, volumeMl: 1000, price: 50, expiry: '' },
+      { category: 'food', tier: 1, quantity: 20, target: 10, foodWeightG: 150, price: 100, expiry: VERIFIED_EXPIRY },
+      { category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 5, target: 10, volumeMl: 1000, price: 50, expiry: VERIFIED_EXPIRY },
     ]);
     expect(summary.score).toBe(35);
     expect(summary.shortageCount).toBe(1);
@@ -415,13 +537,13 @@ describe('inventorySummary', () => {
   });
 
   it('uses explicit water volume instead of guessing from the name', () => {
-    const summary = inventorySummary([{ name: '大容量ボトル', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 3, target: 3, volumeMl: 2000, price: 0, expiry: '' }], 2);
+    const summary = inventorySummary([{ name: '大容量ボトル', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 3, target: 3, volumeMl: 2000, price: 0, expiry: VERIFIED_EXPIRY }], 2);
     expect(summary.waterDays).toBe(1);
   });
 
   it('counts only drinking/cooking water and reports utility water separately', () => {
     const items = [
-      { id: 'potable', name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 3, target: 3, volumeMl: 1000 },
+      { id: 'potable', name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 3, target: 3, volumeMl: 1000, expiry: VERIFIED_EXPIRY },
       { id: 'utility', name: '浴槽の生活用水', category: 'water', waterPurpose: 'utility', tier: 1, quantity: 30, target: 30, volumeMl: 1000 },
       { id: 'ambiguous', name: '水タンク', category: 'water', waterPurpose: 'needs-review', verificationStatus: 'needs-review', tier: 1, quantity: 30, target: 30, volumeMl: 1000 },
     ];
@@ -438,7 +560,7 @@ describe('inventorySummary', () => {
   it('does not let utility water or water with no registered volume fill the potable-water score', () => {
     const utilityOnly = inventorySummary([
       { name: '生活用水', category: 'water', waterPurpose: 'utility', tier: 1, quantity: 30, target: 30, volumeMl: 1000 },
-      { name: '容量未登録の飲料水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 30, target: 30, volumeMl: 0 },
+      { name: '容量未登録の飲料水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 30, target: 30, volumeMl: 0, expiry: VERIFIED_EXPIRY },
     ], 1);
 
     expect(utilityOnly.categoryScores.find((item) => item.key === 'water').score).toBe(0);
@@ -457,10 +579,36 @@ describe('inventorySummary', () => {
     expect(summary).toMatchObject({ waterDays: 0, foodDays: 0, toiletDays: 0, householdStockpileDays: 0, score: 0 });
   });
 
+  it('excludes expiry-unknown food and drinking water while accepting confirmed no-date food', () => {
+    const items = [
+      { id: 'unknown-water', name: '期限未確認の飲料水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 6, target: 6, volumeMl: 500 },
+      { id: 'unknown-food', name: '期限未確認の保存食', category: 'food', quantity: 3, target: 3, foodWeightG: 150 },
+      { id: 'no-date-food', name: '期限表示のない食品', category: 'food', quantity: 3, target: 3, foodWeightG: 150, expiryMode: 'no-date-confirmed' },
+    ];
+    const today = new Date('2026-08-17T12:00:00');
+    const summary = inventorySummary(items, 1, today);
+
+    expect(usableInventory(items, today).map((item) => item.id)).toEqual(['no-date-food']);
+    expect(summary).toMatchObject({ waterDays: 0, foodDays: 1, foodGrams: 450 });
+    expect(summary.rows.filter((item) => item.needsVerification).map((item) => item.id)).toEqual(['unknown-water', 'unknown-food']);
+  });
+
+  it('keeps utility water and hygiene stock usable without expiry dates', () => {
+    const items = [
+      { id: 'utility', name: '浴槽の生活用水', category: 'water', waterPurpose: 'utility', quantity: 4, target: 4, volumeMl: 1000 },
+      { id: 'toilet', name: '携帯トイレ', category: 'hygiene', quantity: 5, target: 5 },
+    ];
+    const today = new Date('2026-08-17T12:00:00');
+    const summary = inventorySummary(items, 1, today);
+
+    expect(usableInventory(items, today).map((item) => item.id)).toEqual(['utility', 'toilet']);
+    expect(summary).toMatchObject({ waterDays: 0, utilityWaterMl: 4000, toiletUnits: 5, toiletDays: 1 });
+  });
+
   it('calculates food and survival days from 150g meals', () => {
     const summary = inventorySummary([
-      { name: '水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 18, target: 18, volumeMl: 1000, price: 0, expiry: '' },
-      { name: '保存食', category: 'food', tier: 1, quantity: 18, target: 18, foodWeightG: 150, price: 0, expiry: '' },
+      { name: '水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 18, target: 18, volumeMl: 1000, price: 0, expiry: VERIFIED_EXPIRY },
+      { name: '保存食', category: 'food', tier: 1, quantity: 18, target: 18, foodWeightG: 150, price: 0, expiry: VERIFIED_EXPIRY },
     ], 2);
     expect(summary.waterDays).toBe(3);
     expect(summary.foodDays).toBe(3);
@@ -469,8 +617,8 @@ describe('inventorySummary', () => {
 
   it('uses the shorter of water and food for survival days', () => {
     const summary = inventorySummary([
-      { category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 42, target: 42, volumeMl: 1000, price: 0, expiry: '' },
-      { category: 'food', tier: 1, quantity: 9, target: 9, foodWeightG: 150, price: 0, expiry: '' },
+      { category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 42, target: 42, volumeMl: 1000, price: 0, expiry: VERIFIED_EXPIRY },
+      { category: 'food', tier: 1, quantity: 9, target: 9, foodWeightG: 150, price: 0, expiry: VERIFIED_EXPIRY },
     ], 1);
     expect(summary.waterDays).toBe(14);
     expect(summary.foodDays).toBe(3);
@@ -479,8 +627,8 @@ describe('inventorySummary', () => {
 
   it('calculates household continuity from food, water, and portable toilets', () => {
     const summary = inventorySummary([
-      { name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 18, target: 18, volumeMl: 500 },
-      { name: '保存食', category: 'food', quantity: 12, target: 12, foodWeightG: 150 },
+      { name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 18, target: 18, volumeMl: 500, expiry: VERIFIED_EXPIRY },
+      { name: '保存食', category: 'food', quantity: 12, target: 12, foodWeightG: 150, expiry: VERIFIED_EXPIRY },
       { name: '携帯トイレ', category: 'hygiene', quantity: 20, target: 20 },
     ], 2);
     expect(summary.waterDays).toBe(1.5);
@@ -491,8 +639,8 @@ describe('inventorySummary', () => {
 
   it('converts total food weight and water volume into household days', () => {
     const summary = inventorySummary([
-      { name: 'アルファ米', category: 'food', tier: 1, quantity: 9, target: 9, foodWeightG: 100, price: 0, expiry: '' },
-      { name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 18, target: 18, volumeMl: 500, price: 0, expiry: '' },
+      { name: 'アルファ米', category: 'food', tier: 1, quantity: 9, target: 9, foodWeightG: 100, price: 0, expiry: VERIFIED_EXPIRY },
+      { name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 18, target: 18, volumeMl: 500, price: 0, expiry: VERIFIED_EXPIRY },
     ], 2);
     expect(summary.foodGrams).toBe(900);
     expect(summary.waterMl).toBe(9000);
@@ -505,8 +653,8 @@ describe('inventorySummary', () => {
 
   it('does not guess missing amounts and reports items that need input', () => {
     const summary = inventorySummary([
-      { name: '重量不明の缶詰', category: 'food', tier: 1, quantity: 3, target: 3, price: 0, expiry: '' },
-      { name: '容量不明の水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 2, target: 2, price: 0, expiry: '' },
+      { name: '重量不明の缶詰', category: 'food', tier: 1, quantity: 3, target: 3, price: 0, expiry: VERIFIED_EXPIRY },
+      { name: '容量不明の水', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 2, target: 2, price: 0, expiry: VERIFIED_EXPIRY },
     ], 1);
     expect(summary.foodDays).toBe(0);
     expect(summary.waterDays).toBe(0);
@@ -550,10 +698,25 @@ describe('inventorySummary', () => {
     expect(summary.notificationCount).toBe(3);
   });
 
+  it('does not add a purchase notification while a core resource awaits verification', () => {
+    const summary = inventorySummary([
+      { id: 'water-review', name: '保存水 2L', category: 'water', waterPurpose: 'drinking-cooking', unit: '本', quantity: 10, target: 0, volumeMl: 2000 },
+      { id: 'food', name: '保存食', category: 'food', unit: '食', quantity: 3, target: 3, foodWeightG: 450, expiry: VERIFIED_EXPIRY },
+      { id: 'toilet', name: '携帯トイレ', category: 'hygiene', unit: '回分', quantity: 15, target: 15 },
+    ], 1, new Date('2026-08-17T12:00:00'));
+
+    expect(summary.waterDays).toBe(0);
+    expect(summary.essentialNotificationGaps).toEqual([
+      expect.objectContaining({ key: 'water', blockedByReview: true }),
+    ]);
+    expect(summary.itemNotificationCount).toBe(1);
+    expect(summary.notificationCount).toBe(1);
+  });
+
   it('重要カテゴリを削除しても備蓄力が上がらない', () => {
     const items = [
-      { category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 10, target: 10, price: 0, expiry: '' },
-      { category: 'food', tier: 1, quantity: 10, target: 10, price: 0, expiry: '' },
+      { category: 'water', waterPurpose: 'drinking-cooking', tier: 1, quantity: 10, target: 10, price: 0, expiry: VERIFIED_EXPIRY },
+      { category: 'food', tier: 1, quantity: 10, target: 10, price: 0, expiry: VERIFIED_EXPIRY },
       { category: 'hygiene', tier: 1, quantity: 2, target: 10, price: 0, expiry: '' },
     ];
     expect(inventorySummary(items.filter((item) => item.category !== 'hygiene')).score)
@@ -564,8 +727,8 @@ describe('inventorySummary', () => {
 describe('stockpileUnitNeeds', () => {
   it('目標との差を2L水・食数・トイレ・ボンベ・コンロの実数へ換算する', () => {
     const needs = stockpileUnitNeeds([
-      { name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 3, volumeMl: 2000 },
-      { name: '保存食', category: 'food', quantity: 6, foodWeightG: 150 },
+      { name: '飲料水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 3, volumeMl: 2000, expiry: VERIFIED_EXPIRY },
+      { name: '保存食', category: 'food', quantity: 6, foodWeightG: 150, expiry: VERIFIED_EXPIRY },
       { name: '携帯トイレ', category: 'hygiene', quantity: 10 },
       { name: 'カセットボンベ', category: 'heat', quantity: 6 },
     ], 2, 7, new Date('2026-08-17T12:00:00'));
@@ -594,7 +757,7 @@ describe('stockpileUnitNeeds', () => {
       { id: 'ambiguous', name: '水タンク', category: 'water', waterPurpose: 'needs-review', verificationStatus: 'needs-review', quantity: 10, volumeMl: 2000, price: 10 },
       { id: 'review', name: '未確認の飲料水', category: 'water', waterPurpose: 'drinking-cooking', verificationStatus: 'needs-review', quantity: 10, volumeMl: 2000, price: 10 },
       { id: 'invalid', name: '期限不正の飲料水', category: 'water', waterPurpose: 'drinking-cooking', quantity: 10, volumeMl: 2000, price: 10, expiry: '2026-99-99' },
-      { id: 'verified', name: '補充用の飲料水', category: 'water', waterPurpose: 'drinking-cooking', unit: '本', quantity: 0, volumeMl: 2000, price: 100 },
+      { id: 'verified', name: '補充用の飲料水', category: 'water', waterPurpose: 'drinking-cooking', unit: '本', quantity: 0, volumeMl: 2000, price: 100, expiry: VERIFIED_EXPIRY },
     ];
     const today = new Date('2026-08-17T12:00:00');
     const need = stockpileUnitNeeds(items, 1, 1, today).find((item) => item.key === 'water');

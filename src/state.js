@@ -4,7 +4,9 @@ import { parseWeightGrams } from '../shared/productLookup.mjs';
 
 export const STORAGE_KEY = 'sonae-note-state-v1';
 export const RECOVERY_KEY_PREFIX = `${STORAGE_KEY}-recovery`;
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
+
+const PRODUCT_LOT_SCHEMA_VERSION = 15;
 
 const today = () => localDateKey();
 const INVENTORY_CATEGORIES = new Set(Object.keys(CATEGORY_META));
@@ -18,6 +20,7 @@ const LEGACY_SAMPLE_IDENTITIES = Object.freeze({
   coffee: { name: 'ドリップコーヒー', category: 'comfort' },
 });
 const LEGACY_SHELTER_PLACEHOLDER = '〇〇小学校 体育館';
+const PRODUCT_SAFETY_FIELD_KEYS = Object.freeze(['name', 'category', 'waterPurpose', 'tier', 'unit', 'volumeMl', 'foodWeightG']);
 const finiteNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -54,7 +57,7 @@ function normalizeDialogueEntry(entry, index) {
 }
 
 function allocateLegacyProductTargets(inventory, sourceSchemaVersion) {
-  if (sourceSchemaVersion >= SCHEMA_VERSION) return;
+  if (sourceSchemaVersion >= PRODUCT_LOT_SCHEMA_VERSION) return;
   const groups = new Map();
   inventory.forEach((item) => {
     const normalizedName = item.name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ja-JP');
@@ -89,6 +92,57 @@ function allocateLegacyProductTargets(inventory, sourceSchemaVersion) {
   });
 }
 
+function allocateV15BarcodeTargets(inventory, sourceRows, sourceSchemaVersion) {
+  if (sourceSchemaVersion !== PRODUCT_LOT_SCHEMA_VERSION) return;
+  const groups = new Map();
+  inventory.forEach((item, index) => {
+    if (!item.barcode) return;
+    if (!groups.has(item.barcode)) groups.set(item.barcode, []);
+    groups.get(item.barcode).push({ item, index, source: sourceRows[index] || {} });
+  });
+  const currentDay = today();
+  groups.forEach((entries) => {
+    if (entries.length < 2) return;
+    const targetsByPriorIdentity = new Map();
+    entries.forEach(({ item, source }) => {
+      const priorIdentity = String(source.productId || `gtin:${item.barcode}`);
+      targetsByPriorIdentity.set(priorIdentity, (targetsByPriorIdentity.get(priorIdentity) || 0) + Math.max(0, Number(item.target) || 0));
+    });
+    const groupTarget = Math.max(0, ...targetsByPriorIdentity.values());
+    entries.forEach(({ item }) => { item.target = 0; });
+    const preferred = [...entries].sort((left, right) => {
+      const usable = ({ item }) => item.verificationStatus !== 'needs-review' && (!item.expiry || (isValidLocalDate(item.expiry) && item.expiry >= currentDay));
+      return Number(usable(right)) - Number(usable(left))
+        || String(left.item.expiry || '9999-12-31').localeCompare(String(right.item.expiry || '9999-12-31'));
+    });
+    let remaining = groupTarget;
+    preferred.forEach(({ item }) => {
+      const allocation = Math.min(remaining, Math.max(0, Number(item.quantity) || 0));
+      item.target = allocation;
+      remaining -= allocation;
+    });
+    if (remaining > 0) preferred[0].item.target += remaining;
+  });
+}
+
+function quarantineConflictingBarcodeProducts(inventory) {
+  const groups = new Map();
+  inventory.forEach((item) => {
+    if (!item.barcode) return;
+    if (!groups.has(item.barcode)) groups.set(item.barcode, []);
+    groups.get(item.barcode).push(item);
+  });
+  groups.forEach((lots) => {
+    if (lots.length < 2) return;
+    const signatures = new Set(lots.map((item) => JSON.stringify(PRODUCT_SAFETY_FIELD_KEYS.map((key) => item[key] ?? ''))));
+    if (signatures.size < 2) return;
+    lots.forEach((item) => {
+      item.verificationStatus = 'needs-review';
+      item.verificationReason = 'product-conflict';
+    });
+  });
+}
+
 export function normalizeInventoryItem(item = {}, index = 0) {
   const source = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
   const barcode = String(source.barcode || '').replace(/\D/g, '');
@@ -109,14 +163,30 @@ export function normalizeInventoryItem(item = {}, index = 0) {
         : /(生活用水|雑用水|浴槽|風呂|トイレ用|洗濯用)/.test(waterText) ? 'utility'
           : /(飲料|飲み水|保存水|ミネラルウォーター|ペットボトル|drinking|potable)/i.test(waterText) ? 'drinking-cooking'
             : 'needs-review';
-  const inheritedReason = ['legacy-sample', 'invalid-expiry', 'unknown-category', 'ambiguous-water', 'data-review'].includes(source.verificationReason) ? source.verificationReason : 'data-review';
+  const expiryMode = isValidLocalDate(expiry)
+    ? 'dated'
+    : category === 'food' && source.expiryMode === 'no-date-confirmed'
+      ? 'no-date-confirmed'
+      : 'unknown';
+  const missingCoreExpiry = !expiry && expiryMode === 'unknown'
+    && (category === 'food' || (category === 'water' && waterPurpose === 'drinking-cooking'));
+  const inheritedReason = ['legacy-sample', 'invalid-expiry', 'unknown-category', 'ambiguous-water', 'missing-expiry', 'product-conflict', 'data-review'].includes(source.verificationReason) ? source.verificationReason : 'data-review';
+  const inheritedSpecificReview = source.verificationStatus === 'needs-review' && inheritedReason !== 'data-review';
   const verificationReason = category === 'unclassified' ? 'unknown-category'
     : expiry && !isValidLocalDate(expiry) ? 'invalid-expiry'
       : waterPurpose === 'needs-review' ? 'ambiguous-water'
-        : source.verificationStatus === 'needs-review' ? inheritedReason : '';
+        : inheritedSpecificReview ? inheritedReason
+          : missingCoreExpiry ? 'missing-expiry'
+            : source.verificationStatus === 'needs-review' ? inheritedReason : '';
+  const suppliedProductId = String(source.productId || '');
+  const productId = barcode
+    ? `gtin:${barcode}`
+    : suppliedProductId.startsWith('gtin:')
+      ? `manual:${id}`
+      : suppliedProductId || `legacy:${id || index}`;
   return {
     id,
-    productId: String(source.productId || (barcode ? `gtin:${barcode}` : `legacy:${id || index}`)),
+    productId,
     name,
     category,
     tier: Math.round(boundedNumber(source.tier, 1, 3, 2)),
@@ -125,6 +195,7 @@ export function normalizeInventoryItem(item = {}, index = 0) {
     target: Math.max(0, finiteNumber(source.target)),
     price: Math.max(0, finiteNumber(source.price)),
     expiry,
+    expiryMode,
     note: String(source.note || ''),
     barcode,
     brand: String(source.brand || ''),
@@ -173,12 +244,15 @@ export function normalizeState(input) {
   const fallback = createDefaultState();
   if (!input || typeof input !== 'object') return fallback;
   const sourceSchemaVersion = finiteNumber(input.schemaVersion, 0);
+  const sourceInventory = Array.isArray(input.inventory)
+    ? input.inventory.filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    : [];
   const inventory = Array.isArray(input.inventory)
-    ? input.inventory.filter((item) => item && typeof item === 'object' && !Array.isArray(item)).map(normalizeInventoryItem)
+    ? sourceInventory.map(normalizeInventoryItem)
     : fallback.inventory;
   // Fixed IDs identify stock that old releases created automatically. Mark it
   // before duplicate IDs are rewritten so every copied seed remains excluded.
-  if (sourceSchemaVersion < SCHEMA_VERSION) {
+  if (sourceSchemaVersion < PRODUCT_LOT_SCHEMA_VERSION) {
     inventory.forEach((item) => {
       if (LEGACY_SAMPLE_IDENTITIES[item.id]) {
         item.verificationStatus = 'needs-review';
@@ -196,9 +270,19 @@ export function normalizeState(input) {
       seenInventoryIds.add(item.id);
       return;
     }
+    const duplicatedId = item.id;
+    const implicitProductPrefix = item.productId === `legacy:${duplicatedId}`
+      ? 'legacy'
+      : item.productId === `manual:${duplicatedId}` ? 'manual' : '';
     let replacementId = `${item.id}-duplicate-${index + 1}`;
     while (seenInventoryIds.has(replacementId)) replacementId += '-copy';
     item.id = replacementId;
+    // An old row without an explicit barcode/product identity inherited its
+    // productId from the row ID. If that ID was duplicated, keeping the old
+    // implicit productId would merge unrelated physical products and make an
+    // edit to one lot overwrite the other lot's category and safety fields.
+    // Explicit GTIN/manual identities remain shared as the user intended.
+    if (implicitProductPrefix) item.productId = `${implicitProductPrefix}:${replacementId}`;
     seenInventoryIds.add(replacementId);
   });
   if ((Number(input.schemaVersion) || 0) < 12 && !inventory.some((item) => item.category === 'heat' && /(カセット|ガス).*(コンロ|こんろ)/.test(item.name))) {
@@ -208,6 +292,8 @@ export function normalizeState(input) {
     inventory.push(stove);
   }
   allocateLegacyProductTargets(inventory, sourceSchemaVersion);
+  allocateV15BarcodeTargets(inventory, sourceInventory, sourceSchemaVersion);
+  quarantineConflictingBarcodeProducts(inventory);
   const contact = input.contact && typeof input.contact === 'object' ? input.contact : {};
   const importedTargetDays = finiteNumber(input.preparedness?.targetDays, fallback.preparedness.targetDays);
   const priorRequestedHorizon = finiteNumber(input.preparedness?.requestedHorizonDays, 0);
@@ -226,7 +312,7 @@ export function normalizeState(input) {
     contact: {
       name: String(contact.name || fallback.contact.name),
       phone: String(contact.phone || ''),
-      shelter: sourceSchemaVersion < SCHEMA_VERSION && contact.shelter === LEGACY_SHELTER_PLACEHOLDER ? '' : String(contact.shelter || ''),
+      shelter: sourceSchemaVersion < PRODUCT_LOT_SCHEMA_VERSION && contact.shelter === LEGACY_SHELTER_PLACEHOLDER ? '' : String(contact.shelter || ''),
       note: String(contact.note || ''),
     },
     completedTips: Array.isArray(input.completedTips) ? input.completedTips.filter((value) => typeof value === 'string') : [],
