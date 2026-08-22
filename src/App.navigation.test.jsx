@@ -5,8 +5,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import App from './App.jsx';
+import { createInitialInventory } from './domain.js';
 import { STOCKPILE_SKILL_LONG_PRESS_MS } from './StockpileSkillTree.jsx';
-import { createDefaultState, STORAGE_KEY } from './state.js';
+import { createDefaultState, RECOVERY_KEY_PREFIX, SCHEMA_VERSION, STORAGE_KEY } from './state.js';
+
+const createSeededState = () => ({ ...createDefaultState(), inventory: createInitialInventory() });
 
 describe('電力設計ページの導線', () => {
   beforeEach(() => {
@@ -22,7 +25,7 @@ describe('電力設計ページの導線', () => {
       });
     }
     localStorage.clear();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...createDefaultState(), onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' } }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...createSeededState(), onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' } }));
     window.history.replaceState({}, '', '#/home');
     window.scrollTo = vi.fn();
   });
@@ -33,7 +36,7 @@ describe('電力設計ページの導線', () => {
     vi.restoreAllMocks();
   });
 
-  it('初回は3ステップで家族人数、備蓄目標、連絡先を設定する', () => {
+  it('初回は3ステップで家族人数、備蓄目標、連絡先を設定する', async () => {
     localStorage.clear();
     render(<App />);
 
@@ -51,6 +54,7 @@ describe('電力設計ページの導線', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByLabelText('家族3人')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /14日/ })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'わが家の防災状況' })).toHaveFocus());
   });
 
   it('必須の初期設定中は背景を操作対象から外し、フォーカスをダイアログ内に留める', () => {
@@ -84,10 +88,172 @@ describe('電力設計ページの導線', () => {
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   });
 
-  it('保存領域へ書き込めない場合も画面を壊さず案内する', async () => {
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError'); });
+  it('保存領域へ書き込めない場合は永続的に警告し、復旧後に再試行できる', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError'); });
     render(<App />);
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('端末に保存できませんでした'));
+    let alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('変更をこの端末へ保存できていません');
+    expect(within(alert).getByRole('button', { name: '現在データを保存' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /備蓄日数の目標/ }));
+    const dialog = screen.getByRole('dialog', { name: '目標備蓄日数を変更' });
+    alert = await within(dialog).findByRole('alert');
+    expect(dialog).toContainElement(alert);
+    setItem.mockRestore();
+    fireEvent.click(within(alert).getByRole('button', { name: '保存を再試行' }));
+    await waitFor(() => expect(screen.queryByText('変更をこの端末へ保存できていません')).not.toBeInTheDocument());
+    expect(screen.getByRole('status')).toHaveTextContent('現在のデータを端末へ保存しました');
+  });
+
+  it('壊れた保存データを上書きせず、背景操作を止めて利用者の確認を待つ', async () => {
+    localStorage.setItem(STORAGE_KEY, '{broken');
+    const { container } = render(<App />);
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('保存データを安全に読み込めませんでした');
+    expect(alert).toHaveTextContent('元データは上書きしていません');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('{broken');
+    expect(container.querySelector('main')).toHaveAttribute('inert');
+    expect(container.querySelector('main')).toHaveAttribute('aria-hidden', 'true');
+    expect(container.querySelector('.topbar')).toHaveAttribute('inert');
+    await waitFor(() => expect(within(alert).getByRole('button', { name: '保護データを保存' })).toHaveFocus());
+    fireEvent.click(within(alert).getByRole('button', { name: '空の状態で続ける' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(container.querySelector('main')).not.toHaveAttribute('inert');
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory).toEqual([]);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'わが家の防災状況' })).toHaveFocus());
+  });
+
+  it('復旧コピーを作れない場合は、保護ファイルを保存するまで元キーの置換を許可しない', () => {
+    localStorage.setItem(STORAGE_KEY, '{broken');
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function setItem(key, value) {
+      if (String(key).startsWith(RECOVERY_KEY_PREFIX)) throw new DOMException('quota', 'QuotaExceededError');
+      return originalSetItem.call(this, key, value);
+    });
+    render(<App />);
+
+    const alert = screen.getByRole('alert');
+    const continueButton = within(alert).getByRole('button', { name: '空の状態で続ける' });
+    expect(alert).toHaveTextContent('空の状態で続ける前にファイル保存してください');
+    expect(continueButton).toBeDisabled();
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('{broken');
+  });
+
+  it('未来形式のファイル復元を拒否し、現在データを保つ', async () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    const before = localStorage.getItem(STORAGE_KEY);
+    const fileInput = document.querySelector('input[type="file"]');
+
+    fireEvent.change(fileInput, { target: { files: [{ text: vi.fn().mockResolvedValue(JSON.stringify({ schemaVersion: SCHEMA_VERSION + 1, inventory: [{ id: 'future' }] })) }] } });
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('このアプリより新しい形式のため復元できません'));
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+  });
+
+  it('ファイル復元前の現在データを別キーへ保護し、保護失敗時は置換しない', async () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    const before = localStorage.getItem(STORAGE_KEY);
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function setItem(key, value) {
+      if (String(key).startsWith(`${RECOVERY_KEY_PREFIX}-before-import-`)) throw new DOMException('quota', 'QuotaExceededError');
+      return originalSetItem.call(this, key, value);
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const replacement = { ...createDefaultState(), onboarding: { completed: true }, inventory: [{ id: 'replacement', name: '保存食', category: 'food', quantity: 1, target: 1, foodWeightG: 150 }] };
+
+    fireEvent.change(document.querySelector('input[type="file"]'), { target: { files: [{ text: vi.fn().mockResolvedValue(JSON.stringify(replacement)) }] } });
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('現在のデータを保護できなかったため、復元を中止しました'));
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(before);
+    expect(screen.queryByText('保存食')).not.toBeInTheDocument();
+  });
+
+  it('新規利用者の未確認在庫・生活継続日数・バッグ提案をゼロから始める', () => {
+    localStorage.clear();
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+    fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'あとで設定' }));
+
+    expect(screen.getByRole('button', { name: '自宅の備蓄情報を開く' })).toHaveAccessibleDescription(/生活継続の目安 0\.0日分/);
+    fireEvent.click(screen.getByRole('button', { name: '避難バッグを自動で準備' }));
+    expect(screen.getAllByText('選定できる備蓄がありません')).toHaveLength(2);
+  });
+
+  it('在庫未登録でも命をつなぐ3分類を通知し、登録画面へ案内する', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...createDefaultState(),
+      onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' },
+      inventory: [],
+    }));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '通知一覧を開く（3件）' }));
+    const dialog = screen.getByRole('dialog', { name: '今、対応すること' });
+    expect(within(dialog).getByRole('heading', { name: '主要備蓄の補充' })).toBeInTheDocument();
+    expect(within(dialog).getByText('飲料・調理用水')).toBeInTheDocument();
+    expect(within(dialog).getByText('食料')).toBeInTheDocument();
+    expect(within(dialog).getByText('携帯トイレ')).toBeInTheDocument();
+    expect(within(dialog).queryByText('今すぐ対応するお知らせはありません')).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /飲料・調理用水/ }));
+    expect(window.location.hash).toBe('#/inventory');
+    expect(screen.getByRole('heading', { name: 'わが家の備蓄' })).toBeInTheDocument();
+  });
+
+  it('理由不明の確認待ち在庫も実物確認後に安全計算へ戻せる', async () => {
+    const saved = createSeededState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.household = 1;
+    saved.inventory = [{ ...saved.inventory[0], id: 'generic-review', productId: 'manual:generic-review', quantity: 6, target: 6, verificationStatus: 'needs-review' }];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+
+    expect(screen.getByText('登録内容を確認してください')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '飲料水 500mlの登録内容を実物と確認して在庫に反映' }));
+
+    expect(screen.queryByText('登録内容を確認してください')).not.toBeInTheDocument();
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory[0]).not.toHaveProperty('verificationStatus'));
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory[0]).not.toHaveProperty('verificationReason');
+  });
+
+  it('旧版の固定IDでも水用途を直すまで確認済みにできない', async () => {
+    const legacyWater = {
+      ...createInitialInventory()[0],
+      name: '水タンク',
+      quantity: 6,
+      target: 6,
+      volumeMl: 1000,
+    };
+    delete legacyWater.waterPurpose;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...createDefaultState(),
+      schemaVersion: 14,
+      onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' },
+      household: 1,
+      inventory: [legacyWater],
+    }));
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+
+    expect(screen.getByText('水の用途を確認してください')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '水タンクの登録内容を実物と確認して在庫に反映' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '水タンクを編集' }));
+    const dialog = screen.getByRole('dialog', { name: '備蓄品を編集' });
+    fireEvent.change(within(dialog).getByLabelText('水の用途'), { target: { value: 'drinking-cooking' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
+
+    const confirm = screen.getByRole('button', { name: '水タンクの登録内容を実物と確認して在庫に反映' });
+    fireEvent.click(confirm);
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory[0];
+      expect(saved).toMatchObject({ waterPurpose: 'drinking-cooking', volumeMl: 1000 });
+      expect(saved).not.toHaveProperty('verificationStatus');
+      expect(saved).not.toHaveProperty('verificationReason');
+    });
+    expect(screen.queryByText('水の用途を確認してください')).not.toBeInTheDocument();
   });
 
   it('家族人数はオプションから変更できる', () => {
@@ -99,8 +265,32 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByLabelText('家族3人')).toBeInTheDocument();
   });
 
+  it('通常モーダルは背景を隔離し、外部フォーカスをダイアログ内へ戻す', () => {
+    const { container } = render(<App />);
+    const trigger = screen.getByRole('button', { name: /備蓄日数の目標/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: '目標備蓄日数を変更' });
+    const first = within(dialog).getByRole('button', { name: '閉じる' });
+    const last = within(dialog).getByRole('button', { name: '設定する' });
+    const background = container.querySelector('.topbar');
+
+    expect(background.inert).toBe(true);
+    expect(background).toHaveAttribute('aria-hidden', 'true');
+    container.querySelector('.desktop-nav button').focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(first).toHaveFocus();
+    container.querySelector('.desktop-nav button').focus();
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(last).toHaveFocus();
+    fireEvent.click(first);
+    expect(background.inert).not.toBe(true);
+    expect(background).not.toHaveAttribute('inert');
+    expect(trigger).toHaveFocus();
+  });
+
   it('命と衛生の必須条件を平均点より先に案内し、選んだ確認項目を直接表示する', async () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.powerPlan.autonomyDays = 3;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -112,7 +302,7 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(priorityDisclosure.querySelector('summary'));
     expect(priorityDisclosure).toHaveAttribute('open');
     const priorities = screen.getByRole('region', { name: '命と衛生の必須確認' });
-    expect(within(priorities).getAllByRole('button')).toHaveLength(7);
+    expect(within(priorities).getAllByRole('button')).toHaveLength(8);
     expect(within(priorities).getByRole('button', { name: '住まいの安全を確認する' })).toBeInTheDocument();
     expect(within(priorities).getByRole('button', { name: '危険と避難先を確認する' })).toBeInTheDocument();
     expect(within(priorities).getByRole('button', { name: '携帯トイレを確認する' })).toBeInTheDocument();
@@ -131,7 +321,7 @@ describe('電力設計ページの導線', () => {
   });
 
   it('家・バッグ・避難先を一続きのグラフィックで案内し、避難先候補をその場で確認できる', () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.contact = { ...saved.contact, shelter: '市立青葉小学校 体育館', phone: '090-0000-0000' };
     saved.inventory = saved.inventory.map((item) => item.id === 'toilet' ? { ...item, quantity: 1 } : item);
@@ -160,13 +350,30 @@ describe('電力設計ページの導線', () => {
   });
 
   it('内容量を計算できない備蓄があると生活継続日数の注意を吹き出し内に表示する', () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.inventory = saved.inventory.map((item) => item.id === 'water' ? { ...item, volumeMl: 0 } : item);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
     render(<App />);
 
     expect(screen.getByText('内容量未登録の水は日数に含みません')).toBeVisible();
+  });
+
+  it('重量日数が目標を満たしても食料構成の未確認を吹き出し内に残す', () => {
+    const saved = createSeededState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.household = 1;
+    saved.inventory = saved.inventory.map((item) => item.id === 'water' ? { ...item, quantity: 42 }
+      : item.id === 'rice' ? { ...item, quantity: 21 }
+        : item.id === 'toilet' ? { ...item, quantity: 35, target: 35 }
+          : item);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+
+    const house = screen.getByRole('button', { name: '自宅の備蓄情報を開く' });
+    expect(within(house).getByText('7日目標を達成')).toBeVisible();
+    expect(within(house).getByText('食料の構成・家族適合は未確認です')).toBeVisible();
+    expect(house).toHaveAccessibleDescription(/食料の構成・家族適合は未確認/);
   });
 
   it('家から備蓄を開き、水位つき分類アイコンで一覧を絞り込める', async () => {
@@ -192,7 +399,7 @@ describe('電力設計ページの導線', () => {
   });
 
   it('備蓄ガイドをメインから外し、右下の通知付きボタンからシンボル主体のスキルツリーを開く', async () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.household = 1;
     saved.inventory = [{ id: 'food-test', name: '保存食', category: 'food', tier: 1, unit: '袋', quantity: 3, target: 3, price: 100, foodWeightG: 450, expiry: '2030-01-01' }];
@@ -224,7 +431,7 @@ describe('電力設計ページの導線', () => {
 
   it('達成可能ノードの長押しで祖先と経路を達成色にし、確認済み状態を保存する', async () => {
     vi.useFakeTimers();
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.household = 1;
     saved.inventory = [{ id: 'food-test', name: '保存食', category: 'food', tier: 1, unit: '袋', quantity: 3, target: 3, price: 100, foodWeightG: 450, expiry: '2030-01-01' }];
@@ -248,7 +455,7 @@ describe('電力設計ページの導線', () => {
   });
 
   it('取得後に在庫が不足した項目は右下ボタンで再確認件数を知らせる', () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.household = 1;
     saved.inventory = [{ id: 'food-test', name: '保存食', category: 'food', tier: 1, unit: '袋', quantity: 0, target: 3, price: 100, foodWeightG: 450, expiry: '2030-01-01' }];
@@ -266,6 +473,8 @@ describe('電力設計ページの導線', () => {
     const stylesheet = readFileSync('src/styles.css', 'utf8');
     expect(stylesheet).toMatch(/button\[data-category="light"\] \.liquid-glyph-fill\{fill:#e3b82f\}/);
     expect(stylesheet).toMatch(/button\[data-category="light"\] \.liquid-glyph-wave\{fill:#f6d86a\}/);
+    expect(stylesheet).toMatch(/\.item-benchmark a\{[^}]*min-height:44px/s);
+    expect(stylesheet).toMatch(/\.modal input,\.modal select\{min-height:44px\}/);
   });
 
   it('水・食料・衛生を重点表示し、分類カードの長押しで意味を確認できる', () => {
@@ -298,8 +507,19 @@ describe('電力設計ページの導線', () => {
     expect(water).toHaveFocus();
   });
 
+  it('分類カード上でスクロールすると長押し説明を誤表示しない', () => {
+    vi.useFakeTimers();
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+    const water = screen.getByRole('button', { name: /水分の備蓄を表示/ });
+    fireEvent.pointerDown(water, { pointerType: 'touch', pointerId: 9, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(water, { pointerType: 'touch', pointerId: 9, clientX: 10, clientY: 40 });
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.queryByRole('dialog', { name: '水分の意味' })).not.toBeInTheDocument();
+  });
+
   it('数量目標がない分類は在庫があっても水位を0%として目標未設定と伝える', () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.inventory = saved.inventory.map((item) => item.category === 'comfort' ? { ...item, target: 0 } : item);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -313,7 +533,7 @@ describe('電力設計ページの導線', () => {
   });
 
   it('期限切れ在庫だけの分類は登録目標があっても達成率と水位を0%にする', () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.inventory = saved.inventory.map((item) => item.category === 'water' ? { ...item, expiry: '2020-01-01' } : item);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -327,7 +547,7 @@ describe('電力設計ページの導線', () => {
   });
 
   it('設定日数にわずかでも未達なら分類水位を100%に丸めない', () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.inventory = saved.inventory.map((item) => item.id === 'water' ? { ...item, quantity: 83.9 } : item);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -339,7 +559,7 @@ describe('電力設計ページの導線', () => {
   });
 
   it('目標未設定の品目を同じ分類の達成率へ混ぜない', () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.inventory = saved.inventory.map((item) => item.id === 'gas' ? { ...item, target: 0 } : item);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -403,13 +623,13 @@ describe('電力設計ページの導線', () => {
     fireEvent.click(within(scene).getByRole('button', { name: '避難バッグを自動で準備' }));
     expect(window.location.hash).toBe('#/bags');
     expect(screen.getByRole('heading', { name: '避難バッグを自動で準備' })).toBeInTheDocument();
+    expect(screen.getByText(/自宅や経路の安全を確認できない場合は帰宅せず/)).toBeVisible();
     const purposeGuide = screen.getByText('2つのバッグの使い分け').closest('details');
     expect(purposeGuide).not.toHaveAttribute('open');
     fireEvent.click(purposeGuide.querySelector('summary'));
     expect(purposeGuide).toHaveAttribute('open');
     expect(screen.getByText('危険から即座に逃げる')).toBeInTheDocument();
     expect(screen.getByText('避難先で数日を過ごす')).toBeInTheDocument();
-    expect(screen.getByText(/自宅や経路の安全を確認できない場合は帰宅せず/)).toBeInTheDocument();
     expect(screen.getByText('一時避難を先に確保し、二次避難には残りの在庫を割り当てます。期限が近く、重要度の高い備蓄を優先します。')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /自動選定結果を開く/ })).toHaveLength(2);
 
@@ -427,6 +647,8 @@ describe('電力設計ページの導線', () => {
     expect(screen.getByRole('heading', { name: 'いまは、これだけ' })).toBeInTheDocument();
     fireEvent.click(roadmap.querySelector('summary'));
     expect(roadmap).toHaveAttribute('open');
+    expect(within(roadmap).getAllByRole('button', { name: /命を守る土台|72時間をしのぐ|避難を二層化|一週間を継続|電力と通信を自立|復旧力を育てる/ })).toHaveLength(6);
+    expect(within(roadmap).getAllByRole('listitem')).toHaveLength(6);
 
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '知る' }));
     const prepare = screen.getByText('事前に整える').closest('details');
@@ -475,6 +697,16 @@ describe('電力設計ページの導線', () => {
     expect(within(dialog).getByText('1人1日 合計3L（飲料1L＋調理2L）')).toBeInTheDocument();
     expect(within(dialog).getByText(/生活用水は3Lに含まれない/)).toBeInTheDocument();
     expect(within(dialog).getByRole('link', { name: /政府広報（飲料1L・調理2L）/ })).toBeInTheDocument();
+    const purpose = within(dialog).getByLabelText('水の用途');
+    expect(purpose).toBeRequired();
+    expect(purpose).toHaveValue('');
+    fireEvent.change(within(dialog).getByLabelText('品目名'), { target: { value: '用途を確認する水' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
+    expect(screen.getByRole('dialog', { name: '備蓄品を追加' })).toBeInTheDocument();
+    fireEvent.change(purpose, { target: { value: 'utility' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
+    expect(screen.queryByRole('dialog', { name: '備蓄品を追加' })).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory.find((item) => item.name === '用途を確認する水')).toMatchObject({ waterPurpose: 'utility' });
   });
 
   it('目標日数の概算費用と年間予算から購入順を示す', () => {
@@ -502,11 +734,37 @@ describe('電力設計ページの導線', () => {
     expect(within(dialog).getAllByText('今年買う').length).toBeGreaterThan(0);
   });
 
+  it('携帯トイレの混合購入は必要部品と今年買う内訳を分けて表示する', () => {
+    const saved = createDefaultState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.household = 1;
+    saved.preparedness = { ...saved.preparedness, targetDays: 2, annualBudget: 150 };
+    saved.inventory = [
+      { id: 'water', productId: 'manual:water', name: '2L飲料水', category: 'water', waterPurpose: 'drinking-cooking', unit: '本', quantity: 3, target: 3, volumeMl: 2000, price: 100 },
+      { id: 'food', productId: 'manual:food', name: '保存食', category: 'food', unit: '食', quantity: 6, target: 6, foodWeightG: 150, price: 100 },
+      { id: 'bag', productId: 'manual:bag', name: '非常用便袋', category: 'hygiene', unit: '枚', quantity: 5, target: 5, price: 20 },
+      { id: 'gel', productId: 'manual:gel', name: '非常用凝固剤', category: 'hygiene', unit: '個', quantity: 0, target: 5, price: 30 },
+      { id: 'kit', productId: 'manual:kit', name: '携帯トイレ', category: 'hygiene', unit: '回分', quantity: 0, target: 5, price: 40 },
+    ];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    const dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
+
+    expect(within(dialog).getByText('目標まで 非常用凝固剤 5個＋携帯トイレ 5回分・概算 ¥350')).toBeInTheDocument();
+    const planned = within(dialog).getByText('非常用凝固剤 5個').closest('strong');
+    expect(planned).toBeInTheDocument();
+    expect(within(planned).getByText('¥150')).toBeInTheDocument();
+  });
+
   it('年間予算の編集中はフォーカスを保ち、Escapeでは変更を破棄する', async () => {
     render(<App />);
     const desktopNavigation = screen.getByRole('navigation', { name: 'メインナビゲーション' });
     fireEvent.click(within(desktopNavigation).getByRole('button', { name: '備蓄' }));
-    fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
+    const trigger = screen.getByRole('button', { name: '年間購入計画を開く' });
+    trigger.focus();
+    fireEvent.click(trigger);
     let dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     let annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
 
@@ -518,6 +776,7 @@ describe('電力設計ページの導線', () => {
 
     expect(screen.queryByRole('dialog', { name: '予算で、いつ何を揃えるか' })).not.toBeInTheDocument();
     expect(screen.getByText('未設定')).toBeInTheDocument();
+    expect(trigger).toHaveFocus();
     fireEvent.click(screen.getByRole('button', { name: '年間購入計画を開く' }));
     dialog = screen.getByRole('dialog', { name: '予算で、いつ何を揃えるか' });
     annualBudget = within(dialog).getByLabelText(/毎年の備蓄予算/);
@@ -541,7 +800,7 @@ describe('電力設計ページの導線', () => {
   });
 
   it('期限切れロットは消費ではなく廃棄として記録する', async () => {
-    const saved = createDefaultState();
+    const saved = createSeededState();
     saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
     saved.inventory = [{
       ...saved.inventory[0],
@@ -570,6 +829,141 @@ describe('電力設計ページの導線', () => {
       source: 'rolling-stock',
       reason: '期限切れ・廃棄',
     }));
+  });
+
+  it('備蓄カードから期限切れロットを減らす場合も廃棄理由を固定する', async () => {
+    const saved = createSeededState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = [{
+      ...saved.inventory[0],
+      id: 'expired-card-water',
+      productId: 'manual:expired-card-water',
+      name: 'カード上の期限切れ飲料水',
+      quantity: 2,
+      target: 2,
+      expiry: '2000-01-01',
+    }];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getByRole('button', { name: 'カード上の期限切れ飲料水を消費・廃棄' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'カード上の期限切れ飲料水を記録' });
+    expect(within(dialog).getByLabelText('理由')).toBeDisabled();
+    expect(within(dialog).getByLabelText('理由')).toHaveValue('期限切れ・廃棄');
+    expect(within(dialog).getByText(/食べた記録にせず/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '廃棄として記録する' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('1本を記録しました');
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).transactions[0]).toMatchObject({ type: 'discard', reason: '期限切れ・廃棄', quantityDelta: -1 }));
+  });
+
+  it('日付をまたいだ時は開いている消費画面も期限切れ廃棄へ切り替える', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 22, 23, 59, 50));
+    const saved = createSeededState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = [{
+      ...saved.inventory[1],
+      id: 'midnight-food',
+      productId: 'manual:midnight-food',
+      name: '日付境界の保存食',
+      quantity: 1,
+      target: 1,
+      expiry: '2026-08-22',
+    }];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getByRole('button', { name: '日付境界の保存食を消費・廃棄' }));
+
+    let dialog = screen.getByRole('dialog', { name: '日付境界の保存食を記録' });
+    expect(within(dialog).getByLabelText('理由')).toBeEnabled();
+    expect(within(dialog).getByLabelText('理由')).toHaveValue('日常消費');
+    act(() => {
+      vi.setSystemTime(new Date(2026, 7, 23, 0, 0, 1));
+      window.dispatchEvent(new Event('focus'));
+    });
+
+    dialog = screen.getByRole('dialog', { name: '日付境界の保存食を記録' });
+    expect(within(dialog).getByLabelText('理由')).toBeDisabled();
+    expect(within(dialog).getByLabelText('理由')).toHaveValue('期限切れ・廃棄');
+    fireEvent.click(within(dialog).getByRole('button', { name: '廃棄として記録する' }));
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)).transactions[0]).toMatchObject({ type: 'discard', reason: '期限切れ・廃棄' });
+  });
+
+  it('同じ商品の旧ロットを消費した後も残りロットへ商品目標を移す', () => {
+    const saved = createSeededState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = [
+      { ...saved.inventory[1], id: 'old-food', productId: 'manual:shared-food', name: '共有目標の保存食', quantity: 10, target: 10, expiry: '2026-09-01' },
+      { ...saved.inventory[1], id: 'new-food', productId: 'manual:shared-food', name: '共有目標の保存食', quantity: 10, target: 0, expiry: '2027-09-01' },
+    ];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '共有目標の保存食を消費・廃棄' })[0]);
+    const dialog = screen.getByRole('dialog', { name: '共有目標の保存食を記録' });
+    fireEvent.change(within(dialog).getByLabelText(/数量/), { target: { value: 10 } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '記録して在庫を減らす' }));
+
+    const lots = JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory.filter((item) => item.productId === 'manual:shared-food');
+    expect(lots.map(({ quantity, target }) => ({ quantity, target }))).toEqual([
+      { quantity: 0, target: 0 },
+      { quantity: 10, target: 10 },
+    ]);
+  });
+
+  it('同じバーコードの商品情報を直すと全期限ロットへ反映する', () => {
+    const barcode = '4901234567894';
+    const saved = createSeededState();
+    saved.onboarding = { completed: true, completedAt: '2026-08-17T00:00:00.000Z' };
+    saved.inventory = [
+      { ...saved.inventory[0], id: 'water-a', productId: `gtin:${barcode}`, barcode, name: '誤登録の商品', quantity: 2, target: 4, expiry: '2027-01-01' },
+      { ...saved.inventory[0], id: 'water-b', productId: `gtin:${barcode}`, barcode, name: '誤登録の商品', quantity: 2, target: 0, expiry: '2028-01-01', location: '別の棚' },
+    ];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '誤登録の商品を編集' })[0]);
+    const dialog = screen.getByRole('dialog', { name: '備蓄品を編集' });
+    fireEvent.change(within(dialog).getByLabelText('品目名'), { target: { value: '正しい保存食' } });
+    fireEvent.change(within(dialog).getByLabelText('カテゴリ'), { target: { value: 'food' } });
+    fireEvent.change(within(dialog).getByLabelText(/1単位あたりの食料重量/), { target: { value: 150 } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
+
+    const lots = JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory.filter((item) => item.productId === `gtin:${barcode}`);
+    expect(lots).toHaveLength(2);
+    expect(lots.every((item) => item.name === '正しい保存食' && item.category === 'food' && item.foodWeightG === 150 && item.waterPurpose === undefined)).toBe(true);
+    expect(lots.reduce((sum, item) => sum + item.target, 0)).toBe(4);
+    expect(lots.find((item) => item.id === 'water-b').location).toBe('別の棚');
+  });
+
+  it('同じ商品の新しい期限ロットで直した商品情報を既存ロットにも反映する', () => {
+    render(<App />);
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'メインナビゲーション' })).getByRole('button', { name: '備蓄' }));
+    fireEvent.click(screen.getByRole('button', { name: '飲料水 500mlを新しい期限ロットとして補充' }));
+    const dialog = screen.getByRole('dialog', { name: '新しい期限ロットを追加' });
+    fireEvent.change(within(dialog).getByLabelText('品目名'), { target: { value: '生活用水 2L' } });
+    fireEvent.change(within(dialog).getByLabelText('水の用途'), { target: { value: 'utility' } });
+    fireEvent.change(within(dialog).getByLabelText(/1単位あたりの水量/), { target: { value: 2000 } });
+    fireEvent.change(within(dialog).getByLabelText('重要度'), { target: { value: '2' } });
+    fireEvent.change(within(dialog).getByLabelText('単位'), { target: { value: '容器' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
+
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const original = saved.inventory.find((item) => item.id === 'water');
+    const lots = saved.inventory.filter((item) => item.productId === original.productId);
+    expect(lots).toHaveLength(2);
+    expect(lots.every((item) => item.name === '生活用水 2L'
+      && item.category === 'water'
+      && item.waterPurpose === 'utility'
+      && item.volumeMl === 2000
+      && item.tier === 2
+      && item.unit === '容器')).toBe(true);
+    expect(lots.reduce((sum, item) => sum + item.target, 0)).toBe(24);
+    expect(lots.find((item) => item.id === 'water').expiry).not.toBe('');
+    expect(lots.find((item) => item.id !== 'water').expiry).toBe('');
   });
 
   it('画面をURLへ反映し、履歴移動時に見出しへフォーカスする', async () => {
@@ -621,12 +1015,150 @@ describe('電力設計ページの導線', () => {
     expect(within(dialog).getByText(/家庭備蓄は別の基準/)).toBeInTheDocument();
   });
 
-  it('不足通知から不足分を直接補充できる', () => {
+  it('不足通知から新しい期限ロットとして補充できる', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: /通知一覧を開く/ }));
     fireEvent.click(screen.getByRole('button', { name: '15回分補充' }));
-    expect(screen.queryByRole('dialog', { name: '備蓄のお知らせ' })).not.toBeInTheDocument();
-    expect(screen.getByText('携帯トイレを15回分補充しました')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: '新しい期限ロットを追加' });
+    expect(within(dialog).getByLabelText('在庫数')).toHaveValue(15);
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
+    expect(screen.getByRole('status')).toHaveTextContent('新しい期限ロットを追加しました');
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const lots = saved.inventory.filter((item) => item.name === '携帯トイレ');
+    expect(lots.map((item) => item.quantity)).toEqual([20, 15]);
+    expect(new Set(lots.map((item) => item.productId)).size).toBe(1);
+    expect(lots.reduce((sum, item) => sum + item.target, 0)).toBe(35);
+    expect(lots.map((item) => item.target)).toEqual([20, 15]);
+    fireEvent.click(screen.getByRole('button', { name: /通知一覧を開く/ }));
+    expect(screen.queryByRole('button', { name: '15回分補充' })).not.toBeInTheDocument();
+  });
+
+  it('別の登録済みバーコードへ切り替えると商品設定のみを読み込む', async () => {
+    const sourceBarcode = '4901234567894';
+    const destinationBarcode = '4909876543210';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...createDefaultState(),
+      onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' },
+      inventory: [
+        {
+          id: 'source-lot', productId: `gtin:${sourceBarcode}`, barcode: sourceBarcode,
+          name: '携帯トイレA', category: 'hygiene', unit: '回分', tier: 1,
+          quantity: 20, target: 35, price: 110, expiry: '2030-01-02', packingVolumeMl: 120,
+          location: '押入れA', rotationEnabled: true, rotationLeadDays: 10,
+          replenishmentPriority: 'high', replenishBy: '2026-12-01', purchaseFrom: '店A',
+          lastChecked: '2026-07-01', nextCheck: '2026-08-01',
+        },
+        {
+          id: 'destination-lot', productId: `gtin:${destinationBarcode}`, barcode: destinationBarcode,
+          name: '保存水B', category: 'water', waterPurpose: 'drinking-cooking', unit: '本', tier: 2,
+          quantity: 12, target: 12, price: 148, expiry: '2031-04-05', volumeMl: 500, packingVolumeMl: 650,
+          location: '玄関右棚', rotationEnabled: false, rotationLeadDays: 45,
+          replenishmentPriority: 'low', replenishBy: '2027-02-03', purchaseFrom: '近所のスーパー',
+          lastChecked: '2025-01-01', nextCheck: '2025-02-01',
+        },
+      ],
+    }));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /通知一覧を開く/ }));
+    fireEvent.click(screen.getByRole('button', { name: '15回分補充' }));
+    const dialog = screen.getByRole('dialog', { name: '新しい期限ロットを追加' });
+    fireEvent.click(within(dialog).getByRole('button', { name: /バーコードから入力/ }));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'バーコード番号' }), { target: { value: destinationBarcode } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '商品を検索' }));
+
+    expect(await within(dialog).findByText('登録済みの商品情報を端末から読み込みました。')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('品目名')).toHaveValue('保存水B');
+    expect(within(dialog).getByLabelText('カテゴリ')).toHaveValue('water');
+    expect(within(dialog).getByLabelText('水の用途')).toHaveValue('drinking-cooking');
+    expect(within(dialog).getByLabelText('在庫数')).toHaveValue(1);
+    expect(within(dialog).getByLabelText('目標数')).toHaveValue(12);
+    expect(within(dialog).getByLabelText('単位')).toHaveValue('本');
+    expect(within(dialog).getByLabelText('重要度')).toHaveValue('2');
+    expect(within(dialog).getByLabelText('期限（任意）')).toHaveValue('');
+    expect(within(dialog).getByLabelText('単価（円）')).toHaveValue(148);
+    expect(within(dialog).getByLabelText(/1単位あたりの収納容量/)).toHaveValue(650);
+    expect(within(dialog).getByLabelText('保管場所')).toHaveValue('玄関右棚');
+    expect(within(dialog).getByLabelText('期限順の消費候補に含める')).not.toBeChecked();
+    expect(within(dialog).getByLabelText('期限の何日前から消費候補にするか')).toHaveValue(45);
+    expect(within(dialog).getByLabelText('優先度')).toHaveValue('low');
+    expect(within(dialog).getByLabelText('補充期限')).toHaveValue('2027-02-03');
+    expect(within(dialog).getByLabelText('購入先候補')).toHaveValue('近所のスーパー');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存する' }));
+    await waitFor(() => {
+      const lots = JSON.parse(localStorage.getItem(STORAGE_KEY)).inventory.filter((entry) => entry.barcode === destinationBarcode);
+      expect(lots).toHaveLength(2);
+      const newLot = lots.find((entry) => entry.id !== 'destination-lot');
+      expect(newLot).toMatchObject({
+        productId: `gtin:${destinationBarcode}`, quantity: 1, expiry: '', waterPurpose: 'drinking-cooking',
+        unit: '本', tier: 2, price: 148, packingVolumeMl: 650, location: '玄関右棚',
+        rotationEnabled: false, rotationLeadDays: 45, replenishmentPriority: 'low',
+        replenishBy: '2027-02-03', purchaseFrom: '近所のスーパー',
+      });
+      expect(newLot.lastChecked).not.toBe('2025-01-01');
+      expect(newLot.nextCheck).not.toBe('2025-02-01');
+      expect(lots.reduce((sum, entry) => sum + entry.target, 0)).toBe(12);
+    });
+  });
+
+  it('同じバーコードは補充数を保ち、未登録コードへの切替でロット固有値を初期化する', async () => {
+    const sourceBarcode = '4901234567894';
+    const unknownBarcode = '3017620422003';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      ...createDefaultState(),
+      onboarding: { completed: true, completedAt: '2026-08-17T00:00:00.000Z' },
+      inventory: [{
+        id: 'source-lot', productId: `gtin:${sourceBarcode}`, barcode: sourceBarcode,
+        name: '携帯トイレA', category: 'hygiene', unit: '回分', tier: 2,
+        quantity: 20, target: 35, price: 110, expiry: '2030-01-02', packingVolumeMl: 120,
+        location: '押入れA', rotationEnabled: false, rotationLeadDays: 9,
+        replenishmentPriority: 'low', replenishBy: '2026-12-01', purchaseFrom: '店A',
+        lastChecked: '2026-07-01', nextCheck: '2026-08-01',
+      }],
+    }));
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /通知一覧を開く/ }));
+    fireEvent.click(screen.getByRole('button', { name: '15回分補充' }));
+    const dialog = screen.getByRole('dialog', { name: '新しい期限ロットを追加' });
+    fireEvent.click(within(dialog).getByRole('button', { name: /バーコードから入力/ }));
+    const barcodeInput = within(dialog).getByRole('textbox', { name: 'バーコード番号' });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '商品を検索' }));
+    expect(await within(dialog).findByText('登録済みの商品情報を端末から読み込みました。')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('在庫数')).toHaveValue(15);
+    expect(within(dialog).getByLabelText('保管場所')).toHaveValue('押入れA');
+    expect(within(dialog).getByLabelText('期限順の消費候補に含める')).not.toBeChecked();
+    expect(within(dialog).getByLabelText('優先度')).toHaveValue('low');
+
+    fireEvent.change(barcodeInput, { target: { value: unknownBarcode } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '商品を検索' }));
+    expect(await within(dialog).findByText('オフラインで保存済みの商品情報が見つかりません。番号を保持して手入力できます。')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('品目名')).toHaveValue('');
+    expect(within(dialog).getByLabelText('カテゴリ')).toHaveValue('');
+    expect(within(dialog).getByLabelText('在庫数')).toHaveValue(1);
+    expect(within(dialog).getByLabelText('目標数')).toHaveValue(3);
+    expect(within(dialog).getByLabelText('単位')).toHaveValue('個');
+    expect(within(dialog).getByLabelText('重要度')).toHaveValue('1');
+    expect(within(dialog).getByLabelText('期限（任意）')).toHaveValue('');
+    expect(within(dialog).getByLabelText('単価（円）')).toHaveValue(0);
+    expect(within(dialog).getByLabelText(/1単位あたりの収納容量/)).toHaveValue(0);
+    expect(within(dialog).getByLabelText('保管場所')).toHaveValue('');
+    expect(within(dialog).getByLabelText('期限順の消費候補に含める')).toBeChecked();
+    expect(within(dialog).getByLabelText('期限の何日前から消費候補にするか')).toHaveValue(30);
+    expect(within(dialog).getByLabelText('優先度')).toHaveValue('high');
+    expect(within(dialog).getByLabelText('補充期限')).toHaveValue('');
+    expect(within(dialog).getByLabelText('購入先候補')).toHaveValue('');
+    expect(within(dialog).getByLabelText('メモ')).toHaveValue('');
+  });
+
+  it('備蓄検索は支援技術から名前で特定できる', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '自宅の備蓄情報を開く' }));
+    expect(screen.getByRole('textbox', { name: '備蓄品を検索' })).toBeInTheDocument();
   });
 
   it('ミッション完了後は次のミッション見出しへフォーカスする', async () => {

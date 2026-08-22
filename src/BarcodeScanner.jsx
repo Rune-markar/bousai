@@ -15,6 +15,7 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
   const [product, setProduct] = useState(initialProduct);
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef(null);
+  const imageInputRef = useRef(null);
   const controlsRef = useRef(null);
   const requestRef = useRef(null);
   const foundRef = useRef(false);
@@ -43,7 +44,31 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
     setProduct(null);
     const local = localProducts.find((item) => item.barcode === code);
     if (local) {
-      const localProduct = { barcode: code, name: local.name, brand: local.brand, packageSize: local.packageSize, volumeMl: local.volumeMl, foodWeightG: local.foodWeightG, category: local.category, imageUrl: local.imageUrl, source: local.source || '端末内の商品', sourceUrl: local.sourceUrl };
+      // Reuse product and replenishment defaults, but never copy the quantity or
+      // expiry of an existing lot into the new lot being registered.
+      const localProduct = {
+        barcode: code,
+        name: local.name,
+        brand: local.brand,
+        packageSize: local.packageSize,
+        volumeMl: local.volumeMl,
+        foodWeightG: local.foodWeightG,
+        packingVolumeMl: local.packingVolumeMl,
+        category: local.category,
+        waterPurpose: local.waterPurpose,
+        unit: local.unit,
+        tier: local.tier,
+        price: local.price,
+        location: local.location,
+        rotationEnabled: local.rotationEnabled,
+        rotationLeadDays: local.rotationLeadDays,
+        replenishmentPriority: local.replenishmentPriority,
+        replenishBy: local.replenishBy,
+        purchaseFrom: local.purchaseFrom,
+        imageUrl: local.imageUrl,
+        source: local.source || '端末内の商品',
+        sourceUrl: local.sourceUrl,
+      };
       setProduct(localProduct);
       setStatus('found');
       setMessage('登録済みの商品情報を端末から読み込みました。');
@@ -54,6 +79,9 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
     requestRef.current = controller;
     try {
       const result = await lookupProductFromBrowser(code, { signal: controller.signal });
+      // Some lookup adapters can resolve even after AbortController.abort().
+      // Apply a response only while it still belongs to the visible code.
+      if (controller.signal.aborted || requestRef.current !== controller) return;
       if (!result.found) {
         setStatus('not-found');
         setMessage(result.message || '商品が見つかりませんでした。');
@@ -64,7 +92,7 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
       setMessage('商品情報を取得しました。');
       onProduct?.(result.product);
     } catch (error) {
-      if (error?.name === 'AbortError') return;
+      if (error?.name === 'AbortError' || controller.signal.aborted || requestRef.current !== controller) return;
       const offline = !navigator.onLine;
       setStatus(offline ? 'not-found' : 'error');
       setMessage(offline
@@ -73,6 +101,20 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
     } finally {
       if (requestRef.current === controller) requestRef.current = null;
     }
+  };
+
+  const changeManualCode = (value) => {
+    const code = digitsOnly(value);
+    requestRef.current?.abort();
+    requestRef.current = null;
+    setManualCode(code);
+    setProduct(null);
+    setStatus('idle');
+    setMessage('');
+    // The visible code and parent form must never describe different products.
+    // Reset the parent identity immediately; a successful search will then add
+    // canonical product fields back through onProduct.
+    onBarcode?.(code);
   };
 
   const acceptDetectedCode = (code) => {
@@ -128,11 +170,12 @@ export default function BarcodeScanner({ initialProduct = null, localProducts = 
     {cameraActive && <div className="camera-preview"><video ref={videoRef} muted playsInline /><div className="scan-frame"><span /><span /><span /><span /></div><button type="button" onClick={stopCamera}><Square />停止</button></div>}
     <div className="scan-actions">
       <button type="button" className="scan-primary" onClick={startCamera}><Camera />カメラで読み取る</button>
-      <label className="scan-secondary"><ImageUp />画像から読み取る<input type="file" accept="image/*" capture="environment" onChange={readImage} /></label>
+      <button type="button" className="scan-secondary" onClick={() => imageInputRef.current?.click()}><ImageUp />画像から読み取る</button>
+      <input ref={imageInputRef} hidden type="file" accept="image/*" capture="environment" onChange={readImage} />
     </div>
     <div className="barcode-divider"><span>または番号を入力</span></div>
     <div className="barcode-manual">
-      <Keyboard /><input aria-label="バーコード番号" inputMode="numeric" autoComplete="off" placeholder="例：3017620422003" value={manualCode} onChange={(event) => setManualCode(digitsOnly(event.target.value))} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); lookup(manualCode); } }} /><button type="button" onClick={() => lookup(manualCode)} disabled={!manualCode || status === 'loading'}>商品を検索</button>
+      <Keyboard /><input aria-label="バーコード番号" inputMode="numeric" autoComplete="off" placeholder="例：3017620422003" value={manualCode} onChange={(event) => changeManualCode(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); lookup(manualCode); } }} /><button type="button" onClick={() => lookup(manualCode)} disabled={!manualCode || status === 'loading'}>商品を検索</button>
     </div>
     {status !== 'idle' && <div className={`lookup-status ${status}`} role="status" aria-live="polite">
       {status === 'loading' || status === 'scanning' ? <LoaderCircle className="spin" /> : status === 'found' ? <Check /> : <AlertCircle />}

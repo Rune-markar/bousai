@@ -1,4 +1,5 @@
 import { getLoadout, loadoutStatus } from './loadouts.js';
+import { localDateKey, normalizeStockpileTargetDays, usableInventory } from './domain.js';
 
 export const PREPAREDNESS_STAGES = [
   {
@@ -17,8 +18,10 @@ export const PREPAREDNESS_STAGES = [
     tasks: [
       { id: 'water-3', pillar: 'water', title: '飲料水を3日分', detail: '1人1日3Lを基準に、家族人数×3日分を確保する。', action: '備蓄画面で水の本数と容量を登録する', xp: 20, auto: 'water3', gate: true },
       { id: 'food-core', pillar: 'food', title: '食料を3日分', detail: '1人1日3食を基準に、主食・たんぱく源・補助食品を揃える。重量による日数はアプリ内の簡易換算。', action: '備蓄画面で食品の重量を登録し、不足分を購入する', xp: 20, auto: 'food3', gate: true },
+      { id: 'food-fit', pillar: 'food', title: '食べられる構成を実物確認', detail: '主食だけに偏らず、たんぱく源、開封してすぐ食べられる物、家族のアレルギー・年齢・持病、調理手段を確認する。', action: '3日分を並べ、家族が食べられる献立と調理不要の一食を確認する', xp: 20, gate: true },
       { id: 'toilet-3', pillar: 'sanitation', title: '携帯トイレを3日分', detail: '1人1日5回×家族人数×3日を最低ラインにする。', action: '必要回数を計算し、備蓄画面の目標数を更新する', xp: 20, auto: 'toilet3', gate: true },
-      { id: 'light-fire', pillar: 'power', title: '灯り・消火・防寒', detail: '停電時の照明、初期消火、季節に応じた体温維持を準備する。', action: '枕元のライトを点灯し、消火器の期限を確認する', xp: 15 },
+      { id: 'light-fire', pillar: 'power', title: '灯り・初期消火', detail: '停電時の照明を実際に点灯し、初期消火に使う実物の設置場所と期限を確認する。', action: '枕元のライトを点灯し、消火器の期限を確認する', xp: 15 },
+      { id: 'seasonal-temperature', pillar: 'health', title: '季節の寒さ・暑さ対策', detail: '停電中も使える衣類・寝具・冷却用品と、低体温・熱中症の兆候を確認する。燃焼器具を暖房代わりにしない。', action: '今の季節に一晩使う衣類・寝具・冷却用品を実物確認する', xp: 15 },
     ],
   },
   {
@@ -66,11 +69,52 @@ export const PREPAREDNESS_STAGES = [
 export const ALL_PREPAREDNESS_TASKS = PREPAREDNESS_STAGES.flatMap((stage) => stage.tasks.map((task) => ({ ...task, stageId: stage.id, stageNumber: stage.number })));
 const PREPAREDNESS_TASK_BY_ID = new Map(ALL_PREPAREDNESS_TASKS.map((task) => [task.id, task]));
 
-function validPersistedCompletionIds(state) {
+export function foodInventoryFingerprint(inventory = [], today = new Date(), household = 1) {
+  const rows = usableInventory(inventory, today).filter((item) => item.category === 'food').map((item) => ({
+    id: String(item.id || ''),
+    productId: String(item.productId || ''),
+    name: String(item.name || ''),
+    brand: String(item.brand || ''),
+    packageSize: String(item.packageSize || ''),
+    quantity: Math.max(0, Number(item.quantity) || 0),
+    foodWeightG: Math.max(0, Number(item.foodWeightG) || 0),
+    expiry: String(item.expiry || ''),
+    note: String(item.note || ''),
+  })).sort((a, b) => `${a.productId}:${a.id}`.localeCompare(`${b.productId}:${b.id}`));
+  return JSON.stringify({ household: Math.max(1, Number(household) || 1), rows });
+}
+
+export function preparednessSeason(value = new Date()) {
+  const key = localDateKey(value);
+  const month = Number(key.slice(5, 7));
+  if ([11, 12, 1, 2, 3].includes(month)) return 'cold';
+  if ([5, 6, 7, 8, 9].includes(month)) return 'hot';
+  return 'mild';
+}
+
+function verificationRecordValid(state, taskId, today = new Date(), requiredSeason = '') {
+  const record = state.preparedness?.taskVerifications?.[taskId];
+  // Test/domain callers may still supply an unversioned synthetic state. Every
+  // persisted production state is normalized and must carry the verification.
+  if (!record) return state.schemaVersion == null;
+  if (taskId === 'food-fit') return record.fingerprint === foodInventoryFingerprint(state.inventory, today, state.household);
+  if (taskId === 'seasonal-temperature') {
+    const checkedAt = new Date(record.checkedAt);
+    const current = today instanceof Date ? today : new Date(today);
+    const ageDays = (current.getTime() - checkedAt.getTime()) / 86400000;
+    return record.season === (requiredSeason || preparednessSeason(today))
+      && Number.isFinite(ageDays) && ageDays >= 0 && ageDays <= 183;
+  }
+  return true;
+}
+
+function validPersistedCompletionIds(state, options = {}) {
+  const today = options.today || new Date();
   const persisted = Array.isArray(state.preparedness?.completed) ? state.preparedness.completed : [];
   return new Set(persisted.filter((taskId) => {
     const task = PREPAREDNESS_TASK_BY_ID.get(taskId);
     if (!task || task.auto) return false;
+    if (['food-fit', 'seasonal-temperature'].includes(taskId) && !verificationRecordValid(state, taskId, today, options.requiredSeason)) return false;
     return !getLoadout(taskId) || loadoutStatus(state, taskId).ready;
   }));
 }
@@ -83,7 +127,7 @@ export const TARGET_REQUIREMENTS = [
 ];
 
 export function targetRequirement(days = 7) {
-  const normalizedDays = Math.min(180, Math.max(1, Number(days) || 7));
+  const normalizedDays = normalizeStockpileTargetDays(days, 7);
   return TARGET_REQUIREMENTS.find((requirement) => normalizedDays <= requirement.maxDays) || TARGET_REQUIREMENTS.at(-1);
 }
 
@@ -107,9 +151,10 @@ export function preparednessProgress(state, inventorySummary) {
   const stages = PREPAREDNESS_STAGES.map((stage, index) => {
     const done = stage.tasks.filter((task) => completed.has(task.id)).length;
     const gateTasks = stage.tasks.filter((task) => task.gate);
-    const gateClear = gateTasks.every((task) => completed.has(task.id));
+    const ownGateClear = gateTasks.every((task) => completed.has(task.id));
     const priorGateClear = PREPAREDNESS_STAGES.slice(0, index).every((prior) => prior.tasks.filter((task) => task.gate).every((task) => completed.has(task.id)));
-    return { ...stage, done, total: stage.tasks.length, percent: Math.round(done / stage.tasks.length * 100), gateClear, priorGateClear, unlocked: true };
+    const gateClear = ownGateClear && priorGateClear;
+    return { ...stage, done, total: stage.tasks.length, percent: Math.round(done / stage.tasks.length * 100), ownGateClear, gateClear, priorGateClear, unlocked: true };
   });
   const xp = ALL_PREPAREDNESS_TASKS.reduce((sum, task) => sum + (completed.has(task.id) ? task.xp : 0), 0);
   const maxXp = ALL_PREPAREDNESS_TASKS.reduce((sum, task) => sum + task.xp, 0);
@@ -126,8 +171,24 @@ export function preparednessProgress(state, inventorySummary) {
   return { completed, automatic, stages, xp, maxXp, level, title: titles[level - 1], weakest, currentStage, nextTask, totalDone, totalTasks: ALL_PREPAREDNESS_TASKS.length };
 }
 
+export function hasVerifiedEmergencyLight(state) {
+  return validPersistedCompletionIds(state).has('light-fire');
+}
+
+export function hasVerifiedFoodComposition(state) {
+  return validPersistedCompletionIds(state).has('food-fit');
+}
+
+export function hasVerifiedAlternativeCooking(state) {
+  return validPersistedCompletionIds(state).has('cooking-water');
+}
+
+export function hasVerifiedSeasonalTemperature(state, options = {}) {
+  return validPersistedCompletionIds(state, options).has('seasonal-temperature');
+}
+
 export function defensePower(state, inventorySummary) {
-  const targetDays = Math.min(180, Math.max(1, Number(state.preparedness?.targetDays) || 7));
+  const targetDays = normalizeStockpileTargetDays(state.preparedness?.targetDays, 7);
   const requiredStage = targetRequirement(targetDays);
   const progress = preparednessProgress(state, inventorySummary);
   const requiredTasks = ALL_PREPAREDNESS_TASKS.filter((task) => task.stageNumber <= requiredStage.stageNumber);
@@ -158,12 +219,10 @@ export function essentialPreparednessGates(state, inventorySummary) {
   const shelterReady = Boolean(String(contact.shelter || '').trim());
   const hazardReady = completed.has('hazard-map');
   const contactReady = Boolean(String(contact.phone || '').trim() && String(contact.note || '').trim());
-  const lightReady = completed.has('light-fire') || inventorySummary.rows.some((item) => (
-    item.category === 'light'
-    && Number(item.quantity) > 0
-    && !item.isExpired
-    && /(ライト|懐中電灯|ランタン|ヘッドライト)/.test(String(item.name || ''))
-  ));
+  const lightReady = hasVerifiedEmergencyLight(state);
+  const foodQuantityReady = inventorySummary.foodDays >= 3;
+  const foodCompositionReady = completed.has('food-fit');
+  const foodReady = foodQuantityReady && foodCompositionReady;
   const formatDays = (value) => `${Math.floor(Math.max(0, Number(value) || 0) * 10) / 10}日分`;
   const gates = [
     { key: 'home', label: '住まいの安全', detail: '寝室と避難路', statusLabel: completed.has('furniture') ? '実地確認済み' : '家具・出口を確認', complete: completed.has('furniture'), page: 'roadmap' },
@@ -171,8 +230,9 @@ export function essentialPreparednessGates(state, inventorySummary) {
     { key: 'contact', label: '家族の連絡', detail: '電話・集合ルール', statusLabel: contactReady ? '確認済み' : '連絡方法を登録', complete: contactReady, page: 'plan' },
     { key: 'medicine', label: '薬・健康情報', detail: '常用薬と処方情報', statusLabel: completed.has('medicine') ? '実物確認済み' : '実物を確認', complete: completed.has('medicine'), page: 'roadmap' },
     { key: 'water', label: '飲料・調理用水', detail: '最低3日分', statusLabel: formatDays(inventorySummary.waterDays), complete: inventorySummary.waterDays >= 3, page: 'inventory' },
+    { key: 'food', label: '食料', detail: '3日分＋食べられる構成', statusLabel: !foodQuantityReady ? formatDays(inventorySummary.foodDays) : foodCompositionReady ? '量・構成を確認済み' : '構成を実物確認', complete: foodReady, page: foodQuantityReady ? 'roadmap' : 'inventory' },
     { key: 'toilet', label: '携帯トイレ', detail: '最低3日、推奨7日', statusLabel: formatDays(inventorySummary.toiletDays), complete: inventorySummary.toiletDays >= 3, page: 'inventory' },
-    { key: 'light', label: '停電時の灯り', detail: '点灯できる実物', statusLabel: lightReady ? '実物確認済み' : 'ライトを点検', complete: lightReady, page: lightReady ? 'roadmap' : 'inventory' },
+    { key: 'light', label: '停電時の灯り', detail: '点灯できる実物', statusLabel: lightReady ? '実物確認済み' : 'ライトを点検', complete: lightReady, page: 'roadmap' },
   ];
   return {
     gates,
@@ -187,6 +247,12 @@ export function togglePreparednessTask(state, taskId, inventorySummary) {
   const automatic = getAutomaticTaskIds(state, inventorySummary);
   if (automatic.has(taskId)) return state;
   const completed = validPersistedCompletionIds(state);
-  completed.has(taskId) ? completed.delete(taskId) : completed.add(taskId);
-  return { ...state, preparedness: { ...state.preparedness, completed: [...completed], updatedAt: new Date().toISOString() } };
+  const removing = completed.has(taskId);
+  removing ? completed.delete(taskId) : completed.add(taskId);
+  const now = new Date();
+  const taskVerifications = { ...(state.preparedness?.taskVerifications || {}) };
+  if (removing) delete taskVerifications[taskId];
+  else if (taskId === 'food-fit') taskVerifications[taskId] = { fingerprint: foodInventoryFingerprint(state.inventory, now, state.household), season: '', checkedAt: now.toISOString() };
+  else if (taskId === 'seasonal-temperature') taskVerifications[taskId] = { fingerprint: '', season: preparednessSeason(now), checkedAt: now.toISOString() };
+  return { ...state, preparedness: { ...state.preparedness, completed: [...completed], taskVerifications, updatedAt: now.toISOString() } };
 }

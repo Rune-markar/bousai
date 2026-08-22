@@ -77,10 +77,11 @@ describe('停電時の電力設計', () => {
     expect(phoneUsage).toHaveAttribute('value', '72');
     expect(phoneUsage).toHaveAttribute('max', '408');
     expect(phoneUsage).toHaveAttribute('aria-valuetext', '72 Wh、全体の18%');
-    expect(phoneUsage.closest('li')).toHaveTextContent('実測値 18 W × 2台 × 2時間');
+    expect(phoneUsage.closest('li')).toHaveTextContent('実測値 運転 18 W × 2台 × 2時間');
 
     const fanUsage = within(usage).getByRole('progressbar', { name: '扇風機' });
-    expect(fanUsage.closest('li')).toHaveTextContent('想定値（実測未入力） 25 W × 1台 × 8時間');
+    expect(fanUsage.closest('li')).toHaveTextContent('想定値（実測未入力） 運転 25 W × 1台 × 8時間');
+    expect(fanUsage.closest('li')).toHaveTextContent('起動電力 未確認');
 
     fireEvent.click(screen.getByRole('button', { name: '簡易' }));
     expect(usage).toHaveAttribute('data-mode', 'simple');
@@ -88,7 +89,7 @@ describe('停電時の電力設計', () => {
     phoneUsage = within(usage).getByRole('progressbar', { name: 'スマートフォン' });
     expect(phoneUsage).toHaveAttribute('value', '48');
     expect(phoneUsage).toHaveAttribute('max', '384');
-    expect(phoneUsage.closest('li')).toHaveTextContent('想定値 12 W × 2台 × 2時間');
+    expect(phoneUsage.closest('li')).toHaveTextContent('想定値 運転 12 W × 2台 × 2時間');
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
       mode: 'simple',
       devices: expect.objectContaining({ phone: expect.objectContaining({ actualWatts: 18 }) }),
@@ -110,8 +111,10 @@ describe('停電時の電力設計', () => {
     const breakdown = screen.getByLabelText('電力計算の内訳');
     expect(within(breakdown).getByText('1日負荷')).toBeInTheDocument();
     expect(within(breakdown).getByText('384 Wh')).toBeInTheDocument();
-    expect(within(breakdown).getByText('同時最大')).toBeInTheDocument();
+    expect(within(breakdown).getByText('運転時同時負荷')).toBeInTheDocument();
     expect(within(breakdown).getByText('70 W')).toBeInTheDocument();
+    expect(within(breakdown).getByText('起動時最大')).toBeInTheDocument();
+    expect(within(breakdown).getByText('未確認')).toBeInTheDocument();
     expect(within(breakdown).getByText('変換損失')).toBeInTheDocument();
     expect(within(breakdown).getByText('52 Wh / 日')).toBeInTheDocument();
     expect(within(breakdown).getByText('蓄電池入力')).toBeInTheDocument();
@@ -120,6 +123,47 @@ describe('停電時の電力設計', () => {
     expect(within(breakdown).getByText('1.20 kWh')).toBeInTheDocument();
     expect(within(breakdown).getByText('4.25 kWh')).toBeInTheDocument();
     expect(within(breakdown).getByText('200 W')).toBeInTheDocument();
+  });
+
+  it('冷蔵庫の起動電力が未確認なら容量適合を保留し、入力後に運転時と起動時を分けて示す', () => {
+    const onChange = vi.fn();
+    const initialPlan = createDefaultPowerPlan();
+    for (const device of Object.values(initialPlan.devices)) device.quantity = 0;
+    initialPlan.devices.fridge.quantity = 1;
+    render(<Planner initialPlan={initialPlan} onChange={onChange} />);
+
+    const breakdown = screen.getByLabelText('電力計算の内訳');
+    expect(within(breakdown).getByText('60 W')).toBeInTheDocument();
+    expect(within(breakdown).getByText('未確認')).toBeInTheDocument();
+    expect(screen.getByText(/電源の出力適合は未判定です/).closest('.power-caution')).toHaveTextContent('小型冷蔵庫の起動・瞬間最大W');
+
+    fireEvent.click(screen.getByRole('button', { name: '蓄電池出力の補足' }));
+    let dialog = screen.getByRole('dialog', { name: '必要出力と安全確認' });
+    expect(within(dialog).getByText(/電源の出力適合はまだ判定できません/).closest('p')).toHaveTextContent('起動・瞬間最大Wが未確認');
+    expect(within(dialog).getByText(/出力が足りるとは判断しないでください/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '補足を閉じる' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '詳細' }));
+    fireEvent.click(screen.getByRole('button', { name: /負荷を調整/ }));
+    dialog = screen.getByRole('dialog', { name: '使用する機器を調整' });
+    fireEvent.click(within(dialog).getByRole('button', { name: '小型冷蔵庫の詳細' }));
+    dialog = screen.getByRole('dialog', { name: '小型冷蔵庫の使用条件' });
+    const surgeInput = within(dialog).getByLabelText('小型冷蔵庫の起動時最大電力');
+    expect(surgeInput).toHaveValue(0);
+    fireEvent.change(surgeInput, { target: { value: '450' } });
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      mode: 'detail',
+      devices: expect.objectContaining({ fridge: expect.objectContaining({ surgeWatts: 450 }) }),
+    }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '補足を閉じる' }));
+    dialog = screen.getByRole('dialog', { name: '使用する機器を調整' });
+    expect(within(dialog).getByText(/運転時 60 W・起動時 450 W/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: '負荷の調整を閉じる' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '蓄電池出力の補足' }));
+    dialog = screen.getByRole('dialog', { name: '必要出力と安全確認' });
+    expect(within(dialog).getByText(/確認済みの起動時最大は450W/)).toHaveTextContent('600W以上');
+    expect(screen.queryByText(/電源の出力適合は未判定です/)).not.toBeInTheDocument();
   });
 
   it('負荷ボタンのウィンドウに全機器をまとめ、個数変更後の値を画面へ反映する', () => {
@@ -239,5 +283,8 @@ describe('停電時の電力設計', () => {
     expect(stylesheet).toMatch(/\.power-node-actions button\s*\{[^}]*min-height\s*:\s*44px/s);
     expect(stylesheet).toMatch(/\.power-node-value \.power-help-button\s*\{[^}]*width\s*:\s*44px[^}]*height\s*:\s*44px/s);
     expect(stylesheet).toMatch(/\.power-page \.power-settings \.power-setting-label \.power-help-button\s*\{[^}]*width\s*:\s*44px[^}]*height\s*:\s*44px/s);
+    expect(stylesheet).toMatch(/\.power-modal-head>button\{[^}]*width:44px[^}]*height:44px/s);
+    expect(stylesheet).toMatch(/\.power-load-grid \.device-stepper button\{min-height:44px\}/);
+    expect(stylesheet).toMatch(/\.device-detail input\{min-height:44px;font-size:12px\}/);
   });
 });

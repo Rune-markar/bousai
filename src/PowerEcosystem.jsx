@@ -64,7 +64,7 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
     <div className="power-settings" aria-label="計算条件">
       <div><span className="power-setting-label">電気を保ちたい日数 <HelpButton label="電気備蓄1週間の目安" helpId="power-recovery" onClick={(event) => openHelp('power-recovery', event)} /></span><select aria-label="電気を保ちたい日数" value={result.plan.autonomyDays} onChange={(event) => updatePlan({ autonomyDays: Number(event.target.value) })}>{[1, 2, 3, 4, 5, 6, 7].map((day) => <option value={day} key={day}>{day}日</option>)}</select></div>
       <label><span>1日の有効日照</span><select value={result.plan.sunHours} onChange={(event) => updatePlan({ sunHours: Number(event.target.value) })}>{[1, 2, 3, 4, 5, 6].map((hour) => <option value={hour} key={hour}>{hour}時間</option>)}</select></label>
-      <div><span id="power-mode-label">計算モード</span><div className="power-mode" role="group" aria-labelledby="power-mode-label"><button type="button" className={result.plan.mode === 'simple' ? 'active' : ''} aria-pressed={result.plan.mode === 'simple'} aria-controls="power-mode-description power-usage-summary" onClick={() => updatePlan({ mode: 'simple' })}>簡易</button><button type="button" className={result.plan.mode === 'detail' ? 'active' : ''} aria-pressed={result.plan.mode === 'detail'} aria-controls="power-mode-description power-usage-summary" onClick={() => updatePlan({ mode: 'detail' })}>詳細</button></div><p id="power-mode-description" className={`power-mode-description power-mode-description-${result.plan.mode}`} data-mode={result.plan.mode} aria-live="polite" aria-atomic="true">{result.plan.mode === 'simple' ? <><strong>簡易計算</strong><span>想定W・台数・1日の使用時間で計算します。実測Wは使いません。</span></> : <><strong>詳細計算</strong><span>実測Wを優先し、未入力の機器は想定Wで補完します。台数・1日の使用時間も反映します。</span></>}</p></div>
+      <div><span id="power-mode-label">計算モード</span><div className="power-mode" role="group" aria-labelledby="power-mode-label"><button type="button" className={result.plan.mode === 'simple' ? 'active' : ''} aria-pressed={result.plan.mode === 'simple'} aria-controls="power-mode-description power-usage-summary" onClick={() => updatePlan({ mode: 'simple' })}>簡易</button><button type="button" className={result.plan.mode === 'detail' ? 'active' : ''} aria-pressed={result.plan.mode === 'detail'} aria-controls="power-mode-description power-usage-summary" onClick={() => updatePlan({ mode: 'detail' })}>詳細</button></div><p id="power-mode-description" className={`power-mode-description power-mode-description-${result.plan.mode}`} data-mode={result.plan.mode} aria-live="polite" aria-atomic="true">{result.plan.mode === 'simple' ? <><strong>簡易計算</strong><span>想定W・台数・1日の使用時間で計算します。実測Wは使いません。未確認の起動Wは出力適合判定を保留します。</span></> : <><strong>詳細計算</strong><span>実測Wを優先し、未入力の機器は想定Wで補完します。起動・瞬間最大Wも分けて確認します。</span></>}</p></div>
     </div>
 
     <div className="power-flow-viewport">
@@ -95,7 +95,7 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
           <button type="button" className="power-load-button" aria-label={`負荷を調整、現在${result.selected.length}種類`} onClick={(event) => openHelp('load-devices', event)}>
             <span className="power-load-icon"><PlugZap /></span><span><small>つかう</small><strong id="power-load-title">負荷</strong><em>{result.selected.length}種類</em></span><ChevronRight />
           </button>
-          <div className="power-node-value"><span>1日の使用電力量</span><b>{energy(result.dailyLoadWh)}</b><small>同時最大 {result.peakLoadW} W</small></div>
+          <div className="power-node-value"><span>1日の使用電力量</span><b>{energy(result.dailyLoadWh)}</b><small>運転時合計 {result.runningLoadW} W</small>{!result.outputSizingComplete && <small role="status">起動電力 未確認</small>}</div>
         </article>
       </section>
 
@@ -103,7 +103,7 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
 
       <section className="power-breakdown" aria-label="電力計算の内訳">
         <div><span>1日負荷</span><b>{energy(result.dailyLoadWh)}</b></div>
-        <div><span>同時最大</span><b>{result.peakLoadW} W</b></div>
+        <div><span>運転時同時負荷</span><b>{result.runningLoadW} W</b><span>起動時最大</span><b>{result.outputSizingComplete ? `${result.surgeLoadW} W` : '未確認'}</b></div>
         <div className="power-loss"><span>変換損失</span><b>{energy(result.conversionLossWh)} / 日</b></div>
         <div><span>蓄電池入力</span><b>{energy(result.batteryInputWhPerDay)} / 日</b></div>
         <div><span>予備・使用可能域</span><b>{energy(result.protectedMarginWh)}</b></div>
@@ -111,7 +111,7 @@ export default function PowerEcosystem({ plan, onChange, onBack }) {
         <div className="power-solar-total"><span>必要太陽光出力</span><b>{result.requiredSolarW} W</b></div>
       </section>
 
-      <p className="power-caution">医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。冷蔵庫などモーター機器は定格より大きい起動電力も確認します。この結果は購入確定ではなく、見積もり前の容量判断です。</p>
+      <p className="power-caution">{!result.outputSizingComplete && <><strong>電源の出力適合は未判定です。</strong> {result.unconfirmedSurgeDevices.map((row) => row.name).join('、')}の起動・瞬間最大Wを詳細計算で入力してください。 </>}医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。冷蔵庫などモーター機器は定格より大きい起動電力も確認します。この結果は購入確定ではなく、見積もり前の容量判断です。</p>
     </div>
 
     <div className="power-results-dock" aria-label="電力設計の計算結果">
@@ -141,7 +141,7 @@ function UsageSummary({ result }) {
         return <li className="power-usage-item" key={row.id}>
           <div className="power-usage-item-head">
             <span className="power-usage-symbol" aria-hidden="true">{row.symbol}</span>
-            <span><strong id={usageId}>{row.name}</strong><small>{calculationSource(row, result.plan.mode)} {row.watts} W × {row.quantity}台 × {row.hours}時間</small></span>
+            <span><strong id={usageId}>{row.name}</strong><small>{calculationSource(row, result.plan.mode)} 運転 {row.runningWatts} W × {row.quantity}台 × {row.hours}時間</small>{row.requiresSurgeConfirmation && <small>{row.surgeConfirmed ? `起動 ${row.surgeWatts} W` : '起動電力 未確認'}</small>}</span>
             <b>{energy(row.dailyWh)}<small> / 日</small></b>
           </div>
           <div className="power-usage-meter-row">
@@ -182,6 +182,37 @@ function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp,
     }
   }, [deviceDetailRefs, help.focusDeviceId, help.id]);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const isolatedSiblings = [];
+    let branch = dialogRef.current;
+    while (branch?.parentElement && branch !== document.body) {
+      const parent = branch.parentElement;
+      for (const sibling of parent.children) {
+        if (sibling === branch) continue;
+        isolatedSiblings.push({ element: sibling, inert: sibling.inert, hadInert: sibling.hasAttribute('inert'), hadAriaHidden: sibling.hasAttribute('aria-hidden'), ariaHidden: sibling.getAttribute('aria-hidden') });
+        sibling.inert = true;
+        sibling.setAttribute('inert', '');
+        sibling.setAttribute('aria-hidden', 'true');
+      }
+      branch = parent;
+    }
+    const handleTab = (event) => trapFocus(event);
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleTab);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleTab);
+      for (const record of isolatedSiblings.reverse()) {
+        record.element.inert = record.inert;
+        if (record.hadInert) record.element.setAttribute('inert', '');
+        else record.element.removeAttribute('inert');
+        if (record.hadAriaHidden) record.element.setAttribute('aria-hidden', record.ariaHidden);
+        else record.element.removeAttribute('aria-hidden');
+      }
+    };
+  }, []);
+
   const trapFocus = (event) => {
     if (event.key !== 'Tab') return;
     const focusable = Array.from(dialogRef.current?.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') || []);
@@ -194,19 +225,19 @@ function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp,
     } else if (event.shiftKey && (document.activeElement === first || !dialogRef.current.contains(document.activeElement))) {
       event.preventDefault();
       last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
+    } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current.contains(document.activeElement))) {
       event.preventDefault();
       first.focus();
     }
   };
 
   return <div className="modal-backdrop power-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-    <section ref={dialogRef} className={`power-modal power-help-sheet ${isLoad ? 'power-load-sheet' : ''}`} role="dialog" aria-modal="true" aria-labelledby="power-help-title" data-help-id={help.id} onKeyDown={trapFocus}>
+    <section ref={dialogRef} className={`power-modal power-help-sheet ${isLoad ? 'power-load-sheet' : ''}`} role="dialog" aria-modal="true" aria-labelledby="power-help-title" data-help-id={help.id}>
       <div className="power-modal-head"><div>{isLoad && <span className="kicker">LOAD SETTINGS</span>}<h2 id="power-help-title">{titles[help.id]}</h2></div><button ref={closeRef} type="button" aria-label={isLoad ? '負荷の調整を閉じる' : '補足を閉じる'} onClick={onClose}><X /></button></div>
       {isLoad && <LoadEditor result={result} setQuantity={setQuantity} openHelp={openHelp} deviceDetailRefs={deviceDetailRefs} />}
       {help.id === 'power-recovery' && <div className="power-help-copy benchmark-help-copy"><strong>目標：7日分</strong><p>災害時の電気の復旧は、およそ1週間かかる場合があります。照明・通信・情報収集など、最低限必要な電気関係の備えは7日分を目標にしましょう。</p><small>被害の規模や地域、設備の状況によって復旧期間は変わります。</small></div>}
       {help.id === 'battery-capacity' && <div className="power-help-copy"><p><b>変換損失</b> 蓄電池の直流を家庭用ACやUSBへ変える際、熱や回路動作として一部が失われます。本計算はインバーター効率88%を採用しています。</p><p><b>使用可能容量と予備</b> 電池を空まで使わないため使用可能率90%、天候や機器差に備えて20%を残します。表示容量と実際に取り出せる量が同じとは限りません。</p></div>}
-      {help.id === 'battery-output' && <div className="power-help-copy"><p>同時最大負荷に25%を加えた {result.recommendedOutputW}W以上を目安にします。冷蔵庫などモーター機器は定格より大きい起動電力も確認してください。</p><p>医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。この結果は購入確定ではなく、見積もり前の容量判断です。</p></div>}
+      {help.id === 'battery-output' && <div className="power-help-copy">{result.outputSizingComplete ? <p>運転時同時負荷は{result.runningLoadW}W、選択機器が同時に起動する安全側の前提で、確認済みの起動時最大は{result.surgeLoadW}Wです。大きい側に25%を加えて切り上げた <b>{result.recommendedOutputW}W以上</b>を出力比較の目安にします。</p> : <><p><b>電源の出力適合はまだ判定できません。</b> 運転時同時負荷{result.runningLoadW}Wから連続出力は{result.recommendedContinuousOutputW}W以上が計算目安ですが、{result.unconfirmedSurgeDevices.map((item) => item.name).join('、')}の起動・瞬間最大Wが未確認です。</p><p>詳細計算で実機ラベルやメーカー仕様の起動・瞬間最大Wを入力するまで、購入する電源の出力が足りるとは判断しないでください。</p></>}<p>医療機器は停止リスクを自己判断せず、メーカー・医療者へ確認してください。この結果は購入確定ではなく、見積もり前の容量判断です。</p></div>}
       {help.id === 'battery-price' && <PriceHelp result={result} kind="battery" />}
       {help.id === 'solar-generation' && <div className="power-help-copy"><p>パネル角度、雲、温度、ケーブル、充電回路を含め、システム効率75%で計算します。曇天・日陰・冬季は発電量が大きく下がります。</p><p>現在は有効日照{result.plan.sunHours}時間で、1日分の消費を回復する想定です。設置場所で実際の入力Whを確認してください。</p></div>}
       {help.id === 'solar-price' && <PriceHelp result={result} kind="solar" />}
@@ -217,7 +248,7 @@ function HelpSheet({ help, result, updateDevice, setQuantity, onClose, openHelp,
 
 function LoadEditor({ result, setQuantity, openHelp, deviceDetailRefs }) {
   return <>
-    <div className="power-load-summary"><span>{result.selected.length}種類を選択</span><b>{energy(result.dailyLoadWh)} / 日</b><small>同時最大 {result.peakLoadW} W</small></div>
+    <div className="power-load-summary"><span>{result.selected.length}種類を選択</span><b>{energy(result.dailyLoadWh)} / 日</b><small>運転時 {result.runningLoadW} W・起動時 {result.outputSizingComplete ? `${result.surgeLoadW} W` : '未確認'}</small></div>
     <div className="device-grid power-load-grid">
       {result.rows.map((row) => <article className={`device-card ${row.quantity ? 'selected' : ''}`} key={row.id}>
         <div className="device-title"><span aria-hidden="true">{row.symbol}</span><div><b>{row.name}</b><small>{row.note}</small></div><HelpButton buttonRef={(node) => { deviceDetailRefs.current[row.id] = node; }} label={`${row.name}の詳細`} helpId="device-detail" onClick={(event) => openHelp('device-detail', event, row.id)} /></div>
@@ -230,8 +261,9 @@ function LoadEditor({ result, setQuantity, openHelp, deviceDetailRefs }) {
 function DeviceDetail({ row, detailMode, updateDevice }) {
   return <div className="power-help-copy">
     <p>{row.note}</p>
-    {detailMode ? <div className="device-detail"><label><span>想定</span><input aria-label={`${row.name}の想定消費電力`} type="number" min="1" max="3000" value={row.expectedWatts} onChange={(event) => updateDevice(row.id, { expectedWatts: Number(event.target.value) })} /><i>W</i></label><label><span>実測</span><input aria-label={`${row.name}の実測消費電力`} type="number" min="0" max="3000" value={row.actualWatts} onChange={(event) => updateDevice(row.id, { actualWatts: Number(event.target.value) })} /><i>W</i></label><label><span>使用</span><input aria-label={`${row.name}の1日使用時間`} type="number" min="0.1" max="24" step="0.5" value={row.hours} onChange={(event) => updateDevice(row.id, { hours: Number(event.target.value) })} /><i>h/日</i></label></div> : <p>詳細計算へ切り替えると、想定W・実測W・1日の使用時間を編集できます。</p>}
-    <p>実測Wが0の場合は想定Wを使います。医療機器はメーカー・医療者の指示を、モーター機器は起動電力の実機仕様を優先してください。</p>
+    {detailMode ? <div className="device-detail"><label><span>想定運転</span><input aria-label={`${row.name}の想定消費電力`} type="number" min="1" max="3000" value={row.expectedWatts} onChange={(event) => updateDevice(row.id, { expectedWatts: Number(event.target.value) })} /><i>W</i></label><label><span>実測運転</span><input aria-label={`${row.name}の実測消費電力`} type="number" min="0" max="3000" value={row.actualWatts} onChange={(event) => updateDevice(row.id, { actualWatts: Number(event.target.value) })} /><i>W</i></label><label><span>起動最大</span><input aria-label={`${row.name}の起動時最大電力`} aria-invalid={row.requiresSurgeConfirmation && row.surgeWatts > 0 && !row.surgeConfirmed ? 'true' : undefined} type="number" min="0" max="10000" value={row.surgeWatts} onChange={(event) => updateDevice(row.id, { surgeWatts: Number(event.target.value) })} /><i>W</i></label><label><span>使用</span><input aria-label={`${row.name}の1日使用時間`} type="number" min="0.1" max="24" step="0.5" value={row.hours} onChange={(event) => updateDevice(row.id, { hours: Number(event.target.value) })} /><i>h/日</i></label></div> : <p>詳細計算へ切り替えると、想定・実測の運転W、起動・瞬間最大W、1日の使用時間を編集できます。</p>}
+    {row.requiresSurgeConfirmation && !row.surgeConfirmed && <p role="alert"><b>起動電力が未確認です。</b> 0は未確認として扱い、運転時W以上の実機仕様値を入力するまで電源の出力適合を判定しません。</p>}
+    <p>実測運転Wが0の場合は想定運転Wを使います。医療機器はメーカー・医療者の指示を、モーター機器は起動電力の実機仕様を優先してください。</p>
   </div>;
 }
 

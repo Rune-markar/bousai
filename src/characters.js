@@ -1,4 +1,5 @@
-import { FIRST_GOAL_CATEGORY_PRIORITY } from './domain.js';
+import { essentialPreparednessGates } from './preparedness.js';
+import { isDrinkingCookingWater } from './domain.js';
 
 export const CHARACTERS = [
   { id: 'akane', name: '風守アカネ', short: 'アカネ', disaster: '強風・台風', tone: '元気でおせっかい', color: '#d86b52', mark: '風', image: 'characters/kazemori-akane.webp', imageAlt: '防災ラジオと固定用ロープを持つ風守アカネ' },
@@ -9,12 +10,38 @@ export const CHARACTERS = [
 ];
 
 const voices = {
-  akane: { shortage: (item) => `ねえ、${item.name}があと${item.shortage}${item.unit}！ 次の買い物で忘れないでね！`, expiry: (item) => `${item.name}、そろそろ出番だよ。${['food', 'water', 'comfort'].includes(item.category) ? '今週おいしく使っちゃおう！' : '今週使って、新しいものと交換しよう！'}`, ready: () => 'いい感じ！次は避難路を一緒に見直そっか。' },
-  yui: { shortage: (item) => `${item.name}が少し足りないみたい。無理のない日に、そっと足しておきましょう。`, expiry: (item) => `${item.name}の期限が近づいています。${['food', 'water', 'comfort'].includes(item.category) ? '今日の食事に使えそうですか？' : '動作を確かめて、必要なら交換しましょう。'}`, ready: () => '備えが整っていますね。安心をゆっくり育てていきましょう。' },
-  riko: { shortage: (item) => `${item.name}、不足${item.shortage}${item.unit}。優先度を確認し、補充期限を決めて。`, expiry: (item) => `${item.name}は期限対応が必要。消費か廃棄かを記録して在庫を一致させて。`, ready: () => '在庫は安定。次は集合場所と連絡手段の実効性を確認する。' },
-  hikari: { shortage: (item) => `${item.name}をあと${item.shortage}${item.unit}整えたら、もっと安心だよ。一緒にやろう！`, expiry: (item) => `${item.name}を今週使えば、無駄なく次の備えにつながるよ！`, ready: () => '準備ばっちり！今日も安心の輪が光ってるよ。' },
-  noa: { shortage: (item) => `${item.name}の空白が、静かに知らせているわ。あと${item.shortage}${item.unit}で輪が閉じる。`, expiry: (item) => `${item.name}の季節が終わる前に、暮らしの中へ戻してあげて。`, ready: () => '静かな準備は、嵐の夜にいちばん強い光になるわ。' },
+  akane: { shortage: (item) => `ねえ、${item.name}があと${item.shortage}${item.unit}！ 次の買い物で忘れないでね！`, gate: (gate) => `${gate.label}がまだ未確認だよ。まず「${gate.statusLabel}」から一緒に進めよう！`, expired: (item) => `${item.name}は期限切れだよ。備蓄には数えず、廃棄・交換を記録しよう！`, expiry: (item) => `${item.name}、そろそろ出番だよ。${['food', 'water', 'comfort'].includes(item.category) ? '今週おいしく使っちゃおう！' : '今週使って、新しいものと交換しよう！'}`, ready: () => 'いい感じ！次は避難路を一緒に見直そっか。' },
+  yui: { shortage: (item) => `${item.name}が少し足りないみたい。無理のない日に、そっと足しておきましょう。`, gate: (gate) => `${gate.label}がまだ未確認です。「${gate.statusLabel}」から、無理なく進めましょう。`, expired: (item) => `${item.name}は期限切れです。使わずに、廃棄・交換を記録しておきましょう。`, expiry: (item) => `${item.name}の期限が近づいています。${['food', 'water', 'comfort'].includes(item.category) ? '今日の食事に使えそうですか？' : '動作を確かめて、必要なら交換しましょう。'}`, ready: () => '備えが整っていますね。安心をゆっくり育てていきましょう。' },
+  riko: { shortage: (item) => `${item.name}、不足${item.shortage}${item.unit}。優先度を確認し、補充期限を決めて。`, gate: (gate) => `${gate.label}が未確認。「${gate.statusLabel}」を完了してから、次へ進んで。`, expired: (item) => `${item.name}は期限切れ。使用せず、廃棄・交換を記録して在庫から除外して。`, expiry: (item) => `${item.name}は期限対応が必要。消費か廃棄かを記録して在庫を一致させて。`, ready: () => '在庫は安定。次は集合場所と連絡手段の実効性を確認する。' },
+  hikari: { shortage: (item) => `${item.name}をあと${item.shortage}${item.unit}整えたら、もっと安心だよ。一緒にやろう！`, gate: (gate) => `${gate.label}を確認しよう。「${gate.statusLabel}」が次の一歩だよ！`, expired: (item) => `${item.name}は期限切れだよ。使わずに、廃棄・交換を記録して新しい備えにつなげよう！`, expiry: (item) => `${item.name}を今週使えば、無駄なく次の備えにつながるよ！`, ready: () => '準備ばっちり！今日も安心の輪が光ってるよ。' },
+  noa: { shortage: (item) => `${item.name}の空白が、静かに知らせているわ。あと${item.shortage}${item.unit}で輪が閉じる。`, gate: (gate) => `${gate.label}に、まだ空白があるわ。「${gate.statusLabel}」から満たして。`, expired: (item) => `${item.name}は期限を過ぎているわ。使わずに、廃棄・交換を記録して新しい備えへ。`, expiry: (item) => `${item.name}の季節が終わる前に、暮らしの中へ戻してあげて。`, ready: () => '静かな準備は、嵐の夜にいちばん強い光になるわ。' },
 };
+
+const ADVICE_CATEGORY_PRIORITY = Object.freeze({ water: 0, food: 1, hygiene: 2, light: 3, heat: 4, comfort: 5 });
+const RESOURCE_GATES = [
+  { key: 'water', category: 'water', name: '飲料・調理用水', daysKey: 'waterDays', matches: (item) => !item.needsVerification && isDrinkingCookingWater(item) && Number(item.volumeMl) > 0 },
+  { key: 'food', category: 'food', name: '食料', daysKey: 'foodDays', matches: (item) => item.category === 'food' && !item.needsVerification && Number(item.foodWeightG) > 0 },
+  // A row-level shortage cannot tell whether the missing side is a bag or a
+  // coagulant. Keep this advice in safe "days remaining" terms instead of
+  // directing the user to buy whichever component row happens to be short.
+  { key: 'toilet', category: 'hygiene', name: '携帯トイレ', daysKey: 'toiletDays', matches: () => false },
+];
+
+function formatMissingDays(days) {
+  const missing = Math.ceil(Math.max(0, 3 - (Number(days) || 0)) * 10) / 10;
+  return Number.isInteger(missing) ? missing : missing.toFixed(1);
+}
+
+function resourceShortage(rows, summary) {
+  for (const resource of RESOURCE_GATES) {
+    const days = Number(summary?.[resource.daysKey]) || 0;
+    if (days >= 3) continue;
+    const row = rows.find((item) => resource.matches(item) && item.shortage > 0);
+    if (row) return row;
+    return { id: null, name: resource.name, category: resource.category, shortage: formatMissingDays(days), unit: '日分' };
+  }
+  return null;
+}
 
 export function getCharacter(id) {
   return CHARACTERS.find((character) => character.id === id) || CHARACTERS.find((character) => character.id === 'hikari');
@@ -22,11 +49,22 @@ export function getCharacter(id) {
 
 export function buildCharacterAdvice(state, summary) {
   const character = getCharacter(state.selectedCharacter);
-  const rows = [...summary.rows].sort((a, b) => (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3) || ({ high: 0, medium: 1, low: 2, ok: 3 }[a.priority] - ({ high: 0, medium: 1, low: 2, ok: 3 }[b.priority])));
-  const expiring = rows.find((item) => item.isExpired || item.isExpiring);
+  const rows = [...(summary?.rows || [])].sort((a, b) => (ADVICE_CATEGORY_PRIORITY[a.category] ?? 6) - (ADVICE_CATEGORY_PRIORITY[b.category] ?? 6) || ({ high: 0, medium: 1, low: 2, ok: 3 }[a.priority] ?? 4) - ({ high: 0, medium: 1, low: 2, ok: 3 }[b.priority] ?? 4));
+  const essentialShortage = resourceShortage(rows, summary);
+  if (essentialShortage) return { kind: 'shortage', itemId: essentialShortage.id || undefined, text: voices[character.id].shortage(essentialShortage), action: '補充計画を見る', page: 'inventory' };
+
+  const essential = essentialPreparednessGates(state, summary);
+  // Water/toilet gates are pure quantity gates already handled above. Food
+  // also requires the separate "food-fit" real-world composition check.
+  const otherGate = essential.gates.find((gate) => !gate.complete && !['water', 'toilet'].includes(gate.key));
+  if (otherGate) return { kind: 'safety-check', text: voices[character.id].gate(otherGate), action: otherGate.statusLabel, page: otherGate.page };
+
+  const expired = rows.find((item) => item.isExpired);
+  if (expired) return { kind: 'expired', itemId: expired.id, text: voices[character.id].expired(expired), action: '期限切れを処理する', page: 'inventory' };
   const shortage = rows.find((item) => item.shortage > 0);
-  if (expiring) return { kind: 'expiry', itemId: expiring.id, text: voices[character.id].expiry(expiring), action: '期限を記録する', page: 'inventory' };
+  const expiring = rows.find((item) => item.isExpiring);
   if (shortage) return { kind: 'shortage', itemId: shortage.id, text: voices[character.id].shortage(shortage), action: '補充計画を見る', page: 'inventory' };
+  if (expiring) return { kind: 'expiry', itemId: expiring.id, text: voices[character.id].expiry(expiring), action: '期限を記録する', page: 'inventory' };
   return { kind: 'ready', text: voices[character.id].ready(), action: '防災力を育てる', page: 'roadmap' };
 }
 

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { inventorySummary } from './domain.js';
 import { getLoadout, requiredLoadoutItemIds } from './loadouts.js';
-import { ALL_PREPAREDNESS_TASKS, defensePower, essentialPreparednessGates, preparednessProgress, targetRequirement, togglePreparednessTask } from './preparedness.js';
+import { ALL_PREPAREDNESS_TASKS, defensePower, essentialPreparednessGates, foodInventoryFingerprint, hasVerifiedSeasonalTemperature, preparednessProgress, targetRequirement, togglePreparednessTask } from './preparedness.js';
 
 const base = {
   household: 2,
   inventory: [
-    { category: 'water', quantity: 36, target: 36, volumeMl: 500 },
+    { category: 'water', waterPurpose: 'drinking-cooking', quantity: 36, target: 36, volumeMl: 500 },
     { category: 'food', quantity: 6, target: 6, foodWeightG: 450 },
     { name: '携帯トイレ', category: 'hygiene', quantity: 30, target: 30 },
   ],
@@ -124,9 +124,9 @@ describe('preparedness roadmap', () => {
     expect(thirtyDay.score).toBeLessThan(threeDay.score);
   });
 
-  it('supports long-term targets up to 180 days', () => {
+  it('caps quantity-based readiness at 30 days', () => {
     const summary = inventorySummary(base.inventory, base.household);
-    expect(defensePower({ ...base, preparedness: { completed: [], targetDays: 180 } }, summary).targetDays).toBe(180);
+    expect(defensePower({ ...base, preparedness: { completed: [], targetDays: 180 } }, summary).targetDays).toBe(30);
   });
 
   it('includes portable-toilet coverage in the selected target-day score', () => {
@@ -142,21 +142,21 @@ describe('preparedness roadmap', () => {
     expect(model.score).toBeLessThan(100);
   });
 
-  it('requires seven life-and-hygiene gates without treating a power calculation as an achievement', () => {
+  it('requires eight life-and-hygiene gates without treating a power calculation as an achievement', () => {
     const state = {
       ...base,
       preparedness: {
-        completed: ['hazard-map', 'furniture', 'medicine', 'light-fire'],
+        completed: ['hazard-map', 'furniture', 'medicine', 'food-fit', 'light-fire'],
         loadouts: { 'light-fire': requiredLoadoutItemIds(getLoadout('light-fire')) },
       },
       powerPlan: { autonomyDays: 7 },
     };
     const plan = essentialPreparednessGates(state, inventorySummary(state.inventory, state.household));
 
-    expect(plan.gates.map(({ key }) => key)).toEqual(['home', 'risk', 'contact', 'medicine', 'water', 'toilet', 'light']);
+    expect(plan.gates.map(({ key }) => key)).toEqual(['home', 'risk', 'contact', 'medicine', 'water', 'food', 'toilet', 'light']);
     expect(plan.gates.find((gate) => gate.key === 'power')).toBeUndefined();
     expect(plan.complete).toBe(true);
-    expect(plan.completeCount).toBe(7);
+    expect(plan.completeCount).toBe(8);
   });
 
   it('keeps missing safety checks visible even when stockpile day counts are sufficient', () => {
@@ -170,5 +170,69 @@ describe('preparedness roadmap', () => {
     expect(plan.gates.filter((gate) => gate.complete).map((gate) => gate.key)).toEqual(['water', 'toilet']);
     expect(plan.completeCount).toBe(2);
     expect(plan.complete).toBe(false);
+  });
+
+  it('requires a manual food-composition check in addition to three days of food by weight', () => {
+    const summary = inventorySummary(base.inventory, base.household);
+    const quantityOnly = essentialPreparednessGates(base, summary).gates.find((gate) => gate.key === 'food');
+    const verified = essentialPreparednessGates({
+      ...base,
+      preparedness: { completed: ['food-fit'] },
+    }, summary).gates.find((gate) => gate.key === 'food');
+
+    expect(quantityOnly).toMatchObject({ complete: false, statusLabel: '構成を実物確認', page: 'roadmap' });
+    expect(verified).toMatchObject({ complete: true, statusLabel: '量・構成を確認済み', page: 'roadmap' });
+  });
+
+  it('invalidates food composition verification when food or household context changes', () => {
+    const today = new Date('2026-08-22T12:00:00');
+    const onePerson = { ...base, schemaVersion: 15, household: 1 };
+    const fingerprint = foodInventoryFingerprint(onePerson.inventory, today, onePerson.household);
+    const verified = {
+      ...onePerson,
+      preparedness: { completed: ['food-fit'], taskVerifications: { 'food-fit': { fingerprint, checkedAt: today.toISOString(), season: '' } } },
+    };
+    const changedFood = { ...verified, inventory: verified.inventory.map((item) => item.category === 'food' ? { ...item, name: '白米だけ' } : item) };
+    const changedHousehold = { ...verified, household: 2 };
+
+    expect(essentialPreparednessGates(verified, inventorySummary(verified.inventory, 1, today)).gates.find((gate) => gate.key === 'food').complete).toBe(true);
+    expect(essentialPreparednessGates(changedFood, inventorySummary(changedFood.inventory, 1, today)).gates.find((gate) => gate.key === 'food')).toMatchObject({ complete: false, statusLabel: '構成を実物確認' });
+    expect(inventorySummary(changedHousehold.inventory, 2, today).foodDays).toBe(3);
+    expect(essentialPreparednessGates(changedHousehold, inventorySummary(changedHousehold.inventory, 2, today)).gates.find((gate) => gate.key === 'food')).toMatchObject({ complete: false, statusLabel: '構成を実物確認' });
+  });
+
+  it('requires a recent matching-season temperature verification', () => {
+    const state = (season, checkedAt) => ({ schemaVersion: 15, preparedness: { completed: ['seasonal-temperature'], taskVerifications: { 'seasonal-temperature': { season, checkedAt } } } });
+    const winter = new Date('2026-01-15T12:00:00');
+
+    expect(hasVerifiedSeasonalTemperature(state('cold', '2025-12-01T12:00:00Z'), { today: winter, requiredSeason: 'cold' })).toBe(true);
+    expect(hasVerifiedSeasonalTemperature(state('hot', '2026-01-01T12:00:00Z'), { today: winter, requiredSeason: 'cold' })).toBe(false);
+    expect(hasVerifiedSeasonalTemperature(state('cold', '2020-01-01T12:00:00Z'), { today: winter, requiredSeason: 'cold' })).toBe(false);
+  });
+
+  it('does not complete essential preparedness when food is below three days', () => {
+    const state = {
+      ...base,
+      inventory: base.inventory.filter((item) => item.category !== 'food'),
+      preparedness: {
+        completed: ['hazard-map', 'furniture', 'medicine', 'food-fit', 'light-fire'],
+        loadouts: { 'light-fire': requiredLoadoutItemIds(getLoadout('light-fire')) },
+      },
+    };
+    const plan = essentialPreparednessGates(state, inventorySummary(state.inventory, state.household));
+    expect(plan.gates.find((gate) => gate.key === 'food')).toMatchObject({ complete: false, page: 'inventory' });
+    expect(plan.complete).toBe(false);
+  });
+
+  it('does not treat a registered light as a verified working light', () => {
+    const state = { ...base, inventory: [...base.inventory, { name: 'LEDライト', category: 'light', quantity: 1, target: 1 }] };
+    const light = essentialPreparednessGates(state, inventorySummary(state.inventory, state.household)).gates.find((gate) => gate.key === 'light');
+    expect(light).toMatchObject({ complete: false, statusLabel: 'ライトを点検', page: 'roadmap' });
+  });
+
+  it('does not award a later stage badge before prior stage gates are clear', () => {
+    const state = { ...base, preparedness: { completed: ['bag-primary'], loadouts: { 'bag-primary': requiredLoadoutItemIds(getLoadout('bag-primary')) } } };
+    const progress = preparednessProgress(state, inventorySummary(state.inventory, state.household));
+    expect(progress.stages[2]).toMatchObject({ ownGateClear: true, priorGateClear: false, gateClear: false, unlocked: true });
   });
 });

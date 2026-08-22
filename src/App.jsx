@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Award, Backpack, Bell, BookOpen, Box, CalendarDays,
   Check, ChevronDown, ChevronRight, CircleHelp, ClipboardList, Copy, Droplets, Flame, Heart,
   Download, History, Home, Lightbulb, MapPin, Minus, PackagePlus, Pencil, Phone,
   Plus, QrCode, Radio, RefreshCw, Route, Search, Settings, ShieldAlert, ShieldCheck, ShoppingBasket, Sparkles, Sun, Trash2, Trophy, Upload, Users, WifiOff, X, Zap,
 } from 'lucide-react';
-import { CATEGORY_META, consumeByRotation, FIRST_GOAL_CATEGORY_PRIORITY, FOOD_GRAMS_PER_PERSON_DAY, inventorySummary, stockpileBudgetProjection, stockpileUnitNeeds, transactionInsights, uid, WATER_ML_PER_PERSON_DAY } from './domain.js';
+import { CATEGORY_META, consumeByRotation, FIRST_GOAL_CATEGORY_PRIORITY, FOOD_GRAMS_PER_PERSON_DAY, inventorySummary, isValidLocalDate, localDateKey, MAX_STOCKPILE_TARGET_DAYS, normalizeStockpileTargetDays, redistributeProductTargets, stockpileBudgetProjection, stockpileUnitNeeds, transactionInsights, uid, WATER_ML_PER_PERSON_DAY } from './domain.js';
 import BarcodeScanner from './BarcodeScanner.jsx';
 import PowerEcosystem from './PowerEcosystem.jsx';
 import PracticalLoadout from './PracticalLoadout.jsx';
 import DisasterPreparedness from './DisasterPreparedness.jsx';
 import StockpileSkillTree from './StockpileSkillTree.jsx';
-import { createTransaction, loadState, normalizeState, STORAGE_KEY } from './state.js';
+import { createTransaction, loadState, normalizeInventoryItem, parseStateData, RECOVERY_KEY_PREFIX, STORAGE_KEY } from './state.js';
 import { defensePower, essentialPreparednessGates, preparednessProgress, togglePreparednessTask } from './preparedness.js';
 import { completeLoadout, getLoadout, loadoutStatus, updateLoadout } from './loadouts.js';
 import { autoPackInventory, bagSettings, updateBagSettings } from './packing.js';
@@ -35,8 +36,29 @@ const pageFromLocation = () => {
   return pageIds.has(id) ? id : 'home';
 };
 
-const emptyForm = { name: '', category: 'food', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', volumeMl: 0, foodWeightG: 0, packingVolumeMl: 0, imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30, replenishmentPriority: 'high', replenishBy: '', purchaseFrom: '' };
-const essentialGateTaskTargets = { home: 'furniture', risk: 'hazard-map', medicine: 'medicine', light: 'light-fire' };
+const emptyForm = { name: '', category: 'food', waterPurpose: '', tier: 1, unit: '個', quantity: 1, target: 3, price: 0, expiry: '', note: '', barcode: '', brand: '', packageSize: '', volumeMl: 0, foodWeightG: 0, packingVolumeMl: 0, imageUrl: '', source: '', sourceUrl: '', rotationEnabled: true, rotationLeadDays: 30, replenishmentPriority: 'high', replenishBy: '', purchaseFrom: '' };
+const essentialGateTaskTargets = { home: 'furniture', risk: 'hazard-map', medicine: 'medicine', food: 'food-fit', light: 'light-fire' };
+const sharedProductFieldKeys = [
+  'name', 'category', 'waterPurpose', 'tier', 'unit', 'brand', 'packageSize',
+  'volumeMl', 'foodWeightG', 'packingVolumeMl', 'imageUrl', 'source', 'sourceUrl', 'barcode',
+];
+const sharedProductFields = (item) => Object.fromEntries(sharedProductFieldKeys
+  .filter((key) => item[key] !== undefined)
+  .map((key) => [key, item[key]]));
+
+const inventoryReviewMessage = (item) => item.verificationReason === 'legacy-sample'
+  ? ['この数量は旧版の初期サンプルです', '手元の実物と数量・期限を照合してください。一致しない場合は編集または削除します。']
+  : item.verificationReason === 'invalid-expiry'
+    ? ['期限データを確認してください', `保存されていた期限「${item.expiry || '空欄'}」は有効な日付ではありません。編集して正しい期限へ直します。`]
+    : item.verificationReason === 'unknown-category'
+      ? ['分類を確認してください', '読み込んだ分類を判定できません。編集画面で正しい分類を選ぶまで安全計算から除外します。']
+      : item.verificationReason === 'ambiguous-water'
+        ? ['水の用途を確認してください', '飲料・調理用か生活用水かを編集画面で選ぶまで、3Lの日数計算から除外します。']
+        : ['登録内容を確認してください', '実物と登録内容を照合するまで安全計算から除外します。'];
+
+const canResolveInventoryReview = (item) => Boolean(CATEGORY_META[item.category])
+  && (!item.expiry || isValidLocalDate(item.expiry))
+  && (item.category !== 'water' || ['drinking-cooking', 'utility'].includes(item.waterPurpose));
 
 function Brand() {
   return <div className="brand"><span className="brand-mark"><ShieldCheck size={22} /></span><span><b>そなえメモ</b><small>暮らしに、ちいさな安心を。</small></span></div>;
@@ -48,16 +70,23 @@ function App() {
   const [pageTarget, setPageTarget] = useState(() => window.history.state?.sonaeTarget || null);
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState('');
+  const [recoveryDownloaded, setRecoveryDownloaded] = useState(false);
+  const [storageWriteError, setStorageWriteError] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [online, setOnline] = useState(() => navigator.onLine);
-  const summary = useMemo(() => inventorySummary(state.inventory, state.household), [state.inventory, state.household]);
+  const [currentDay, setCurrentDay] = useState(() => localDateKey());
+  const [activeModalElement, setActiveModalElement] = useState(null);
+  const summary = useMemo(() => inventorySummary(state.inventory, state.household, currentDay), [state.inventory, state.household, currentDay]);
   const visitChecked = useRef(false);
   const powerEntryRef = useRef(null);
   const stockpileSkillEntryRef = useRef(null);
+  const recoveryAlertRef = useRef(null);
   const mainRef = useRef(null);
   const previousPageRef = useRef(page);
+  const wasOnboardingActiveRef = useRef(!state.onboarding?.completed);
+  const wasRecoveryBlockedRef = useRef(Boolean(state.storageRecovery?.blocked));
 
   const setPage = useCallback((nextPage, { replace = false, target = null } = {}) => {
     if (!pageIds.has(nextPage)) return;
@@ -69,10 +98,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (state.storageRecovery?.blocked) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      setStorageWriteError(false);
     } catch {
-      setToast('端末に保存できませんでした。空き容量やブラウザ設定を確認してください');
+      setStorageWriteError(true);
     }
   }, [state]);
   useEffect(() => {
@@ -80,6 +111,39 @@ function App() {
     window.addEventListener('online', update);
     window.addEventListener('offline', update);
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
+  }, []);
+  useEffect(() => {
+    let midnightTimer;
+    const scheduleMidnightRefresh = () => {
+      window.clearTimeout(midnightTimer);
+      const now = new Date();
+      const next = new Date(now);
+      next.setHours(24, 0, 0, 50);
+      midnightTimer = window.setTimeout(() => {
+        setCurrentDay(localDateKey());
+        scheduleMidnightRefresh();
+      }, Math.max(1000, next.getTime() - now.getTime()));
+    };
+    const refreshDay = () => {
+      setCurrentDay(localDateKey());
+      scheduleMidnightRefresh();
+    };
+    const refreshVisibleDay = () => { if (document.visibilityState === 'visible') refreshDay(); };
+    window.addEventListener('focus', refreshDay);
+    document.addEventListener('visibilitychange', refreshVisibleDay);
+    scheduleMidnightRefresh();
+    return () => {
+      window.clearTimeout(midnightTimer);
+      window.removeEventListener('focus', refreshDay);
+      document.removeEventListener('visibilitychange', refreshVisibleDay);
+    };
+  }, []);
+  useEffect(() => {
+    const updateModalLayer = () => setActiveModalElement(document.querySelector('[aria-modal="true"]'));
+    const observer = new MutationObserver(updateModalLayer);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'] });
+    updateModalLayer();
+    return () => observer.disconnect();
   }, []);
   useEffect(() => {
     const ready = () => setToast('オフライン利用の準備ができました');
@@ -160,18 +224,93 @@ function App() {
   const replenishShortage = (item) => {
     const amount = Math.max(0, Number(item.shortage) || 0);
     if (!amount) return;
-    const inventory = state.inventory.map((entry) => entry.id === item.id ? { ...entry, quantity: Number(entry.quantity) + amount, lastChecked: new Date().toISOString().slice(0, 10) } : entry);
-    updateInventory(inventory, `${item.name}を${amount}${item.unit}補充しました`, createTransaction('add', item, amount, '不足通知から補充'));
+    setModal({ newLotFrom: item, suggestedQuantity: amount });
     setNotificationsOpen(false);
   };
+  const downloadProtectedState = () => {
+    let raw = '';
+    try {
+      const backupKey = state.storageRecovery?.backupKey;
+      raw = (backupKey ? localStorage.getItem(backupKey) : '') || localStorage.getItem(STORAGE_KEY);
+    } catch {
+      return setToast('保護データを取得できませんでした');
+    }
+    if (!raw) return setToast('保護データを取得できませんでした');
+    const blob = new Blob([raw], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sonae-note-protected-${localDateKey()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setRecoveryDownloaded(true);
+  };
+  const downloadUnsavedState = () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sonae-note-unsaved-${localDateKey()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const retryStateSave = () => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      setStorageWriteError(false);
+      setToast('現在のデータを端末へ保存しました');
+    } catch {
+      setStorageWriteError(true);
+    }
+  };
 
+  const recoveryBlocked = Boolean(state.storageRecovery?.blocked);
   const onboardingActive = !state.onboarding?.completed;
-  const backgroundA11y = onboardingActive ? { 'aria-hidden': true, inert: true } : {};
-  const chromeA11y = onboardingActive || page === 'stockpile-skills' ? { 'aria-hidden': true, inert: true } : {};
+  useEffect(() => {
+    const wasBlocked = wasRecoveryBlockedRef.current;
+    wasRecoveryBlockedRef.current = recoveryBlocked;
+    const frame = window.requestAnimationFrame(() => {
+      if (recoveryBlocked) recoveryAlertRef.current?.querySelector('button:not([disabled])')?.focus();
+      else if (wasBlocked) {
+        const heading = mainRef.current?.querySelector('h1');
+        if (heading) {
+          heading.setAttribute('tabindex', '-1');
+          heading.focus();
+        }
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [recoveryBlocked]);
+  useEffect(() => {
+    const wasActive = wasOnboardingActiveRef.current;
+    wasOnboardingActiveRef.current = onboardingActive;
+    if (!wasActive || onboardingActive) return;
+    const frame = window.requestAnimationFrame(() => {
+      const heading = mainRef.current?.querySelector('h1');
+      if (heading) {
+        heading.setAttribute('tabindex', '-1');
+        heading.focus();
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [onboardingActive]);
+  const backgroundA11y = onboardingActive || recoveryBlocked ? { 'aria-hidden': true, inert: true } : {};
+  const chromeA11y = onboardingActive || recoveryBlocked || page === 'stockpile-skills' ? { 'aria-hidden': true, inert: true } : {};
   const navigationPage = page === 'stockpile-skills' ? 'inventory' : page;
+  const persistenceAlert = storageWriteError && !recoveryBlocked ? <section className="storage-persistence-alert" role="alert">
+    <AlertTriangle />
+    <span><b>変更をこの端末へ保存できていません</b><small>このタブを閉じる前にファイルへ保存するか、空き容量・ブラウザの保存設定を確認して再試行してください。</small></span>
+    <div><button type="button" className="secondary-button" onClick={downloadUnsavedState}><Download />現在データを保存</button><button type="button" className="primary-button" onClick={retryStateSave}><RefreshCw />保存を再試行</button></div>
+  </section> : null;
 
   return (
     <div className={`app-shell${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
+      {state.storageRecovery?.blocked && <section ref={recoveryAlertRef} className="storage-recovery-alert" role="alert">
+        <AlertTriangle />
+        <span><b>保存データを安全に読み込めませんでした</b><small>{state.storageRecovery.reason === 'read-error' ? '端末の保存領域を読み取れません。元データへ書き込まず停止しています。再読み込みしても続く場合は、ブラウザの保存設定を確認してください。' : <>{state.storageRecovery.reason === 'future-schema' ? 'このアプリより新しい形式です。' : 'データ形式が壊れている可能性があります。'}元データは上書きしていません。{state.storageRecovery.backupStored ? '別の保存キーにも複製しました。' : '別キーへの複製はできなかったため、空の状態で続ける前にファイル保存してください。'}</>}</small></span>
+        <div>{state.storageRecovery.reason === 'read-error' ? <button type="button" className="primary-button" onClick={() => window.location.reload()}><RefreshCw />再読み込み</button> : <><button type="button" className="secondary-button" onClick={downloadProtectedState}><Download />保護データを保存</button><button type="button" className="primary-button" disabled={!state.storageRecovery.backupStored && !recoveryDownloaded} title={!state.storageRecovery.backupStored && !recoveryDownloaded ? '先に保護データをファイル保存してください' : undefined} onClick={() => setState((old) => { const { storageRecovery, ...next } = old; return next; })}>空の状態で続ける</button></>}</div>
+      </section>}
+      {persistenceAlert && (activeModalElement ? createPortal(persistenceAlert, activeModalElement) : persistenceAlert)}
       <header className="topbar" {...chromeA11y}>
         <Brand />
         <nav className="desktop-nav" aria-label="メインナビゲーション">
@@ -182,11 +321,11 @@ function App() {
 
       <main ref={mainRef} {...backgroundA11y}>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} setModal={setModal} powerEntryRef={powerEntryRef} />}
-        {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} />}
-        {page === 'stockpile-skills' && !onboardingActive && <StockpileSkillsPage state={state} setState={setState} setToast={setToast} onClose={() => setPage('inventory', { replace: true })} />}
-        {page === 'bags' && <EvacuationBags state={state} setState={setState} setToast={setToast} setPage={setPage} />}
-        {page === 'rolling' && <RollingStock state={state} summary={summary} transactions={state.transactions} updateInventory={updateInventory} onBack={() => setPage('inventory')} />}
-        {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} targetTaskId={pageTarget} />}
+        {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} today={currentDay} />}
+        {page === 'stockpile-skills' && !onboardingActive && <StockpileSkillsPage state={state} setState={setState} setToast={setToast} onClose={() => setPage('inventory', { replace: true })} today={currentDay} />}
+        {page === 'bags' && <EvacuationBags state={state} setState={setState} setToast={setToast} setPage={setPage} today={currentDay} />}
+        {page === 'rolling' && <RollingStock state={state} summary={summary} transactions={state.transactions} updateInventory={updateInventory} onBack={() => setPage('inventory')} today={currentDay} />}
+        {page === 'roadmap' && <PreparednessRoadmap state={state} summary={summary} setState={setState} setPage={setPage} setToast={setToast} targetTaskId={pageTarget} today={currentDay} />}
         {page === 'disasters' && <DisasterPreparedness state={state} setState={setState} setToast={setToast} />}
         {page === 'plan' && <EmergencyPlan state={state} summary={summary} setState={setState} setToast={setToast} />}
         {page === 'learn' && <Learn completed={state.completedTips} setState={setState} />}
@@ -201,26 +340,55 @@ function App() {
         {nav.map(({ id, label, icon: Icon }) => <button aria-current={navigationPage === id ? 'page' : undefined} className={navigationPage === id ? 'active' : ''} key={id} onClick={() => setPage(id)}><Icon size={21} /><span>{label}</span></button>)}
       </nav>
 
-      {modal && <ItemModal item={modal === 'new' ? null : modal} inventory={state.inventory} onClose={() => setModal(null)} onSave={(form) => {
+      {modal && <ItemModal item={modal === 'new' || modal?.newLotFrom ? null : modal} initialItem={modal?.newLotFrom || null} suggestedQuantity={modal?.suggestedQuantity} inventory={state.inventory} onClose={() => setModal(null)} onSave={(form) => {
         const { registrationMode, ...values } = form;
         let inventory;
         let transaction;
-        if (modal === 'new' && registrationMode === 'merge' && values.barcode && state.inventory.some((entry) => entry.barcode === values.barcode)) {
-          const existing = state.inventory.find((entry) => entry.barcode === values.barcode);
-          inventory = state.inventory.map((entry) => entry.id === existing.id ? { ...entry, quantity: entry.quantity + values.quantity, volumeMl: values.volumeMl || entry.volumeMl || 0, foodWeightG: values.foodWeightG || entry.foodWeightG || 0, packingVolumeMl: values.packingVolumeMl || entry.packingVolumeMl || 0, lastChecked: values.lastChecked || entry.lastChecked } : entry);
-          transaction = createTransaction('add', existing, values.quantity, '同一バーコードの商品へ補充');
-        } else if (modal === 'new') {
-          const created = { ...values, id: uid(), productId: values.barcode ? `gtin:${values.barcode}` : `manual:${uid()}` };
-          inventory = [...state.inventory, created];
-          transaction = createTransaction('add', created, created.quantity, values.barcode ? 'バーコードから登録' : '手入力で登録');
+        const creatingNewLot = modal === 'new' || Boolean(modal?.newLotFrom);
+        if (creatingNewLot) {
+          const sourceLot = modal?.newLotFrom || null;
+          const sameBarcode = sourceLot && String(values.barcode || '') === String(sourceLot.barcode || '');
+          const productId = sourceLot && sameBarcode
+            ? sourceLot.productId
+            : values.barcode ? `gtin:${values.barcode}` : `manual:${uid()}`;
+          const created = normalizeInventoryItem({ ...values, id: uid(), productId }, state.inventory.length);
+          const productExists = state.inventory.some((entry) => entry.productId === productId);
+          const canonicalFields = sharedProductFields(created);
+          const addedInventory = [
+            ...state.inventory.map((entry, index) => entry.productId === productId
+              ? normalizeInventoryItem({ ...entry, ...canonicalFields }, index)
+              : entry),
+            created,
+          ];
+          const existingProductTarget = state.inventory.filter((entry) => entry.productId === productId)
+            .reduce((sum, entry) => sum + Math.max(0, Number(entry.target) || 0), 0);
+          inventory = productExists
+            ? redistributeProductTargets(addedInventory, productId, Math.max(existingProductTarget, created.target), currentDay)
+            : addedInventory;
+          transaction = createTransaction('add', created, created.quantity, modal?.newLotFrom ? '新しい期限ロットとして補充' : values.barcode ? 'バーコードから登録' : '手入力で登録');
         } else {
-          inventory = state.inventory.map((entry) => entry.id === modal.id ? { ...entry, ...values } : entry);
+          const edited = normalizeInventoryItem({ ...modal, ...values }, state.inventory.findIndex((entry) => entry.id === modal.id));
+          const canonicalFields = sharedProductFields(edited);
+          const updatedLots = state.inventory.map((entry, index) => {
+            if (entry.id === modal.id) return edited;
+            if (entry.productId !== edited.productId) return entry;
+            // Product-defining corrections apply to every expiry lot sharing
+            // the same identity. Quantity, expiry, price, and location remain
+            // specific to each physical lot.
+            return normalizeInventoryItem({ ...entry, ...canonicalFields }, index);
+          });
+          inventory = redistributeProductTargets(
+            updatedLots,
+            edited.productId,
+            edited.target,
+            currentDay,
+          );
           transaction = createTransaction('edit', { ...modal, ...values }, values.quantity - modal.quantity, '備蓄情報を編集');
         }
-        updateInventory(inventory, modal === 'new' ? '備蓄品を追加しました' : '変更を保存しました', transaction);
+        updateInventory(inventory, creatingNewLot ? '新しい期限ロットを追加しました' : '変更を保存しました', transaction);
         setModal(null);
       }} />}
-      {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} onOpenRolling={() => { setNotificationsOpen(false); setPage('rolling'); }} onReplenish={replenishShortage} />}
+      {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenInventory={() => { setNotificationsOpen(false); setPage('inventory'); }} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} onOpenRolling={() => { setNotificationsOpen(false); setPage('rolling'); }} onReplenish={replenishShortage} />}
       {shareOpen && <ShareQrPanel onClose={() => setShareOpen(false)} setToast={setToast} />}
       {optionsOpen && <OptionsPanel state={state} setState={setState} onClose={() => setOptionsOpen(false)} setToast={setToast} />}
       {!state.onboarding?.completed && <SetupWizard state={state} setState={setState} />}
@@ -269,7 +437,7 @@ function SetupWizard({ state, setState }) {
     ...old,
     household: Math.min(12, Math.max(1, Number(household) || 1)),
     contact: saveContact ? { ...old.contact, ...contact } : old.contact,
-    preparedness: { ...old.preparedness, targetDays: Math.min(180, Math.max(1, Number(targetDays) || 7)) },
+    preparedness: { ...old.preparedness, targetDays: normalizeStockpileTargetDays(targetDays, 7) },
     onboarding: { completed: true, completedAt: new Date().toISOString() },
   }));
   return <div className="setup-backdrop">
@@ -289,7 +457,8 @@ function SetupWizard({ state, setState }) {
         <h1 id="setup-title">何日分の備蓄を目指しますか？</h1>
         <p>水・食品などは最低3日、できれば1週間が目安です。地域や家族の事情に合わせ、後から変更できます。</p>
         <div className="setup-day-options">{[3, 7, 14, 30].map((day) => <button autoFocus={day === 3} type="button" className={Number(targetDays) === day ? 'active' : ''} aria-pressed={Number(targetDays) === day} key={day} onClick={() => setTargetDays(day)}><b>{day}</b><small>日分</small>{day === 7 && <em>おすすめ</em>}</button>)}</div>
-        <label className="setup-custom-days"><span>その他の日数</span><input type="number" inputMode="numeric" min="1" max="180" value={targetDays} onChange={(event) => setTargetDays(event.target.value)} /><small>日分</small></label>
+        <label className="setup-custom-days"><span>その他の日数</span><input type="number" inputMode="numeric" min="1" max={MAX_STOCKPILE_TARGET_DAYS} value={targetDays} onChange={(event) => setTargetDays(event.target.value)} /><small>日分</small></label>
+        <p className="setup-day-policy">30日を超えて量を増やす前に、電源・調理手段・個別事情・快適性など備えの種類を広げます。</p>
         <div className="setup-actions"><button className="secondary-button" type="button" onClick={() => setStep(1)}>戻る</button><button className="primary-button" type="button" onClick={() => setStep(3)}>次へ<ArrowRight /></button></div>
       </div>}
       {step === 3 && <div className="setup-step">
@@ -312,7 +481,7 @@ function OptionsPanel({ state, setState, onClose, setToast }) {
     setToast('家族人数を更新しました');
     onClose();
   };
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal compact-modal options-panel" role="dialog" aria-modal="true" aria-labelledby="options-title"><div className="modal-title"><div><span className="kicker">OPTIONS</span><h2 id="options-title">オプション</h2></div><button type="button" aria-label="オプションを閉じる" onClick={onClose}><X /></button></div><div className="option-household"><div><Users /><span><b>家族人数</b><small>備蓄日数の計算に使用します</small></span></div><div className="setup-stepper"><button autoFocus type="button" aria-label="家族人数を1人減らす" disabled={household <= 1} onClick={() => setHousehold((value) => Math.max(1, value - 1))}><Minus /></button><b>{household}<small>人</small></b><button type="button" aria-label="家族人数を1人増やす" disabled={household >= 12} onClick={() => setHousehold((value) => Math.min(12, value + 1))}><Plus /></button></div></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="button" className="primary-button" onClick={save}><Check />保存する</button></div></section></div>;
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal compact-modal options-panel" role="dialog" aria-modal="true" aria-labelledby="options-title"><div className="modal-title"><div><span className="kicker">OPTIONS</span><h2 id="options-title">オプション</h2></div><button type="button" aria-label="オプションを閉じる" onClick={onClose}><X /></button></div><div className="option-household"><div><Users /><span><b>家族人数</b><small>備蓄日数の計算に使用します</small></span></div><div className="setup-stepper"><button data-dialog-autofocus type="button" aria-label="家族人数を1人減らす" disabled={household <= 1} onClick={() => setHousehold((value) => Math.max(1, value - 1))}><Minus /></button><b>{household}<small>人</small></b><button type="button" aria-label="家族人数を1人増やす" disabled={household >= 12} onClick={() => setHousehold((value) => Math.min(12, value + 1))}><Plus /></button></div></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="button" className="primary-button" onClick={save}><Check />保存する</button></div></section></div>;
 }
 
 function SceneHouseGraphic() {
@@ -402,12 +571,17 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
   const defense = useMemo(() => defensePower(state, summary), [state, summary]);
   const essentialGates = useMemo(() => essentialPreparednessGates(state, summary), [state, summary]);
   const nextEssentialGate = essentialGates.gates.find((gate) => !gate.complete) || essentialGates.gates[0];
-  const setTargetDays = (targetDays) => setState((old) => ({ ...old, preparedness: { ...old.preparedness, targetDays: Math.min(180, Math.max(1, Number(targetDays) || 1)) } }));
+  const setTargetDays = (targetDays) => setState((old) => { const { requestedHorizonDays, ...preparedness } = old.preparedness || {}; return { ...old, preparedness: { ...preparedness, targetDays: normalizeStockpileTargetDays(targetDays, 7) } }; });
   const stockpileDays = Number.isFinite(summary.householdStockpileDays) ? summary.householdStockpileDays : summary.survivalDays;
   const targetGap = Math.max(0, defense.targetDays - stockpileDays);
   const targetStatus = targetGap ? `目標まであと${formatDays(targetGap)}日分` : `${defense.targetDays}日目標を達成`;
   const unmeasuredStock = [summary.waterItemsMissingVolume ? '内容量未登録の水' : '', summary.foodItemsMissingWeight ? '重量未登録の食料' : ''].filter(Boolean);
-  const calculationCaveat = unmeasuredStock.length ? `${unmeasuredStock.join('・')}は日数に含みません` : '';
+  const foodGate = essentialGates.gates.find((gate) => gate.key === 'food');
+  const calculationCaveats = [
+    unmeasuredStock.length ? `${unmeasuredStock.join('・')}は日数に含みません` : '',
+    foodGate?.statusLabel === '構成を実物確認' ? '食料の構成・家族適合は未確認です' : '',
+  ].filter(Boolean);
+  const calculationCaveat = calculationCaveats.join('。');
   const stockpileDescription = `生活継続の目安 ${formatDays(stockpileDays)}日分。${targetStatus}。水・食料・携帯トイレのうち最短${calculationCaveat ? `。${calculationCaveat}` : ''}`;
   const shelterName = String(state.contact?.shelter || '').trim();
   return <section className="home-dashboard wrap" aria-label="防災ホーム">
@@ -415,6 +589,7 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
       <div><span className="kicker">TODAY'S READINESS</span><h1>わが家の防災状況</h1></div>
       <div className="home-heading-actions"><button type="button" className="home-target-summary" aria-label={`備蓄日数の目標 ${defense.targetDays}日。変更する`} onClick={() => setTargetOpen(true)}><CalendarDays /><span><small>備蓄目標</small><b>{defense.targetDays}日</b></span><ChevronRight /></button><div className="household-summary" aria-label={`家族${state.household}人`}><Users /><b>{state.household}<small>人</small></b></div></div>
     </header>
+    {Number(state.preparedness?.requestedHorizonDays) > MAX_STOCKPILE_TARGET_DAYS && <aside className="target-migration-note"><CalendarDays /><span><b>以前の{state.preparedness.requestedHorizonDays}日目標を、量の上限30日へ移行しました</b><small>30日以降は電源・代替手段・個別事情・快適性をスキルツリーで広げます。目標を確認するとこの案内は閉じます。</small></span><button type="button" onClick={() => setTargetOpen(true)}>目標を確認</button></aside>}
 
     <section className="readiness-scene" aria-labelledby="readiness-scene-title">
       <header>
@@ -446,7 +621,7 @@ function Dashboard({ state, summary, setState, setPage, setModal, powerEntryRef 
     <details className={`priority-goals ${essentialGates.complete ? 'complete' : ''}`}>
       <summary><span className="priority-summary-copy"><span className="kicker">ESSENTIAL SAFETY GATES</span><b id="priority-goals-title">命と衛生の必須確認</b><small>{essentialGates.complete ? '必須条件は確認済み。定期的に見直せます' : `次は「${nextEssentialGate.label}」を確認`}</small></span><span className="priority-goals-count">{essentialGates.completeCount}<small> / {essentialGates.gates.length}</small></span><span className="disclosure-label">すべて見る<ChevronDown /></span></summary>
       <div className="priority-goal-grid" role="region" aria-labelledby="priority-goals-title">{essentialGates.gates.map((gate) => {
-        const Icon = gate.key === 'home' ? ShieldCheck : gate.key === 'risk' ? MapPin : gate.key === 'contact' ? Phone : gate.key === 'medicine' ? Heart : gate.key === 'water' ? Droplets : gate.key === 'toilet' ? Sparkles : Lightbulb;
+        const Icon = gate.key === 'home' ? ShieldCheck : gate.key === 'risk' ? MapPin : gate.key === 'contact' ? Phone : gate.key === 'medicine' ? Heart : gate.key === 'water' ? Droplets : gate.key === 'food' ? ShoppingBasket : gate.key === 'toilet' ? Sparkles : Lightbulb;
         return <button type="button" className={gate.complete ? 'complete' : ''} key={gate.key} aria-label={`${gate.label}を確認する`} onClick={() => setPage(gate.page, { target: gate.page === 'roadmap' ? essentialGateTaskTargets[gate.key] : null })}><span className={`priority-goal-icon ${gate.key}`}><Icon /></span><span><small>{gate.label}</small><b>{gate.detail}</b><em>{gate.statusLabel}</em></span><strong>{gate.complete ? <Check /> : <ArrowRight />}{gate.complete ? '確認済み' : '確認する'}</strong></button>;
       })}</div>
       <p>{essentialGates.complete ? '必須条件を確認済みです。季節・家族構成・期限の変化に合わせて再点検してください。' : '平均点より先に、未確認の必須条件を一つずつ確認してください。'}</p>
@@ -504,9 +679,9 @@ function TargetDaysDialog({ value, onClose, onSave }) {
   const [days, setDays] = useState(Number(value) || 1);
   const [editing, setEditing] = useState(false);
   useDialogClose(onClose, dialogRef);
-  const normalizeDays = (next) => Math.min(180, Math.max(1, Number(next) || 1));
+  const normalizeDays = (next) => normalizeStockpileTargetDays(next, value || 7);
   const adjust = (delta) => setDays((current) => normalizeDays(Number(current) + delta));
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="target-days-title" onSubmit={(event) => { event.preventDefault(); onSave(normalizeDays(days)); }}><div className="modal-title"><div><span className="kicker">STOCKPILE GOAL</span><h2 id="target-days-title">目標備蓄日数を変更</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><p className="stepper-help">水・食品などは最低3日、できれば1週間が目安です。地域と家族の事情に合わせて設定します（1〜180日）。</p><div className="target-day-stepper" aria-label="目標備蓄日数"><button autoFocus type="button" aria-label="目標備蓄日数を1日減らす" disabled={Number(days) <= 1} onClick={() => adjust(-1)}><ChevronRight /></button>{editing ? <label className="target-day-input"><input autoFocus type="number" inputMode="numeric" min="1" max="180" value={days} onChange={(event) => setDays(event.target.value)} onBlur={() => { setDays(normalizeDays(days)); setEditing(false); }} aria-label="目標備蓄日数を直接入力" /><small>日</small></label> : <button type="button" className="target-day-value" aria-label={`目標備蓄日数 ${days}日。タップして直接入力`} onClick={() => setEditing(true)}><b>{days}</b><small>日</small></button>}<button type="button" aria-label="目標備蓄日数を1日増やす" disabled={Number(days) >= 180} onClick={() => adjust(1)}><ChevronRight /></button></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button"><Check />設定する</button></div></form></div>;
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="target-days-title" onSubmit={(event) => { event.preventDefault(); onSave(normalizeDays(days)); }}><div className="modal-title"><div><span className="kicker">STOCKPILE GOAL</span><h2 id="target-days-title">目標備蓄日数を変更</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><p className="stepper-help">水・食品などは最低3日、できれば1週間が目安です。量の目標は1〜30日とし、それ以上は電源・代替手段・快適性へ備えを広げます。</p><div className="target-day-stepper" aria-label="目標備蓄日数"><button data-dialog-autofocus type="button" aria-label="目標備蓄日数を1日減らす" disabled={Number(days) <= 1} onClick={() => adjust(-1)}><ChevronRight /></button>{editing ? <label className="target-day-input"><input autoFocus type="number" inputMode="numeric" min="1" max={MAX_STOCKPILE_TARGET_DAYS} value={days} onChange={(event) => setDays(event.target.value)} onBlur={() => { setDays(normalizeDays(days)); setEditing(false); }} aria-label="目標備蓄日数を直接入力" /><small>日</small></label> : <button type="button" className="target-day-value" aria-label={`目標備蓄日数 ${days}日。タップして直接入力`} onClick={() => setEditing(true)}><b>{days}</b><small>日</small></button>}<button type="button" aria-label="目標備蓄日数を1日増やす" disabled={Number(days) >= MAX_STOCKPILE_TARGET_DAYS} onClick={() => adjust(1)}><ChevronRight /></button></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button"><Check />設定する</button></div></form></div>;
 }
 
 function ScoreRing({ score }) {
@@ -535,9 +710,9 @@ const itemCategoryGuidance = {
   comfort: { title: '快適用品の考え方', primary: '普段使う量＋家族分', detail: '乳幼児、高齢者、女性、持病、季節など、家族固有の必要量を優先して入力します。' },
 };
 
-function StockpileDaysPanel({ summary, items = [], household, targetDays = 3, onAction, actionLabel }) {
+function StockpileDaysPanel({ summary, items = [], household, targetDays = 3, onAction, actionLabel, today }) {
   const missingCount = summary.foodItemsMissingWeight + summary.waterItemsMissingVolume;
-  const unitNeeds = useMemo(() => stockpileUnitNeeds(items, household, targetDays), [items, household, targetDays]);
+  const unitNeeds = useMemo(() => stockpileUnitNeeds(items, household, targetDays, today), [items, household, targetDays, today]);
   const needByKey = Object.fromEntries(unitNeeds.map((item) => [item.key, item]));
   const foodTargetGrams = household * FOOD_GRAMS_PER_PERSON_DAY * targetDays;
   const waterTargetMl = household * WATER_ML_PER_PERSON_DAY * targetDays;
@@ -553,7 +728,7 @@ function StockpileDaysPanel({ summary, items = [], household, targetDays = 3, on
       </div>
       <div className="runway-resources">
         <section><div><span className="resource-icon food"><ShoppingBasket /></span><p><small>食料 合計 {formatFoodWeight(summary.foodGrams)}</small><b>{formatDays(summary.foodDays)}日分</b></p><em className={needByKey.food.shortage ? 'resource-shortage' : 'resource-ready'}>{needByKey.food.shortage ? `あと${needByKey.food.shortage}食` : '目標量を確保'}</em></div><div className="resource-meter"><i style={{ width: `${foodPercent}%` }} /></div><small>目標 {formatFoodWeight(foodTargetGrams)}・1食150gの簡易換算</small></section>
-        <section><div><span className="resource-icon water"><Droplets /></span><p><small>水 合計 {formatWaterVolume(summary.waterMl)}</small><b>{formatDays(summary.waterDays)}日分</b></p><em className={needByKey.water.shortage ? 'resource-shortage' : 'resource-ready'}>{needByKey.water.shortage ? `2Lボトル あと${needByKey.water.shortage}本` : '目標量を確保'}</em></div><div className="resource-meter water"><i style={{ width: `${waterPercent}%` }} /></div><small>目標 {formatWaterVolume(waterTargetMl)}・{household}人 × 1日3L</small></section>
+        <section><div><span className="resource-icon water"><Droplets /></span><p><small>飲料・調理用 {formatWaterVolume(summary.waterMl)}</small><b>{formatDays(summary.waterDays)}日分</b></p><em className={needByKey.water.shortage ? 'resource-shortage' : 'resource-ready'}>{needByKey.water.shortage ? `2Lボトル あと${needByKey.water.shortage}本` : '目標量を確保'}</em></div><div className="resource-meter water"><i style={{ width: `${waterPercent}%` }} /></div><small>目標 {formatWaterVolume(waterTargetMl)}・{household}人 × 1日3L{summary.utilityWaterMl > 0 ? `・生活用水 ${formatWaterVolume(summary.utilityWaterMl)}は別枠` : '・生活用水は別枠'}</small></section>
       </div>
     </div>
     <div className="runway-supporting-needs" aria-label="生活を支える備蓄">
@@ -578,12 +753,12 @@ const evacuationBagStages = [
   { id: 'bag-secondary', step: '02', label: '二次避難', title: '避難生活を続けるバッグ', timing: '危険が落ち着き、安全を確認できた後', description: '安全を確認して自宅へ戻れる場合に追加で持ち出し、避難所などで数日過ごすためのバッグです。衛生・情報・生活用品を補います。' },
 ];
 
-function EvacuationBags({ state, setState, setToast, setPage }) {
+function EvacuationBags({ state, setState, setToast, setPage, today }) {
   const [activeLoadout, setActiveLoadout] = useState(null);
   const primarySettings = bagSettings(state, 'bag-primary');
   const secondarySettings = bagSettings(state, 'bag-secondary');
-  const primaryPacking = useMemo(() => autoPackInventory(state.inventory, 'bag-primary', primarySettings.capacityL, state.household), [state.inventory, state.household, primarySettings.capacityL]);
-  const secondaryPacking = useMemo(() => autoPackInventory(state.inventory, 'bag-secondary', secondarySettings.capacityL, state.household, { reservedItems: primaryPacking.items }), [state.inventory, state.household, secondarySettings.capacityL, primaryPacking]);
+  const primaryPacking = useMemo(() => autoPackInventory(state.inventory, 'bag-primary', primarySettings.capacityL, state.household, { today }), [state.inventory, state.household, primarySettings.capacityL, today]);
+  const secondaryPacking = useMemo(() => autoPackInventory(state.inventory, 'bag-secondary', secondarySettings.capacityL, state.household, { reservedItems: primaryPacking.items, today }), [state.inventory, state.household, secondarySettings.capacityL, primaryPacking, today]);
   const packingById = { 'bag-primary': primaryPacking, 'bag-secondary': secondaryPacking };
 
   const finishLoadout = () => {
@@ -597,13 +772,13 @@ function EvacuationBags({ state, setState, setToast, setPage }) {
   return <section className="wrap page-section evacuation-bags-page">
     <div className="page-title bag-page-title"><div><span className="kicker">EVACUATION BAG PLANNER</span><h1>避難バッグを自動で準備</h1><p>登録済みの備蓄・家族人数・バッグ容量から、持出品の参考案を作ります。</p></div><button type="button" className="secondary-button" onClick={() => setPage('inventory')}><Box />備蓄を確認・追加</button></div>
 
+    <p className="bag-return-warning"><AlertTriangle /><span><b>荷物を取りに危険な場所へ戻らない</b>自宅や経路の安全を確認できない場合は帰宅せず、一時避難バッグで避難を続けてください。</span></p>
     <details className="bag-purpose-guide">
       <summary><span><span className="kicker">PURPOSE FIRST</span><b id="bag-purpose-title">2つのバッグの使い分け</b><small>一時避難はすぐ逃げる軽さ、二次避難は安全確認後の生活用品</small></span><span className="disclosure-label">詳しく見る<ChevronDown /></span></summary>
       <div className="bag-purpose-content" role="region" aria-labelledby="bag-purpose-title"><div className="bag-purpose-steps">
         <article className="primary-purpose"><span>01</span><div><small>一時避難（一次持ち出し）</small><h3>危険から即座に逃げる</h3><p>災害が発生した、または危険が迫ったとき、自宅から最寄りの安全な避難場所まで移動するために持ちます。</p><b>目安：迷わず背負って、すぐ出発できる量</b></div></article>
         <article className="secondary-purpose"><span>02</span><div><small>二次避難（二次持ち出し）</small><h3>避難先で数日を過ごす</h3><p>緊急性が落ち着き、自宅と移動経路の安全を確認できた場合に追加で持ち出し、避難所などで生活するために使います。</p><b>目安：水・食料・衛生品など数日分の生活用品</b></div></article>
       </div>
-      <p className="bag-return-warning"><AlertTriangle /><span><b>荷物を取りに危険な場所へ戻らない</b>自宅や経路の安全を確認できない場合は帰宅せず、一時避難バッグで避難を続けてください。</span></p>
       </div>
     </details>
 
@@ -626,7 +801,7 @@ function EvacuationBags({ state, setState, setToast, setPage }) {
     </div>
 
     <p className="bag-safety-note"><ShieldCheck />自動選定は収納計画です。実際にバッグへ入れた後、画面内の「理想構成」で現物を一つずつ確認してください。</p>
-    {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} />}
+    {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} today={today} />}
   </section>;
 }
 
@@ -639,7 +814,7 @@ function StageIcon({ name }) {
   return name === 'backpack' ? <Backpack /> : name === 'route' ? <Route /> : name === 'calendar' ? <CalendarDays /> : name === 'solar' ? <Sun /> : name === 'community' ? <Users /> : <ShieldCheck />;
 }
 
-function PreparednessRoadmap({ state, summary, setState, setPage, setToast, targetTaskId }) {
+function PreparednessRoadmap({ state, summary, setState, setPage, setToast, targetTaskId, today }) {
   const progress = useMemo(() => preparednessProgress(state, summary), [state, summary]);
   const [selectedStageId, setSelectedStageId] = useState(() => progress.currentStage.id);
   const [activeLoadout, setActiveLoadout] = useState(null);
@@ -733,8 +908,8 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast, targ
       <summary className="roadmap-overview-head"><span><Route /><b id="roadmap-overview-title">6段階の防災マップ</b><small>現在地と、この先に必要な備えを確認</small></span><em>{completedStages} / 6 段階達成</em><span className="disclosure-label">全体を見る<ChevronDown /></span></summary>
       <div className="roadmap-overview-body">
         <div className="stage-flow" role="list" aria-label="防災力の段階">
-          {progress.stages.map((stage, index) => <div className="stage-flow-unit" key={stage.id}>
-            <button type="button" role="listitem" className={`stage-node ${selectedStage.id === stage.id ? 'selected' : ''} ${stage.gateClear ? 'cleared' : ''}`} onClick={() => setSelectedStageId(stage.id)} aria-current={selectedStage.id === stage.id ? 'step' : undefined}>
+          {progress.stages.map((stage, index) => <div className="stage-flow-unit" role="listitem" key={stage.id}>
+            <button type="button" className={`stage-node ${selectedStage.id === stage.id ? 'selected' : ''} ${stage.gateClear ? 'cleared' : ''}`} onClick={() => setSelectedStageId(stage.id)} aria-pressed={selectedStage.id === stage.id} aria-current={selectedStage.id === stage.id ? 'step' : undefined}>
               <span className="stage-number">{stage.gateClear ? <Check /> : stage.number}</span>
               <span className="stage-node-icon"><StageIcon name={stage.icon} /></span>
               <span className="stage-node-copy"><small>STAGE {stage.number}</small><b>{stage.title}</b><span>{stage.subtitle}</span></span>
@@ -750,7 +925,7 @@ function PreparednessRoadmap({ state, summary, setState, setPage, setToast, targ
         <section className="achievement-section"><div className="section-heading compact"><div><span className="kicker">ACHIEVEMENTS</span><h2>獲得した防災章</h2></div><Trophy /></div><div className="achievement-row">{progress.stages.map((stage) => <div className={`achievement ${stage.gateClear ? 'earned' : ''}`} key={stage.id}><span><StageIcon name={stage.icon} /></span><b>{stage.title}</b><small>{stage.gateClear ? '獲得済み' : '未獲得'}</small></div>)}</div></section>
       </div>
     </details>
-    {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} />}
+    {activeLoadout && <PracticalLoadout taskId={activeLoadout} state={state} onChange={(packed) => setState((old) => updateLoadout(old, activeLoadout, packed))} onBagSettings={(settings) => setState((old) => updateBagSettings(old, activeLoadout, settings))} onComplete={finishLoadout} onClose={() => setActiveLoadout(null)} today={today} />}
   </section>;
 }
 
@@ -817,8 +992,8 @@ const formatSkillProgress = (node, model) => {
   return `期限内の登録データで ${current}日分 / 条件 ${target}日分${basis ? `。${basis}` : ''}${foodCaveat}`;
 };
 
-function StockpileSkillsPage({ state, setState, setToast, onClose }) {
-  const model = useMemo(() => buildStockpileSkillTree(state), [state]);
+function StockpileSkillsPage({ state, setState, setToast, onClose, today }) {
+  const model = useMemo(() => buildStockpileSkillTree(state, { today }), [state, today]);
   const nodes = useMemo(() => [{
     id: 'stockpile-root',
     title: '備蓄を記録する',
@@ -837,7 +1012,7 @@ function StockpileSkillsPage({ state, setState, setToast, onClose }) {
   }))], [model]);
 
   const handleClaim = (nodeId) => {
-    const next = claimStockpileSkill(state, nodeId);
+    const next = claimStockpileSkill(state, nodeId, { today });
     if (next === state) {
       setToast('条件が変わったため、現在の備蓄をもう一度確認してください');
       return;
@@ -854,7 +1029,7 @@ function StockpileSkillsPage({ state, setState, setToast, onClose }) {
   />;
 }
 
-function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast, setPage, skillEntryRef }) {
+function Inventory({ state, summary, transactions, setModal, updateInventory, setState, setToast, setPage, skillEntryRef, today }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [consumeItem, setConsumeItem] = useState(null);
@@ -864,8 +1039,9 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   const [meaningCategory, setMeaningCategory] = useState(null);
   const importRef = useRef(null);
   const insights = useMemo(() => transactionInsights(transactions), [transactions]);
-  const budgetProjection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, state.preparedness?.annualBudget || 0), [state.inventory, state.household, state.preparedness?.targetDays, state.preparedness?.annualBudget]);
-  const stockpileSkills = useMemo(() => buildStockpileSkillTree(state), [state]);
+  const budgetProjection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, state.preparedness?.annualBudget || 0, today), [state.inventory, state.household, state.preparedness?.targetDays, state.preparedness?.annualBudget, today]);
+  const stockpileSkills = useMemo(() => buildStockpileSkillTree(state, { today }), [state, today]);
+  const currentConsumeItem = consumeItem ? summary.rows.find((entry) => entry.id === consumeItem.id) || null : null;
   const skillClaimableCount = stockpileSkills.claimableIds.length;
   const skillReviewCount = stockpileSkills.reviewIds.length;
   const skillLauncherLabel = skillClaimableCount || skillReviewCount
@@ -891,7 +1067,7 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     const tierWeight = (tier) => ({ 1: 3, 2: 2, 3: 1 }[tier] || 1);
     const totalWeight = targetRows.reduce((sum, item) => sum + tierWeight(item.tier), 0);
     const scoreRatio = totalWeight ? targetRows.reduce((sum, item) => {
-      const coverage = item.isExpired ? 0 : Math.min(1, Math.max(0, Number(item.quantity) || 0) / Number(item.target));
+      const coverage = Math.min(1, Math.max(0, Number(item.usableQuantity) || 0) / Number(item.target));
       return sum + coverage * tierWeight(item.tier);
     }, 0) / totalWeight : 0;
     const score = scoreRatio >= 1 ? 100 : Math.min(99, Math.round(scoreRatio * 100));
@@ -899,33 +1075,42 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
   });
   const selectedCategory = categories.find((category) => category.key === filter) || null;
   const rows = summary.rows.filter((item) => (filter === 'all' || item.category === filter) && item.name.toLowerCase().includes(query.toLowerCase())).sort((a, b) => (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3) || a.tier - b.tier || a.ratio - b.ratio);
-  const rawRows = () => summary.rows.map(({ shortage, ratio, replenishmentCost, daysToExpiry, isExpiring, isExpired, daysToCheck, isCheckDue, priority, ...item }) => item);
-  const adjust = (id, delta) => {
-    const item = summary.rows.find((entry) => entry.id === id);
-    if (delta < 0 && item.quantity <= 0) return;
-    const nextQuantity = Math.max(0, Number(item.quantity) + delta);
-    const inventory = rawRows().map((entry) => entry.id === id ? { ...entry, quantity: nextQuantity, lastChecked: new Date().toISOString().slice(0, 10) } : entry);
-    updateInventory(inventory, delta > 0 ? `${delta}${item.unit}補充しました` : `${Math.abs(delta)}${item.unit}消費しました`, createTransaction(delta > 0 ? 'add' : 'consume', item, delta, delta > 0 ? 'クイック補充' : 'クイック消費'));
-  };
+  const rawRows = () => summary.rows.map(({ usableQuantity, needsVerification, shortage, ratio, replenishmentCost, daysToExpiry, isExpiring, isExpired, daysToCheck, isCheckDue, daysToRotationReminder, isRotationReminderDue, priority, ...item }) => item);
   const consume = ({ amount, reason, note }) => {
     const item = summary.rows.find((entry) => entry.id === consumeItem.id);
     const used = Math.min(Number(amount) || 1, Number(item.quantity) || 0);
     if (!used) return setConsumeItem(null);
-    const inventory = rawRows().map((entry) => entry.id === item.id ? { ...entry, quantity: Number(entry.quantity) - used, lastChecked: new Date().toISOString().slice(0, 10) } : entry);
+    const productTarget = rawRows().filter((entry) => entry.productId === item.productId).reduce((sum, entry) => sum + Math.max(0, Number(entry.target) || 0), 0);
+    const reduced = rawRows().map((entry) => entry.id === item.id ? { ...entry, quantity: Number(entry.quantity) - used, lastChecked: today } : entry);
+    const inventory = item.productId ? redistributeProductTargets(reduced, item.productId, productTarget, today) : reduced;
     const type = reason === '期限切れ・廃棄' ? 'discard' : 'consume';
     updateInventory(inventory, `${used}${item.unit}を記録しました`, createTransaction(type, item, -used, note, { reason }));
     setConsumeItem(null);
   };
   const remove = (id) => {
     const item = summary.rows.find((entry) => entry.id === id);
-    if (window.confirm('この期限ロットを削除しますか？履歴には削除記録が残ります。')) updateInventory(rawRows().filter((entry) => entry.id !== id), '備蓄品を削除しました', createTransaction('delete', item, -item.quantity, '期限ロットを削除'));
+    if (!window.confirm('この期限ロットを削除しますか？履歴には削除記録が残ります。')) return;
+    const productTarget = rawRows().filter((entry) => entry.productId === item.productId).reduce((sum, entry) => sum + Math.max(0, Number(entry.target) || 0), 0);
+    const remaining = rawRows().filter((entry) => entry.id !== id);
+    const inventory = remaining.some((entry) => entry.productId === item.productId)
+      ? redistributeProductTargets(remaining, item.productId, productTarget, today)
+      : remaining;
+    updateInventory(inventory, '備蓄品を削除しました', createTransaction('delete', item, -item.quantity, '期限ロットを削除'));
+  };
+  const confirmInventoryReview = (item) => {
+    const inventory = rawRows().map((entry) => {
+      if (entry.id !== item.id) return entry;
+      const { verificationStatus, verificationReason, ...verified } = entry;
+      return { ...verified, lastChecked: localDateKey() };
+    });
+    updateInventory(inventory, `${item.name}を実物確認済みにしました`, createTransaction('verify', item, 0, '登録内容を実物と照合'));
   };
   const exportData = () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `sonae-note-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `sonae-note-backup-${localDateKey()}.json`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -934,12 +1119,23 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
     event.target.value = '';
     if (!file) return;
     try {
-      const imported = normalizeState(JSON.parse(await file.text()));
+      const imported = parseStateData(await file.text());
       if (!window.confirm(`${imported.inventory.length}件の備蓄を読み込み、現在のデータを置き換えますか？`)) return;
+      try {
+        // The visible in-memory state may be newer than localStorage after a
+        // quota or permission failure. Back up exactly what will be replaced.
+        const currentRaw = JSON.stringify(state);
+        const backupKey = `${RECOVERY_KEY_PREFIX}-before-import-${Date.now()}`;
+        localStorage.setItem(backupKey, currentRaw);
+        if (localStorage.getItem(backupKey) !== currentRaw) throw new Error('backup-failed');
+      } catch {
+        setToast('現在のデータを保護できなかったため、復元を中止しました');
+        return;
+      }
       setState(imported);
       setToast('バックアップを復元しました');
-    } catch {
-      setToast('バックアップファイルを読み込めませんでした');
+    } catch (error) {
+      setToast(error?.message === 'future-schema' ? 'このアプリより新しい形式のため復元できません' : 'バックアップファイルを読み込めませんでした');
     }
   };
   return <section className="wrap page-section inventory-page">
@@ -973,22 +1169,27 @@ function Inventory({ state, summary, transactions, setModal, updateInventory, se
       </div>
     </section>
     {selectedCategory && <aside className="inventory-category-guidance" aria-live="polite"><span className="guidance-category-icon" style={{ '--category': selectedCategory.color }}><CategoryIcon category={selectedCategory.key} /></span><div><small>選択中・{selectedCategory.label}</small><b>{itemCategoryGuidance[selectedCategory.key].title}</b><p>{itemCategoryGuidance[selectedCategory.key].primary}</p></div>{selectedCategory.key === 'hygiene' && <button type="button" aria-label="携帯トイレ7日分の目安" onClick={() => setBenchmarkOpen(true)}><CircleHelp />目安を確認</button>}</aside>}
-    <div className="inventory-tools"><label className="search"><Search /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={selectedCategory ? `${selectedCategory.label}から検索` : '備蓄品を検索'} /></label>{selectedCategory && <button type="button" className="clear-category-filter" onClick={() => setFilter('all')}><X />分類選択を解除</button>}</div>
+    <div className="inventory-tools"><label className="search"><Search /><input aria-label="備蓄品を検索" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={selectedCategory ? `${selectedCategory.label}から検索` : '備蓄品を検索'} /></label>{selectedCategory && <button type="button" className="clear-category-filter" onClick={() => setFilter('all')}><X />分類選択を解除</button>}</div>
     <div className="inventory-list">
-      {rows.map((item) => <article className="inventory-item" key={item.id}>
+      {rows.map((item) => <article className={`inventory-item ${item.needsVerification ? 'needs-verification' : ''}`.trim()} key={item.id}>
         {item.imageUrl ? <div className="product-thumb"><img src={item.imageUrl} alt="" /></div> : <div className="category-badge" style={{ '--category': CATEGORY_META[item.category]?.color }}><CategoryIcon category={item.category} /></div>}
-        <div className="item-main"><div className="item-title"><span className={`tier tier-${item.tier}`}>TIER {item.tier}</span><h3>{item.name}</h3>{item.brand && <span className="brand-tag">{item.brand}</span>}{item.isExpiring && <span className="expiry-tag">{item.isExpired ? '期限切れ' : `あと${item.daysToExpiry}日`}</span>}{item.category === 'food' && !item.foodWeightG && <span className="amount-missing-tag">重量未登録</span>}{item.category === 'water' && !item.volumeMl && <span className="amount-missing-tag">水量未登録</span>}</div><div className="stock-progress"><span style={{ width: `${Math.min(item.ratio * 100, 100)}%` }} /><i style={{ left: `${Math.min(item.ratio * 100, 100)}%` }} /></div><div className="item-meta"><span>在庫 <b>{item.quantity}{item.unit}</b> / 目標 {item.target}{item.unit}{item.category === 'food' && item.foodWeightG > 0 && <small>・1{item.unit} {formatFoodWeight(item.foodWeightG)}</small>}{item.category === 'water' && item.volumeMl > 0 && <small>・1{item.unit} {formatWaterVolume(item.volumeMl)}</small>}{item.barcode && <small>・JAN {item.barcode}</small>}</span>{item.shortage > 0 ? <span className="shortage">あと {item.shortage}{item.unit}</span> : <span className="enough"><Check /> 目標達成</span>}</div></div>
-        <div className="quick-actions"><button aria-label={`${item.name}を消費・廃棄`} onClick={() => setConsumeItem(item)}><Minus /></button><button aria-label={`${item.name}を1つ補充`} onClick={() => adjust(item.id, 1)}><Plus /></button><button aria-label={`${item.name}を編集`} onClick={() => setModal(item)}><Pencil /></button><button aria-label={`${item.name}を削除`} className="danger" onClick={() => remove(item.id)}><Trash2 /></button></div>
+        <div className="item-main">
+          <div className="item-title"><span className={`tier tier-${item.tier}`}>TIER {item.tier}</span><h3>{item.name}</h3>{item.brand && <span className="brand-tag">{item.brand}</span>}{item.needsVerification && <span className="verification-tag">旧版サンプル・未確認</span>}{item.isExpiring && <span className="expiry-tag">{item.isExpired ? '期限切れ' : `あと${item.daysToExpiry}日`}</span>}{item.category === 'food' && !item.foodWeightG && <span className="amount-missing-tag">重量未登録</span>}{item.category === 'water' && !item.volumeMl && <span className="amount-missing-tag">水量未登録</span>}{item.category === 'water' && item.waterPurpose === 'utility' && <span className="utility-water-tag">生活用水・3L換算外</span>}</div>
+          <div className="stock-progress"><span style={{ width: `${Math.min(item.ratio * 100, 100)}%` }} /><i style={{ left: `${Math.min(item.ratio * 100, 100)}%` }} /></div>
+          <div className="item-meta"><span>在庫 <b>{item.quantity}{item.unit}</b> / 目標 {item.target}{item.unit}{item.needsVerification && <small>・実物確認まで達成度に含めません</small>}{item.isExpired && <small>・期限切れ分は達成度に含めません</small>}{item.category === 'food' && item.foodWeightG > 0 && <small>・1{item.unit} {formatFoodWeight(item.foodWeightG)}</small>}{item.category === 'water' && item.volumeMl > 0 && <small>・1{item.unit} {formatWaterVolume(item.volumeMl)}</small>}{item.barcode && <small>・JAN {item.barcode}</small>}</span>{Number(item.target) <= 0 ? <span className="shortage">目標未設定</span> : item.shortage > 0 ? <span className="shortage">あと {item.shortage}{item.unit}</span> : <span className="enough"><Check /> 目標達成</span>}</div>
+          {item.needsVerification && <aside className="legacy-verification-note"><AlertTriangle /><span><b>{inventoryReviewMessage(item)[0]}</b><small>{inventoryReviewMessage(item)[1]}</small></span>{canResolveInventoryReview(item) && <button type="button" onClick={() => confirmInventoryReview(item)} aria-label={`${item.name}の登録内容を実物と確認して在庫に反映`}><Check />登録内容を実物確認</button>}</aside>}
+        </div>
+        <div className="quick-actions"><button disabled={item.needsVerification} title={item.needsVerification ? '実物確認後に記録できます' : undefined} aria-label={`${item.name}を消費・廃棄`} onClick={() => setConsumeItem(item)}><Minus /></button><button aria-label={`${item.name}を新しい期限ロットとして補充`} onClick={() => setModal({ newLotFrom: item, suggestedQuantity: 1 })}><Plus /></button><button aria-label={`${item.name}を編集`} onClick={() => setModal(item)}><Pencil /></button><button aria-label={`${item.name}を削除`} className="danger" onClick={() => remove(item.id)}><Trash2 /></button></div>
       </article>)}
-      {!rows.length && <div className="empty-state"><Search /><h3>該当する備蓄品がありません</h3><p>検索条件を変えてみてください。</p></div>}
+      {!rows.length && <div className="empty-state">{state.inventory.length ? <Search /> : <PackagePlus />}<h3>{state.inventory.length ? '該当する備蓄品がありません' : '実物を確認して備蓄を登録'}</h3><p>{state.inventory.length ? '検索条件を変えてみてください。' : 'このアプリは未確認のサンプル在庫を加算しません。手元にある品から登録してください。'}</p>{!state.inventory.length && <button type="button" className="primary-button" onClick={() => setModal('new')}><Plus />最初の備蓄品を追加</button>}</div>}
     </div>
     <details className="card inventory-history-panel">
       <summary><span><History /><b>消費履歴と傾向</b><small>必要なときに開く</small></span><ChevronRight /></summary>
       <div className="operation-panel"><div className="insight-strip"><span>30日消費<b>{insights.consumed30Days}</b></span><span>うち廃棄<b>{insights.discarded30Days}</b></span><span>最多<b>{insights.topConsumed?.name || '—'}</b></span></div>{transactions.length ? transactions.slice(0, 10).map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'rotate' ? '期限順消費' : entry.type === 'consume' ? '消費' : entry.type === 'discard' ? '廃棄' : entry.type === 'delete' ? '削除' : entry.type === 'edit' ? '編集' : '入庫'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta > 0 ? '+' : ''}{entry.quantityDelta}{entry.unit}・{entry.reason || entry.note || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">操作すると履歴が記録されます</div>}</div>
     </details>
-    {consumeItem && <ConsumptionModal item={consumeItem} onClose={() => setConsumeItem(null)} onSave={consume} />}
-    {calculationOpen && <StockpileCalculationDialog summary={summary} items={state.inventory} household={state.household} targetDays={state.preparedness?.targetDays || 7} onClose={() => setCalculationOpen(false)} onAction={() => { setFilter(summary.foodItemsMissingWeight ? 'food' : 'water'); setCalculationOpen(false); }} />}
-    {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} />}
+    {currentConsumeItem && <ConsumptionModal item={currentConsumeItem} onClose={() => setConsumeItem(null)} onSave={consume} />}
+    {calculationOpen && <StockpileCalculationDialog summary={summary} items={state.inventory} household={state.household} targetDays={state.preparedness?.targetDays || 7} onClose={() => setCalculationOpen(false)} onAction={() => { setFilter(summary.foodItemsMissingWeight ? 'food' : 'water'); setCalculationOpen(false); }} today={today} />}
+    {budgetOpen && <BudgetPlannerDialog state={state} summary={summary} setState={setState} onClose={() => setBudgetOpen(false)} today={today} />}
     {benchmarkOpen && <PreparednessBenchmarkDialog kind="hygiene" onClose={() => setBenchmarkOpen(false)} />}
     {meaningCategory && <StockpileMeaningDialog category={meaningCategory} onClose={() => setMeaningCategory(null)} />}
   </section>;
@@ -999,10 +1200,12 @@ const CATEGORY_LONG_PRESS_MS = 600;
 function InventoryCategoryButton({ active, category, progressLabel, onExplain, onSelect }) {
   const timerRef = useRef(null);
   const longPressedRef = useRef(false);
+  const pointerStartRef = useRef(null);
   const isPriority = ['water', 'food', 'hygiene'].includes(category.key);
   const clearLongPress = () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
     timerRef.current = null;
+    pointerStartRef.current = null;
   };
   useEffect(() => () => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -1012,10 +1215,16 @@ function InventoryCategoryButton({ active, category, progressLabel, onExplain, o
     event.currentTarget.focus({ preventScroll: true });
     clearLongPress();
     longPressedRef.current = false;
+    pointerStartRef.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
     timerRef.current = window.setTimeout(() => {
       longPressedRef.current = true;
       onExplain();
     }, CATEGORY_LONG_PRESS_MS);
+  };
+  const trackPointer = (event) => {
+    const start = pointerStartRef.current;
+    if (!start || start.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) clearLongPress();
   };
   const select = (event) => {
     if (longPressedRef.current) {
@@ -1046,6 +1255,7 @@ function InventoryCategoryButton({ active, category, progressLabel, onExplain, o
     onContextMenu={(event) => { event.preventDefault(); clearLongPress(); onExplain(); }}
     onKeyDown={openFromKeyboard}
     onPointerDown={startLongPress}
+    onPointerMove={trackPointer}
     onPointerUp={clearLongPress}
     onPointerCancel={clearLongPress}
     onPointerLeave={clearLongPress}
@@ -1079,15 +1289,23 @@ function StockpileMeaningDialog({ category, onClose }) {
   </div>;
 }
 
-function RollingStock({ state, summary, transactions, updateInventory, onBack }) {
+function RollingStock({ state, summary, transactions, updateInventory, onBack, today }) {
   const rawRows = () => state.inventory;
   const rotateOne = (entry) => {
-    const result = consumeByRotation(rawRows(), entry.key, 1);
+    const expired = entry.status === 'expired';
+    const result = expired
+      ? {
+          inventory: rawRows().map((item) => item.id === entry.nextLot.id ? { ...item, quantity: Math.max(0, Number(item.quantity) - 1), lastChecked: localDateKey() } : item),
+          consumed: [{ item: entry.nextLot, quantity: 1 }],
+        }
+      : consumeByRotation(rawRows(), entry.key, 1, today);
     const consumed = result.consumed[0];
     if (!consumed) return;
-    const expired = entry.status === 'expired';
+    const productId = consumed.item.productId;
+    const productTarget = productId ? rawRows().filter((item) => item.productId === productId).reduce((sum, item) => sum + Math.max(0, Number(item.target) || 0), 0) : 0;
+    const inventory = productId ? redistributeProductTargets(result.inventory, productId, productTarget, today) : result.inventory;
     updateInventory(
-      result.inventory,
+      inventory,
       expired ? `${consumed.item.name}を期限切れ・廃棄として記録しました` : `${consumed.item.name}を消費として記録しました`,
       createTransaction(
         expired ? 'discard' : 'rotate',
@@ -1102,18 +1320,17 @@ function RollingStock({ state, summary, transactions, updateInventory, onBack })
     const inventory = rawRows().map((row) => row.id === entry.nextLot.id ? { ...row, rotationReminderDate: value } : row);
     updateInventory(inventory, value ? `再通知日を${value}に設定しました` : '再通知日を解除しました');
   };
-  const today = new Date().toISOString().slice(0, 10);
-  const limit = new Date(); limit.setDate(limit.getDate() + 30);
-  const maxReminder = limit.toISOString().slice(0, 10);
+  const limit = new Date(`${today}T12:00:00`); limit.setDate(limit.getDate() + 30);
+  const maxReminder = localDateKey(limit);
   const rollingHistory = transactions.filter((entry) => entry.type === 'rotate' || (entry.type === 'discard' && entry.source === 'rolling-stock')).slice(0, 8);
   const upcomingCount = summary.rotationQueue.filter((entry) => entry.status === 'upcoming').length;
   return <section className="wrap page-section rolling-page"><div className="page-title"><div><span className="kicker">CONSUMPTION PLAN</span><h1>ローリングストック消費計画</h1><p>期限が近い物を、期限が来る前に使う順番として整理します。</p></div><button className="secondary-button" onClick={onBack}><ArrowRight className="back-arrow" />備蓄へ戻る</button></div><aside className="rolling-guide"><b>この画面で行うこと</b><span><CalendarDays />期限順に消費予定を確認する</span><span><Bell />必要な日に再通知を設定する</span><span><RefreshCw />実際に使った時だけ消費として記録する</span></aside><div className="rolling-summary"><span><small>消費時期が到来</small><b>{summary.rotationDueCount}品</b></span><span><small>30日以内に予定</small><b>{upcomingCount}品</b></span><span><small>計画中</small><b>{summary.rotationQueue.length}品</b></span></div>{summary.rotationQueue.length ? <div className="rolling-list card">{summary.rotationQueue.map((entry) => { const reminderMax = entry.nextLot.expiry >= today && entry.nextLot.expiry < maxReminder ? entry.nextLot.expiry : maxReminder; const expired = entry.status === 'expired'; return <article className={`rolling-row rolling-row-full ${entry.status}`} key={entry.key}><span className="rolling-order">{expired ? '期限切れ' : entry.daysToRotate <= 0 ? '消費時期です' : `${entry.daysToRotate}日後に消費`}</span><span><b>{entry.nextLot.name}</b><small>消費期限 {entry.nextLot.expiry}（期限日は変更できません）</small><label className="rolling-reminder"><span>{expired ? '廃棄記録前の確認日' : '消費予定の再通知日'}</span><input type="date" min={today} max={reminderMax} value={entry.nextLot.rotationReminderDate || ''} onChange={(event) => setReminder(entry, event.target.value)} /></label></span><div className="rolling-actions"><button type="button" onClick={() => rotateOne(entry)}>{expired ? <Trash2 /> : <RefreshCw />}1{entry.nextLot.unit}を{expired ? '廃棄' : '消費'}として記録</button></div></article>; })}</div> : <div className="empty-state"><Check /><h3>期限付きの備蓄はありません</h3><p>備蓄品に期限を登録すると、ここへ期限順に表示します。</p></div>}<article className="card operation-panel rolling-history"><div className="section-heading compact"><div><span className="kicker">HISTORY</span><h2>消費履歴</h2></div><History /></div>{rollingHistory.length ? rollingHistory.map((entry) => <div className="history-row" key={entry.id}><span className={`history-type ${entry.type}`}>{entry.type === 'discard' ? '期限切れ・廃棄' : '期限順消費'}</span><span><b>{entry.name}</b><small>{entry.quantityDelta}{entry.unit}・{entry.reason || ''}・{new Date(entry.at).toLocaleString('ja-JP')}</small></span></div>) : <div className="empty-small">消費を記録すると履歴が残ります</div>}</article></section>;
 }
 
-function StockpileCalculationDialog({ summary, items, household, targetDays, onClose, onAction }) {
+function StockpileCalculationDialog({ summary, items, household, targetDays, onClose, onAction, today }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
-  return <div className="modal-backdrop calculation-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal calculation-dialog" role="dialog" aria-modal="true" aria-labelledby="calculation-title"><div className="modal-title"><div><span className="kicker">STOCKPILE REFERENCE</span><h2 id="calculation-title">主要備蓄の参考日数と不足</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><StockpileDaysPanel summary={summary} items={items} household={household} targetDays={targetDays} onAction={onAction} actionLabel="対象を絞り込む" /></section></div>;
+  return <div className="modal-backdrop calculation-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal calculation-dialog" role="dialog" aria-modal="true" aria-labelledby="calculation-title"><div className="modal-title"><div><span className="kicker">STOCKPILE REFERENCE</span><h2 id="calculation-title">主要備蓄の参考日数と不足</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><StockpileDaysPanel summary={summary} items={items} household={household} targetDays={targetDays} onAction={onAction} actionLabel="対象を絞り込む" today={today} /></section></div>;
 }
 
 function BudgetForecastChart({ projection, budget, duration }) {
@@ -1168,17 +1385,31 @@ function BudgetForecastChart({ projection, budget, duration }) {
   </section>;
 }
 
-function BudgetPlannerDialog({ state, summary, setState, onClose }) {
+function BudgetPlannerDialog({ state, summary, setState, onClose, today }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
   const [budget, setBudget] = useState(state.preparedness?.annualBudget || 0);
-  const projection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, budget), [state.inventory, state.household, state.preparedness?.targetDays, budget]);
+  const projection = useMemo(() => stockpileBudgetProjection(state.inventory, state.household, state.preparedness?.targetDays || 7, budget, today), [state.inventory, state.household, state.preparedness?.targetDays, budget, today]);
   const duration = !projection.costComplete ? '不足商品の単価登録後に表示します' : projection.months === null ? '年間予算を入力すると表示します' : projection.months === 0 ? '目標日数を達成済み' : projection.months < 12 ? `約${projection.months}か月` : `約${(projection.months / 12).toFixed(1)}年`;
   const save = () => {
     setState((old) => ({ ...old, preparedness: { ...old.preparedness, annualBudget: budget } }));
     onClose();
   };
-  return <div className="modal-backdrop budget-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal budget-dialog" role="dialog" aria-modal="true" aria-labelledby="budget-title"><div className="modal-title"><div><span className="kicker">ANNUAL PURCHASE PLAN</span><h2 id="budget-title">予算で、いつ何を揃えるか</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div><div className="budget-planner-top"><label className="annual-budget-input"><span>毎年の備蓄予算（円）<small>入力と同時に、グラフと1年後の見込みを更新します。</small></span><input autoFocus type="number" min="0" max="10000000" step="1000" value={budget} onChange={(event) => setBudget(Math.min(10000000, Math.max(0, Number(event.target.value) || 0)))} /></label><BudgetForecastChart projection={projection} budget={budget} duration={duration} /></div><div className="budget-result"><span>備蓄目標<strong>{projection.targetDays}日分</strong></span><span>目標までの概算<strong>{projection.costComplete ? `¥${projection.totalCost.toLocaleString()}` : '単価登録が必要'}</strong></span><span>今年の購入予定<strong>¥{projection.plannedThisYear.toLocaleString()}</strong></span><span>到達目安<strong>{duration}</strong></span></div><section className="annual-purchase-plan" aria-labelledby="purchase-order-title"><header><div><span className="kicker">WHAT TO BUY FIRST</span><h3 id="purchase-order-title">今年、何から買うか</h3></div>{budget > 0 && <span>残り予算 ¥{projection.remainingAnnualBudget.toLocaleString()}</span>}</header>{projection.annualPlan.length ? <ol>{projection.annualPlan.map((item) => <li className={!item.hasPrice ? 'needs-price' : item.plannedQuantity === 0 ? 'deferred' : ''} key={item.key}><span className="purchase-order">{item.order}</span><span><small>{item.label}・現在 {formatDays(item.currentDays)}日分</small><b>{item.recommendation?.name || `${item.label}の商品`}</b><em>{item.recommendation ? `目標まで ${item.recommendation.quantity}${item.recommendation.unit}・単価 ¥${item.recommendation.unitPrice.toLocaleString()}` : '商品に内容量と単価を登録してください'}</em></span><strong>{budget === 0 ? '予算入力後に割当' : item.plannedQuantity > 0 ? <><small>今年買う</small>{item.plannedQuantity}{item.recommendation.unit}<em>¥{item.plannedCost.toLocaleString()}</em></> : item.hasPrice ? '翌年以降' : '単価未登録'}</strong></li>)}</ol> : <div className="empty-small"><Check />目標日数分を確保済みです</div>}</section><p className="dialog-note">主要備蓄の参考日数が短い分野を先にし、同じ場合は水・食料・携帯トイレの順で提案します。グラフは登録済みの内容量・単価と一定の予算投入を前提にした概算で、価格変動や購入単位により実績は変わります。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={save}><Check />この年間予算で保存</button></div></section></div>;
+  const formatComponents = (components = []) => components.map((component) => `${component.name} ${component.quantity}${component.unit}`).join('＋');
+  return <div className="modal-backdrop budget-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="modal budget-dialog" role="dialog" aria-modal="true" aria-labelledby="budget-title">
+    <div className="modal-title"><div><span className="kicker">ANNUAL PURCHASE PLAN</span><h2 id="budget-title">予算で、いつ何を揃えるか</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div>
+    <div className="budget-planner-top"><label className="annual-budget-input"><span>毎年の備蓄予算（円）<small>入力と同時に、グラフと1年後の見込みを更新します。</small></span><input data-dialog-autofocus type="number" min="0" max="10000000" step="1000" value={budget} onChange={(event) => setBudget(Math.min(10000000, Math.max(0, Number(event.target.value) || 0)))} /></label><BudgetForecastChart projection={projection} budget={budget} duration={duration} /></div>
+    <div className="budget-result"><span>備蓄目標<strong>{projection.targetDays}日分</strong></span><span>目標までの概算<strong>{projection.costComplete ? `¥${projection.totalCost.toLocaleString()}` : '単価登録が必要'}</strong></span><span>今年の購入予定<strong>¥{projection.plannedThisYear.toLocaleString()}</strong></span><span>到達目安<strong>{duration}</strong></span></div>
+    <section className="annual-purchase-plan" aria-labelledby="purchase-order-title"><header><div><span className="kicker">WHAT TO BUY FIRST</span><h3 id="purchase-order-title">今年、何から買うか</h3></div>{budget > 0 && <span>残り予算 ¥{projection.remainingAnnualBudget.toLocaleString()}</span>}</header>{projection.annualPlan.length ? <ol>{projection.annualPlan.map((item) => {
+      const recommendation = item.recommendation;
+      const requiredText = recommendation?.components?.length
+        ? `目標まで ${formatComponents(recommendation.components)}・概算 ¥${recommendation.estimatedCost.toLocaleString()}`
+        : recommendation ? `目標まで ${recommendation.quantity}${recommendation.unit}・単価 ¥${recommendation.unitPrice.toLocaleString()}` : '商品に内容量と単価を登録してください';
+      const plannedText = item.plannedComponents?.length ? formatComponents(item.plannedComponents) : `${item.plannedQuantity}${recommendation?.unit || ''}`;
+      return <li className={!item.hasPrice ? 'needs-price' : item.plannedQuantity === 0 ? 'deferred' : ''} key={item.key}><span className="purchase-order">{item.order}</span><span><small>{item.label}・現在 {formatDays(item.currentDays)}日分</small><b>{recommendation?.name || `${item.label}の商品`}</b><em>{requiredText}</em></span><strong>{budget === 0 ? '予算入力後に割当' : item.plannedQuantity > 0 ? <><small>今年買う</small><span>{plannedText}</span><em>¥{item.plannedCost.toLocaleString()}</em></> : item.hasPrice ? '翌年以降' : '単価未登録'}</strong></li>;
+    })}</ol> : <div className="empty-small"><Check />目標日数分を確保済みです</div>}</section>
+    <p className="dialog-note">主要備蓄の参考日数が短い分野を先にし、同じ場合は水・食料・携帯トイレの順で提案します。グラフは登録済みの内容量・単価と一定の予算投入を前提にした概算で、価格変動や購入単位により実績は変わります。</p><div className="modal-actions"><button type="button" className="primary-button" onClick={save}><Check />この年間予算で保存</button></div>
+  </section></div>;
 }
 
 function CategoryIcon({ category }) {
@@ -1218,13 +1449,16 @@ function ConsumptionModal({ item, onClose, onSave }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
   const [amount, setAmount] = useState(1);
-  const [reason, setReason] = useState('日常消費');
+  const expired = Boolean(item.isExpired);
+  const [reason, setReason] = useState(expired ? '期限切れ・廃棄' : '日常消費');
   const [note, setNote] = useState('');
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="consumption-title" onSubmit={(event) => { event.preventDefault(); onSave({ amount, reason, note }); }}>
+  useEffect(() => { if (expired) setReason('期限切れ・廃棄'); }, [expired]);
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><form ref={dialogRef} className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="consumption-title" onSubmit={(event) => { event.preventDefault(); onSave({ amount, reason: expired ? '期限切れ・廃棄' : reason, note }); }}>
     <div className="modal-title"><div><span className="kicker">CONSUMPTION LOG</span><h2 id="consumption-title">{item.name}を記録</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div>
-    <div className="form-grid"><label><span>数量（最大 {item.quantity}{item.unit}）</span><input autoFocus required type="number" min="1" max={item.quantity} value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label><span>理由</span><select value={reason} onChange={(event) => setReason(event.target.value)}><option>日常消費</option><option>ローリングストック</option><option>非常時使用</option><option>期限切れ・廃棄</option><option>その他</option></select></label></div>
+    {expired && <p className="expired-consumption-note"><AlertTriangle />期限切れロットは食べた記録にせず、廃棄として在庫と履歴を更新します。</p>}
+    <div className="form-grid"><label><span>数量（最大 {item.quantity}{item.unit}）</span><input data-dialog-autofocus required type="number" min="1" max={item.quantity} value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label><span>理由</span><select disabled={expired} value={reason} onChange={(event) => setReason(event.target.value)}>{!expired && <><option>日常消費</option><option>ローリングストック</option><option>非常時使用</option><option>その他</option></>}<option>期限切れ・廃棄</option></select></label></div>
     <label className="full"><span>備考</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="例：朝食で使用、袋が破損" /></label>
-    <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button"><Check />記録して在庫を減らす</button></div>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button type="submit" className="primary-button"><Check />{expired ? '廃棄として記録する' : '記録して在庫を減らす'}</button></div>
   </form></div>;
 }
 
@@ -1258,7 +1492,7 @@ function EmergencyPlan({ state, summary, setState, setToast }) {
       <label><span><ClipboardList />家族への伝言・連絡ルール</span><textarea value={draft.note} onChange={(e) => set('note', e.target.value)} rows="5" /></label>
       <button className="primary-button" type="submit"><Check />この端末に保存</button>
     </form></details>
-    <details className="simulator compact-disclosure"><summary><span><span className="kicker">STOCKPILE REFERENCE</span><b>災害別の登録備蓄を確認</b><small>{simulation.scenario.name}・{simulation.days}日間は参考充足度 {simulation.score}%</small></span><span className="disclosure-label">条件を変える<ChevronDown /></span></summary><div className="simulator-content"><p className="simulation-disclaimer">地域リスク・建物安全・警報は評価していません。安全可否ではなく、登録済み備蓄の不足を探す参考表示です。</p><div className="simulator-controls"><label><span>想定</span><select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>{DISASTER_SCENARIOS.map((scenario) => <option value={scenario.id} key={scenario.id}>{scenario.name}</option>)}</select></label><label><span>継続日数</span><input type="number" min="1" max="14" value={days} onChange={(event) => setDays(event.target.value)} /></label></div><div className={`simulation-result status-${simulation.statusKey}`}><div><span>登録備蓄の参考充足度</span><b>{simulation.score}<small>%</small></b><em>{simulation.status}</em></div><section><h3>{simulation.scenario.name}・{simulation.days}日間</h3><p>{simulation.scenario.opening}</p><strong>{simulation.advice}</strong><div className="gap-chips">{simulation.criticalGaps.map((gap) => <span key={gap.key}>{CATEGORY_META[gap.key]?.label || gap.key} {gap.score}%</span>)}</div></section></div></div></details>
+    <details className="simulator compact-disclosure"><summary><span><span className="kicker">STOCKPILE REFERENCE</span><b>災害別の登録備蓄を確認</b><small>{simulation.scenario.name}・{simulation.days}日間は参考充足度 {simulation.score}%</small></span><span className="disclosure-label">条件を変える<ChevronDown /></span></summary><div className="simulator-content"><p className="simulation-disclaimer">地域リスク・建物安全・警報は評価していません。安全可否ではなく、登録済み備蓄の不足を探す参考表示です。</p><div className="simulator-controls"><label><span>想定</span><select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>{DISASTER_SCENARIOS.map((scenario) => <option value={scenario.id} key={scenario.id}>{scenario.name}</option>)}</select></label><label><span>継続日数</span><input type="number" min="1" max="14" value={days} onChange={(event) => setDays(event.target.value)} /></label></div><div className={`simulation-result status-${simulation.statusKey}`}><div><span>登録備蓄の参考充足度</span><b>{simulation.score}<small>%</small></b><em>{simulation.status}</em></div><section><h3>{simulation.scenario.name}・{simulation.days}日間</h3><p>{simulation.scenario.opening}</p><strong>{simulation.advice}</strong><div className="gap-chips">{simulation.criticalGaps.map((gap) => <span key={gap.key}>{CATEGORY_META[gap.key]?.label || gap.key} {gap.reason === 'duration-unmeasured' ? '期間未測定' : `${gap.score}%`}</span>)}</div></section></div></div></details>
     <div className="offline-note"><Zap /><div><b>初回表示後はオフラインでも確認できます</b><span>アプリ本体と入力済みデータをこの端末に保存します。商品情報の新規照会には通信が必要です。</span></div></div>
     {benchmarkOpen && <PreparednessBenchmarkDialog kind="rescue" onClose={() => setBenchmarkOpen(false)} />}
   </section>;
@@ -1296,9 +1530,28 @@ function useDialogClose(onClose, dialogRef) {
     const previousOverflow = document.body.style.overflow;
     const selector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
     const getDialog = () => dialogRef.current || document.querySelector('[role="dialog"]');
+    const dialog = getDialog();
+    const isolatedSiblings = [];
+    let branch = dialog;
+    while (branch?.parentElement && branch !== document.body) {
+      const parent = branch.parentElement;
+      for (const sibling of parent.children) {
+        if (sibling === branch) continue;
+        isolatedSiblings.push({
+          element: sibling,
+          inert: sibling.inert,
+          hadInert: sibling.hasAttribute('inert'),
+          hadAriaHidden: sibling.hasAttribute('aria-hidden'),
+          ariaHidden: sibling.getAttribute('aria-hidden'),
+        });
+        sibling.inert = true;
+        sibling.setAttribute('inert', '');
+        sibling.setAttribute('aria-hidden', 'true');
+      }
+      branch = parent;
+    }
     const frame = window.requestAnimationFrame(() => {
-      const dialog = getDialog();
-      (dialog?.querySelector('[autofocus]:not([disabled])') || dialog?.querySelector(selector))?.focus();
+      (dialog?.querySelector('[data-dialog-autofocus]:not([disabled])') || dialog?.querySelector('[autofocus]:not([disabled])') || dialog?.querySelector(selector))?.focus();
     });
     const handleKey = (event) => {
       if (event.key === 'Escape') return onCloseRef.current();
@@ -1308,8 +1561,9 @@ function useDialogClose(onClose, dialogRef) {
       if (!elements.length) return;
       const first = elements[0];
       const last = elements.at(-1);
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      const focusOutside = !dialog.contains(document.activeElement);
+      if (event.shiftKey && (document.activeElement === first || focusOutside)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || focusOutside)) { event.preventDefault(); first.focus(); }
     };
     document.body.style.overflow = 'hidden';
     window.addEventListener('keydown', handleKey);
@@ -1317,6 +1571,13 @@ function useDialogClose(onClose, dialogRef) {
       window.cancelAnimationFrame(frame);
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKey);
+      for (const record of isolatedSiblings.reverse()) {
+        record.element.inert = record.inert;
+        if (record.hadInert) record.element.setAttribute('inert', '');
+        else record.element.removeAttribute('inert');
+        if (record.hadAriaHidden) record.element.setAttribute('aria-hidden', record.ariaHidden);
+        else record.element.removeAttribute('aria-hidden');
+      }
       previousFocus?.focus?.();
     };
   }, [dialogRef]);
@@ -1402,13 +1663,17 @@ function ShareQrPanel({ onClose, setToast }) {
   </section></div>;
 }
 
-function NotificationPanel({ state, summary, setToast, onClose, onOpenItem, onOpenRolling, onReplenish }) {
+function NotificationPanel({ state, summary, setToast, onClose, onOpenInventory, onOpenItem, onOpenRolling, onReplenish }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
   const expiry = summary.rows.filter((item) => item.isExpiring || item.isRotationReminderDue).sort((a, b) => (a.daysToExpiry ?? 9999) - (b.daysToExpiry ?? 9999));
   const shortages = summary.rows.filter((item) => item.shortage > 0).sort((a, b) => (FIRST_GOAL_CATEGORY_PRIORITY[a.category] ?? 3) - (FIRST_GOAL_CATEGORY_PRIORITY[b.category] ?? 3) || a.tier - b.tier || a.ratio - b.ratio);
+  const criticalShortages = shortages.filter((item) => ['water', 'food', 'hygiene'].includes(item.category));
+  const otherShortages = shortages.filter((item) => !criticalShortages.includes(item));
   const checks = summary.rows.filter((item) => item.isCheckDue).sort((a, b) => a.daysToCheck - b.daysToCheck);
-  const notifications = new Set([...expiry, ...shortages, ...checks].map((item) => item.id));
+  const essentialGaps = summary.essentialNotificationGaps || [];
+  const notifications = new Set([...expiry, ...shortages, ...checks].map((item) => `item:${item.id}`));
+  essentialGaps.forEach((gap) => notifications.add(`essential:${gap.key}`));
   const enableNotifications = async () => {
     if (!('Notification' in window)) return setToast('この端末はシステム通知に対応していません');
     const permission = await Notification.requestPermission();
@@ -1418,8 +1683,9 @@ function NotificationPanel({ state, summary, setToast, onClose, onOpenItem, onOp
       setToast('次回からキャラクターがお知らせします');
     } else setToast('通知は許可されませんでした');
   };
-  const group = (title, description, rows, kind) => rows.length ? <section className="notification-group"><header><div><b>{title}</b><small>{description}</small></div><span>{rows.length}</span></header>{rows.map((item) => <div className="notification-row" key={`${kind}-${item.id}`}><span className={`status-dot ${kind === 'shortage' ? 'red' : 'amber'}`} /><button type="button" className="notification-detail" onClick={() => kind === 'expiry' ? onOpenRolling() : onOpenItem(item)}><span><b>{item.name}</b><small>{kind === 'expiry' ? item.isExpired ? '期限切れです' : item.isRotationReminderDue ? `設定した再通知日です・期限まで${item.daysToExpiry}日` : `期限まで${item.daysToExpiry}日` : kind === 'shortage' ? `${item.shortage}${item.unit}不足しています` : `確認日を${Math.abs(item.daysToCheck)}日超過しています`}</small></span><ChevronRight /></button>{kind === 'shortage' && <button type="button" className="notification-refill" onClick={() => onReplenish(item)}><Plus />{item.shortage}{item.unit}補充</button>}</div>)}</section> : null;
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title"><div className="modal-title"><div><span className="kicker">NOTIFICATIONS</span><h2 id="notification-title">今、対応すること</h2><small className="notification-count">重複をまとめて{notifications.size}品目</small></div><button type="button" aria-label="通知一覧を閉じる" onClick={onClose}><X /></button></div><div className="notification-overview"><span>期限対応<b>{expiry.length}</b></span><span>補充<b>{shortages.length}</b></span><span>点検<b>{checks.length}</b></span></div><button type="button" className="notification-enable" onClick={enableNotifications}><Bell />端末の通知を有効にする</button>{notifications.size ? <>{group('期限対応', '1か月以内の期限と再通知日', expiry, 'expiry')}{group('補充', '目標数に足りない備蓄', shortages, 'shortage')}{group('点検', '保管場所で状態を確認', checks, 'check')}</> : <div className="empty-small"><Check />今すぐ対応するお知らせはありません</div>}</section></div>;
+  const essentialGroup = essentialGaps.length ? <section className="notification-group essential-notification-group"><header><div><h3>主要備蓄の補充</h3><small>まず水・食料・携帯トイレを3日分まで</small></div><span>{essentialGaps.length}</span></header>{essentialGaps.map((gap) => <div className="notification-row" key={`essential-${gap.key}`}><span className="status-dot red" /><button type="button" className="notification-detail" onClick={onOpenInventory}><span><b>{gap.label}</b><small>3日分まであと{gap.shortage}{gap.unit}（{gap.reference}換算）</small></span><ChevronRight /></button></div>)}</section> : null;
+  const group = (title, description, rows, kind) => rows.length ? <section className="notification-group"><header><div><h3>{title}</h3><small>{description}</small></div><span>{rows.length}</span></header>{rows.map((item) => <div className="notification-row" key={`${kind}-${item.id}`}><span className={`status-dot ${kind === 'shortage' ? 'red' : 'amber'}`} /><button type="button" className="notification-detail" onClick={() => kind === 'expiry' ? (item.rotationEnabled === false && !item.isExpired ? onOpenItem(item) : onOpenRolling()) : onOpenItem(item)}><span><b>{item.name}</b><small>{kind === 'expiry' ? item.isExpired ? '期限切れです' : item.isRotationReminderDue ? `設定した再通知日です・期限まで${item.daysToExpiry}日` : `期限まで${item.daysToExpiry}日` : kind === 'shortage' ? `${item.shortage}${item.unit}不足しています` : `確認日を${Math.abs(item.daysToCheck)}日超過しています`}</small></span><ChevronRight /></button>{kind === 'shortage' && <button type="button" className="notification-refill" onClick={() => onReplenish(item)}><Plus />{item.shortage}{item.unit}補充</button>}</div>)}</section> : null;
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-title"><div className="modal-title"><div><span className="kicker">NOTIFICATIONS</span><h2 id="notification-title">今、対応すること</h2><small className="notification-count">対応 {notifications.size}件</small></div><button type="button" aria-label="通知一覧を閉じる" onClick={onClose}><X /></button></div><div className="notification-overview"><span>命をつなぐ備蓄<b>{essentialGaps.length}</b></span><span>期限対応<b>{expiry.length}</b></span><span>登録目標・点検<b>{shortages.length + checks.length}</b></span></div><button type="button" className="notification-enable" onClick={enableNotifications}><Bell />端末の通知を有効にする</button>{notifications.size ? <>{essentialGroup}{group('期限対応', '1か月以内の期限と再通知日', expiry, 'expiry')}{group('登録目標の補充', '品目ごとに設定した目標との差', [...criticalShortages, ...otherShortages], 'shortage')}{group('点検', '保管場所で状態を確認', checks, 'check')}</> : <div className="empty-small"><Check />今すぐ対応するお知らせはありません</div>}</section></div>;
 }
 
 const knowledgeSections = [
@@ -1451,29 +1717,124 @@ function Learn({ completed, setState }) {
   </section>;
 }
 
-function ItemModal({ item, inventory, onClose, onSave }) {
+function inventoryItemForm(source = null, { newLot = false, suggestedQuantity, productTarget } = {}) {
+  const checkedToday = localDateKey();
+  const nextCheck = localDateKey(new Date(Date.now() + 30 * 86400000));
+  if (!source) return { ...emptyForm, lastChecked: checkedToday, nextCheck, registrationMode: 'new-lot' };
+  const proposedQuantity = Number(suggestedQuantity);
+  return {
+    ...emptyForm,
+    name: source.name,
+    category: source.category === 'unclassified' ? '' : source.category,
+    tier: source.tier,
+    unit: source.unit,
+    quantity: newLot && Number.isFinite(proposedQuantity) ? Math.max(0, proposedQuantity) : source.quantity,
+    target: Number.isFinite(Number(productTarget)) ? Math.max(0, Number(productTarget)) : source.target,
+    price: source.price,
+    expiry: newLot ? '' : source.expiry,
+    note: source.note || '',
+    barcode: source.barcode || '',
+    brand: source.brand || '',
+    packageSize: source.packageSize || '',
+    volumeMl: source.volumeMl || 0,
+    waterPurpose: ['utility', 'drinking-cooking'].includes(source.waterPurpose) ? source.waterPurpose : '',
+    foodWeightG: source.foodWeightG || 0,
+    packingVolumeMl: source.packingVolumeMl || 0,
+    imageUrl: source.imageUrl || '',
+    source: source.source || '',
+    sourceUrl: source.sourceUrl || '',
+    location: source.location || '',
+    lastChecked: newLot ? checkedToday : source.lastChecked || '',
+    nextCheck: newLot ? nextCheck : source.nextCheck || '',
+    rotationEnabled: source.rotationEnabled !== false,
+    rotationLeadDays: source.rotationLeadDays ?? 30,
+    replenishmentPriority: source.replenishmentPriority || 'medium',
+    replenishBy: source.replenishBy || '',
+    purchaseFrom: source.purchaseFrom || '',
+    registrationMode: 'new-lot',
+  };
+}
+
+function ItemModal({ item, initialItem, suggestedQuantity, inventory, onClose, onSave }) {
   const dialogRef = useRef(null);
   useDialogClose(onClose, dialogRef);
-  const [form, setForm] = useState(item ? { name: item.name, category: item.category, tier: item.tier, unit: item.unit, quantity: item.quantity, target: item.target, price: item.price, expiry: item.expiry, note: item.note || '', barcode: item.barcode || '', brand: item.brand || '', packageSize: item.packageSize || '', volumeMl: item.volumeMl || 0, foodWeightG: item.foodWeightG || 0, packingVolumeMl: item.packingVolumeMl || 0, imageUrl: item.imageUrl || '', source: item.source || '', sourceUrl: item.sourceUrl || '', location: item.location || '', lastChecked: item.lastChecked || '', nextCheck: item.nextCheck || '', rotationEnabled: item.rotationEnabled !== false, rotationLeadDays: item.rotationLeadDays || 30, replenishmentPriority: item.replenishmentPriority || 'medium', replenishBy: item.replenishBy || '', purchaseFrom: item.purchaseFrom || '', registrationMode: 'new-lot' } : { ...emptyForm, lastChecked: new Date().toISOString().slice(0, 10), nextCheck: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10), registrationMode: 'new-lot' });
+  const sourceProduct = item || initialItem;
+  const initialProductTarget = sourceProduct
+    ? inventory.filter((entry) => entry.productId === sourceProduct.productId).reduce((sum, entry) => sum + Math.max(0, Number(entry.target) || 0), 0)
+    : undefined;
+  const [form, setForm] = useState(() => inventoryItemForm(item || initialItem, { newLot: Boolean(initialItem), suggestedQuantity, productTarget: initialProductTarget }));
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(Boolean(item));
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(item || initialItem));
   const set = (key, value) => setForm((old) => ({ ...old, [key]: value }));
-  const duplicate = !item && form.barcode ? inventory.find((entry) => entry.barcode === form.barcode) : null;
-  const categoryGuidance = itemCategoryGuidance[form.category];
-  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><form ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" onSubmit={(e) => { e.preventDefault(); onSave({ ...form, tier: Number(form.tier), quantity: Number(form.quantity), target: Number(form.target), price: Number(form.price), volumeMl: Number(form.volumeMl) || 0, foodWeightG: Number(form.foodWeightG) || 0, packingVolumeMl: Number(form.packingVolumeMl) || 0, rotationLeadDays: Number(form.rotationLeadDays) || 30 }); }}>
-    <div className="modal-title"><div><span className="kicker">STOCK ITEM</span><h2 id="item-modal-title">{item ? '備蓄品を編集' : '備蓄品を追加'}</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div>
+  const categoryGuidance = itemCategoryGuidance[form.category] || { title: '分類の確認が必要', primary: '正しい分類を選んでください', detail: '分類が確定するまで、防災日数・達成度・購入計画には加算しません。' };
+  const safeNumber = (value) => { const parsed = Number(value); return Number.isFinite(parsed) ? Math.max(0, parsed) : 0; };
+  const rotationLeadDays = Number(form.rotationLeadDays);
+  const targetForScannedProduct = (scannedProductId) => {
+    const matchingLots = scannedProductId ? inventory.filter((entry) => entry.productId === scannedProductId) : [];
+    return matchingLots.length
+      ? matchingLots.reduce((sum, entry) => sum + Math.max(0, Number(entry.target) || 0), 0)
+      : initialItem?.productId === scannedProductId ? initialProductTarget : emptyForm.target;
+  };
+  const identityResetValues = (barcode, target) => ({
+    name: '', category: '', waterPurpose: '', unit: emptyForm.unit, tier: emptyForm.tier,
+    quantity: emptyForm.quantity, target, price: emptyForm.price, expiry: '', note: '', barcode,
+    brand: '', packageSize: '', volumeMl: 0, foodWeightG: 0, packingVolumeMl: 0,
+    imageUrl: '', source: '', sourceUrl: '', location: '', lastChecked: localDateKey(),
+    nextCheck: localDateKey(new Date(Date.now() + 30 * 86400000)),
+    rotationEnabled: emptyForm.rotationEnabled, rotationLeadDays: emptyForm.rotationLeadDays,
+    rotationReminderDate: '', replenishmentPriority: emptyForm.replenishmentPriority, replenishBy: '', purchaseFrom: '',
+    registrationMode: 'new-lot',
+  });
+  const applyScannedBarcode = (barcode) => {
+    const cleaned = String(barcode || '').replace(/\D/g, '');
+    const scannedProductId = cleaned ? `gtin:${cleaned}` : '';
+    setForm((old) => {
+      const identityChanged = Boolean(cleaned && cleaned !== String(old.barcode || ''));
+      return {
+        ...old,
+        ...(identityChanged ? identityResetValues(cleaned, targetForScannedProduct(scannedProductId)) : {}),
+        barcode: cleaned,
+        ...(cleaned ? { target: targetForScannedProduct(scannedProductId) } : {}),
+      };
+    });
+  };
+  const applyScannedProduct = (product) => {
+    const cleaned = String(product.barcode || '').replace(/\D/g, '');
+    const scannedProductId = cleaned ? `gtin:${cleaned}` : '';
+    const productValues = Object.fromEntries([
+      'name', 'category', 'unit', 'tier', 'price', 'brand', 'packageSize', 'volumeMl',
+      'foodWeightG', 'packingVolumeMl', 'imageUrl', 'source', 'sourceUrl', 'location',
+      'rotationEnabled', 'rotationLeadDays', 'replenishmentPriority', 'replenishBy', 'purchaseFrom',
+    ].filter((key) => product[key] !== undefined).map((key) => [key, product[key]]));
+    setForm((old) => {
+      const identityChanged = Boolean(cleaned && cleaned !== String(old.barcode || ''));
+      const target = targetForScannedProduct(scannedProductId);
+      const base = identityChanged ? { ...old, ...identityResetValues(cleaned, target) } : old;
+      return {
+        ...base,
+        ...productValues,
+        barcode: cleaned,
+        target,
+        waterPurpose: product.category === 'water' && ['drinking-cooking', 'utility'].includes(product.waterPurpose) ? product.waterPurpose : '',
+        registrationMode: 'new-lot',
+        note: base.note || [product.brand, product.packageSize].filter(Boolean).join(' / '),
+      };
+    });
+  };
+  return <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><form ref={dialogRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="item-modal-title" onSubmit={(e) => { e.preventDefault(); onSave({ ...form, tier: Math.min(3, Math.max(1, Math.round(safeNumber(form.tier)) || 1)), quantity: safeNumber(form.quantity), target: safeNumber(form.target), price: safeNumber(form.price), volumeMl: safeNumber(form.volumeMl), foodWeightG: safeNumber(form.foodWeightG), packingVolumeMl: safeNumber(form.packingVolumeMl), rotationLeadDays: Number.isFinite(rotationLeadDays) ? Math.min(365, Math.max(0, rotationLeadDays)) : 30 }); }}>
+    <div className="modal-title"><div><span className="kicker">STOCK ITEM</span><h2 id="item-modal-title">{item ? '備蓄品を編集' : initialItem ? '新しい期限ロットを追加' : '備蓄品を追加'}</h2></div><button type="button" aria-label="閉じる" onClick={onClose}><X /></button></div>
+    {initialItem && <p className="item-lot-note"><AlertTriangle />期限切れ日や購入時期が異なる品を混ぜず、新しく入手した分として登録します。期限を確認してください。</p>}
     {!item && <button className="optional-section-toggle" type="button" aria-expanded={scannerOpen} onClick={() => setScannerOpen((open) => !open)}><QrCode />バーコードから入力<span>{scannerOpen ? '閉じる' : 'カメラ・画像・番号'}</span><ChevronRight /></button>}
-    {scannerOpen && <div className="optional-section"><BarcodeScanner initialProduct={form.barcode && form.name ? form : null} localProducts={inventory} onBarcode={(barcode) => set('barcode', barcode)} onProduct={(product) => setForm((old) => ({ ...old, ...product, registrationMode: !item && inventory.some((entry) => entry.barcode === product.barcode) ? 'merge' : old.registrationMode, note: old.note || [product.brand, product.packageSize].filter(Boolean).join(' / ') }))} />
-      {duplicate && <fieldset className="duplicate-choice"><legend>登録済みの商品です</legend><label><input type="radio" name="registrationMode" checked={form.registrationMode === 'merge'} onChange={() => set('registrationMode', 'merge')} />既存在庫「{duplicate.name}」へ数量を追加</label><label><input type="radio" name="registrationMode" checked={form.registrationMode === 'new-lot'} onChange={() => set('registrationMode', 'new-lot')} />別の賞味期限ロットとして追加</label></fieldset>}
+    {scannerOpen && <div className="optional-section"><BarcodeScanner initialProduct={form.barcode && form.name ? form : null} localProducts={inventory} onBarcode={applyScannedBarcode} onProduct={applyScannedProduct} />
     </div>}
-    <label className="full"><span>品目名</span><input required autoFocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="例：飲料水 500ml" /></label>
-    <div className="form-grid basic-category-grid"><label><span>カテゴリ</span><select value={form.category} onChange={(e) => set('category', e.target.value)}>{Object.entries(CATEGORY_META).map(([key, value]) => <option value={key} key={key}>{value.label}</option>)}</select></label><label><span>重要度</span><select value={form.tier} onChange={(e) => set('tier', e.target.value)}><option value="1">Tier 1・生存必須</option><option value="2">Tier 2・継続生活</option><option value="3">Tier 3・快適性</option></select></label></div>
+    <label className="full"><span>品目名</span><input required data-dialog-autofocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="例：飲料水 500ml" /></label>
+    <div className="form-grid basic-category-grid"><label><span>カテゴリ</span><select required value={form.category} onChange={(e) => setForm((old) => ({ ...old, category: e.target.value, waterPurpose: e.target.value === 'water' && old.category !== 'water' ? '' : old.waterPurpose }))}><option value="" disabled>分類を選んでください</option>{Object.entries(CATEGORY_META).map(([key, value]) => <option value={key} key={key}>{value.label}</option>)}</select></label><label><span>重要度</span><select value={form.tier} onChange={(e) => set('tier', e.target.value)}><option value="1">Tier 1・生存必須</option><option value="2">Tier 2・継続生活</option><option value="3">Tier 3・快適性</option></select></label></div>
     <aside className={`item-benchmark item-benchmark-${form.category}`} aria-live="polite"><CategoryIcon category={form.category} /><div><small>{categoryGuidance.title}</small><b>{categoryGuidance.primary}</b><p>{categoryGuidance.detail}</p>{categoryGuidance.evidence && <a href={categoryGuidance.evidence.url} target="_blank" rel="noreferrer">根拠：{categoryGuidance.evidence.label}</a>}</div></aside>
     <div className="form-grid three quick-stock-grid"><label><span>在庫数</span><input required min="0" type="number" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} /></label><label><span>目標数</span><input required min="0" type="number" value={form.target} onChange={(e) => set('target', e.target.value)} /></label><label><span>単位</span><input required value={form.unit} onChange={(e) => set('unit', e.target.value)} /></label></div>
     {form.category === 'food' && <label className="full amount-input"><span>1単位あたりの食料重量（g）</span><input min="0" type="number" value={form.foodWeightG} onChange={(e) => set('foodWeightG', e.target.value)} placeholder="例：アルファ米1食なら100" /><small>在庫数と掛け、1食150g×1日3食で日数を簡易比較します。450gは公的な必要重量ではありません。</small></label>}
-    {form.category === 'water' && <label className="full amount-input"><span>1単位あたりの水量（ml）</span><input min="0" type="number" value={form.volumeMl} onChange={(e) => set('volumeMl', e.target.value)} placeholder="例：500mlボトルなら500" /><small>在庫数と掛け合わせ、1人1日3Lとして備蓄日数を計算します。</small></label>}
+    {form.category === 'water' && <div className="form-grid water-purpose-fields"><label><span>水の用途</span><select required value={form.waterPurpose} onChange={(e) => set('waterPurpose', e.target.value)}><option value="" disabled>用途を選んでください</option><option value="drinking-cooking">飲料・調理用（3L換算）</option><option value="utility">生活用水（別枠）</option></select></label><label className="amount-input"><span>1単位あたりの水量（ml）</span><input min="0" type="number" value={form.volumeMl} onChange={(e) => set('volumeMl', e.target.value)} placeholder="例：500mlボトルなら500" /><small>{form.waterPurpose === 'utility' ? 'トイレ・洗濯などの生活用水として別枠表示し、飲料・調理用3Lの日数には加算しません。' : form.waterPurpose === 'drinking-cooking' ? '在庫数と掛け合わせ、飲料・調理用として1人1日3Lの日数を計算します。' : '用途を確認するまで3Lの日数計算には加算しません。'}</small></label></div>}
     <button className="optional-section-toggle details-toggle" type="button" aria-expanded={detailsOpen} onClick={() => setDetailsOpen((open) => !open)}><ClipboardList />詳細設定<span>期限・価格・保管場所など</span><ChevronRight /></button>
-    {detailsOpen && <div className="optional-section details-section"><div className="form-grid"><label><span>期限（任意）</span><input type="date" value={form.expiry} onChange={(e) => set('expiry', e.target.value)} /></label><label><span>単価（円）</span><input min="0" type="number" value={form.price} onChange={(e) => set('price', e.target.value)} /></label></div>
+    {detailsOpen && <div className="optional-section details-section"><div className="form-grid"><label><span>期限{initialItem?.isExpired ? '（確認必須）' : '（任意）'}</span><input required={Boolean(initialItem?.isExpired)} type="date" value={form.expiry} onChange={(e) => set('expiry', e.target.value)} /></label><label><span>単価（円）</span><input min="0" type="number" value={form.price} onChange={(e) => set('price', e.target.value)} /></label></div>
       <label className="full"><span>1単位あたりの収納容量（ml・任意）</span><input min="0" type="number" value={form.packingVolumeMl} onChange={(e) => set('packingVolumeMl', e.target.value)} placeholder="未入力ならアプリの内部推定値を使用" /><small>外箱を含む実際の大きさを入力すると、バッグへの自動選定が正確になります。</small></label>
       <div className="form-grid"><label><span>保管場所</span><input value={form.location} onChange={(e) => set('location', e.target.value)} placeholder="例：玄関収納" /></label><label><span>次回確認日</span><input type="date" value={form.nextCheck} onChange={(e) => set('nextCheck', e.target.value)} /></label></div>
       <fieldset className="replenishment-settings"><legend>補充計画</legend><div className="form-grid three"><label><span>優先度</span><select value={form.replenishmentPriority} onChange={(e) => set('replenishmentPriority', e.target.value)}><option value="high">高</option><option value="medium">中</option><option value="low">低</option></select></label><label><span>補充期限</span><input type="date" value={form.replenishBy} onChange={(e) => set('replenishBy', e.target.value)} /></label><label><span>購入先候補</span><input value={form.purchaseFrom} onChange={(e) => set('purchaseFrom', e.target.value)} placeholder="例：近所のスーパー" /></label></div></fieldset>

@@ -5,7 +5,7 @@ import { autoPackInventory, bagSettings, BAG_VOLUME_EXAMPLES } from './packing.j
 
 const itemSymbol = (category) => category === 'water' ? '💧' : category === 'food' ? '🍚' : category === 'hygiene' ? '🧼' : category === 'light' ? '🔋' : '📦';
 
-export default function PracticalLoadout({ taskId, state, onChange, onBagSettings, onComplete, onClose }) {
+export default function PracticalLoadout({ taskId, state, onChange, onBagSettings, onComplete, onClose, today }) {
   const loadout = state && taskId ? getLoadout(taskId) : null;
   const status = loadoutStatus(state, taskId);
   const completed = Boolean(state.preparedness?.completed?.includes(taskId));
@@ -16,15 +16,30 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
   const settings = bagSettings(state, taskId);
   const primarySettings = bagSettings(state, 'bag-primary');
   const primaryReservation = useMemo(() => taskId === 'bag-secondary' && primarySettings
-    ? autoPackInventory(state.inventory, 'bag-primary', primarySettings.capacityL, state.household)
-    : null, [primarySettings, state.inventory, state.household, taskId]);
+    ? autoPackInventory(state.inventory, 'bag-primary', primarySettings.capacityL, state.household, { today })
+    : null, [primarySettings, state.inventory, state.household, taskId, today]);
   const packing = useMemo(() => settings ? autoPackInventory(state.inventory, taskId, settings.capacityL, state.household, {
     reservedItems: primaryReservation?.items || [],
-  }) : null, [settings, state.inventory, state.household, taskId, primaryReservation]);
+    today,
+  }) : null, [settings, state.inventory, state.household, taskId, primaryReservation, today]);
 
   useEffect(() => setSelectedId(''), [taskId]);
   useEffect(() => {
     const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    const isolatedSiblings = [];
+    let branch = dialogRef.current;
+    while (branch?.parentElement && branch !== document.body) {
+      const parent = branch.parentElement;
+      for (const sibling of parent.children) {
+        if (sibling === branch) continue;
+        isolatedSiblings.push({ element: sibling, inert: sibling.inert, hadInert: sibling.hasAttribute('inert'), hadAriaHidden: sibling.hasAttribute('aria-hidden'), ariaHidden: sibling.getAttribute('aria-hidden') });
+        sibling.inert = true;
+        sibling.setAttribute('inert', '');
+        sibling.setAttribute('aria-hidden', 'true');
+      }
+      branch = parent;
+    }
     const frame = window.requestAnimationFrame(() => closeRef.current?.focus());
     const handleKey = (event) => {
       if (event.key === 'Escape') return onClose();
@@ -33,13 +48,23 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable.at(-1);
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      const focusOutside = !dialogRef.current.contains(document.activeElement);
+      if (event.shiftKey && (document.activeElement === first || focusOutside)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || focusOutside)) { event.preventDefault(); first.focus(); }
     };
+    document.body.style.overflow = 'hidden';
     document.addEventListener('keydown', handleKey);
     return () => {
       window.cancelAnimationFrame(frame);
+      document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKey);
+      for (const record of isolatedSiblings.reverse()) {
+        record.element.inert = record.inert;
+        if (record.hadInert) record.element.setAttribute('inert', '');
+        else record.element.removeAttribute('inert');
+        if (record.hadAriaHidden) record.element.setAttribute('aria-hidden', record.ariaHidden);
+        else record.element.removeAttribute('aria-hidden');
+      }
       previousFocus?.focus?.();
     };
   }, []);
@@ -69,7 +94,7 @@ export default function PracticalLoadout({ taskId, state, onChange, onBagSetting
           <p className="packing-policy">{packing.profile.timing}。{packing.profile.policy}。</p>
           {taskId === 'bag-secondary' && <p className="packing-reservation-note">一時避難バッグへ先に割り当てた {primaryReservation.items.reduce((sum, item) => sum + item.quantity, 0)} 単位を除外して判定しています。</p>}
           <div className="bag-capacity-control">
-            <div className="capacity-mode" aria-label="バッグ容量の設定方法"><button type="button" className={settings.mode === 'standard' ? 'active' : ''} onClick={() => onBagSettings({ ...settings, mode: 'standard' })}>標準 {settings.preset.capacityL}L</button><button type="button" className={settings.mode === 'custom' ? 'active' : ''} onClick={() => onBagSettings({ ...settings, mode: 'custom' })}>自分のバッグ</button></div>
+            <div className="capacity-mode" role="group" aria-label="バッグ容量の設定方法"><button type="button" aria-pressed={settings.mode === 'standard'} className={settings.mode === 'standard' ? 'active' : ''} onClick={() => onBagSettings({ ...settings, mode: 'standard' })}>標準 {settings.preset.capacityL}L</button><button type="button" aria-pressed={settings.mode === 'custom'} className={settings.mode === 'custom' ? 'active' : ''} onClick={() => onBagSettings({ ...settings, mode: 'custom' })}>自分のバッグ</button></div>
             {settings.mode === 'custom' ? <label><span>実容量</span><input type="number" min="1" max="100" step="0.5" value={settings.customCapacityL} onChange={(event) => onBagSettings({ mode: 'custom', customCapacityL: event.target.value })} /><i>L</i></label> : <p><b>{settings.preset.label}</b><span>{settings.preset.source}</span></p>}
             <div className="capacity-meter"><span><i style={{ width: `${Math.min(100, packing.utilization)}%` }} /></span><p><b>{(packing.usedMl / 1000).toFixed(1)}L</b><small> / 実用域 {(packing.usableCapacityMl / 1000).toFixed(1)}L・{packing.utilization}%</small></p></div>
           </div>

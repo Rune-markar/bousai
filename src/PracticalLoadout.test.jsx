@@ -3,11 +3,12 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import PracticalLoadout from './PracticalLoadout.jsx';
 
 const state = {
   household: 1,
-  inventory: [{ id: 'water', name: '飲料水 500ml', category: 'water', tier: 1, unit: '本', quantity: 5, volumeMl: 500 }],
+  inventory: [{ id: 'water', name: '飲料水 500ml', category: 'water', waterPurpose: 'drinking-cooking', tier: 1, unit: '本', quantity: 5, volumeMl: 500 }],
   preparedness: { completed: [], loadouts: {}, bagSettings: {} },
 };
 
@@ -48,5 +49,10 @@ describe('避難バッグの自動判定表示', () => {
     expect(screen.getByText('容量目安 1本 約600ml')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '実物を確認して収納' }));
     expect(handlers.onChange).toHaveBeenCalledWith(['water']);
+  });
+
+  it('実容量入力に44pxのタッチ領域を確保する', () => {
+    const stylesheet = readFileSync('src/styles.css', 'utf8');
+    expect(stylesheet).toMatch(/\.bag-capacity-control input,\.modal input,\.modal select\{min-height:44px\}/);
   });
 });
