@@ -31,6 +31,16 @@ describe('browser product lookup', () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(2, expect.stringContaining('https://world.openfoodfacts.org/api/v3/product/5000267014203'), expect.any(Object));
   });
 
+  it('does not contact the local app API in the demo environment', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(response({ body: { product: { product_name: 'Demo product' } } }));
+
+    await expect(lookupProductFromBrowser('3017620422003', { fetchImpl, appApiEnabled: false }))
+      .resolves.toMatchObject({ found: true, product: { name: 'Demo product' } });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/world\.openfoodfacts\.org\//), expect.any(Object));
+  });
+
   it('reports invalid GTIN before making a request', async () => {
     const fetchImpl = vi.fn();
     await expect(lookupProductFromBrowser('1234', { fetchImpl })).rejects.toThrow('チェックデジット');

@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { handleProductApi, handleProductImageApi } from './server/productLookup.mjs';
 import { getAccessInfo } from './server/accessInfo.mjs';
 
-const defaultRoot = resolve('dist');
+const defaultRoot = resolve(process.env.APP_DIST_DIR || 'dist');
 const defaultPort = Number(process.env.PORT || 4173);
 const mime = {
   '.html': 'text/html; charset=utf-8',
@@ -40,7 +40,7 @@ function sendText(res, statusCode, body) {
   res.end(body);
 }
 
-export function createRequestHandler({ root = defaultRoot } = {}) {
+export function createRequestHandler({ root = defaultRoot, appApiEnabled = true } = {}) {
   const staticRoot = resolve(root);
 
   return async function requestHandler(req, res) {
@@ -70,10 +70,10 @@ export function createRequestHandler({ root = defaultRoot } = {}) {
         return;
       }
 
-      const apiMatch = pathname.match(/^\/api\/products\/([^/]+)$/);
+      const apiMatch = appApiEnabled && pathname.match(/^\/api\/products\/([^/]+)$/);
       if (apiMatch && req.method === 'GET') return await handleProductApi(req, res, apiMatch[1]);
-      if (pathname === '/api/product-image' && req.method === 'GET') return await handleProductImageApi(req, res, requestUrl.searchParams.get('url') || '');
-      if (pathname === '/api/access-info' && req.method === 'GET') {
+      if (appApiEnabled && pathname === '/api/product-image' && req.method === 'GET') return await handleProductImageApi(req, res, requestUrl.searchParams.get('url') || '');
+      if (appApiEnabled && pathname === '/api/access-info' && req.method === 'GET') {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
@@ -121,8 +121,9 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(proc
 
 if (isMain) {
   if (!existsSync(join(defaultRoot, 'index.html'))) {
-    console.error('dist がありません。先に npm run build を実行してください。');
+    console.error(`${defaultRoot} がありません。対応する環境を先にビルドしてください。`);
     process.exit(1);
   }
-  createAppServer({ root: defaultRoot }).listen(defaultPort, '0.0.0.0', () => console.log(`そなえメモ: http://localhost:${defaultPort}`));
+  const appApiEnabled = process.env.APP_API_ENABLED !== 'false';
+  createAppServer({ root: defaultRoot, appApiEnabled }).listen(defaultPort, '0.0.0.0', () => console.log(`そなえメモ (${process.env.APP_ENVIRONMENT || 'local'}): http://localhost:${defaultPort}`));
 }

@@ -4,12 +4,21 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "dev": "npm run dev:local",
+    "dev:local": "vite --host 0.0.0.0 --mode local-app",
+    "dev:demo": "vite --host 0.0.0.0 --mode demo",
+    "build": "npm run build:local",
+    "build:local": "vite build --mode local-app",
+    "build:demo": "vite build --mode demo",
     "start": "node server.mjs",
-    "preview": "vite preview --host 0.0.0.0",
+    "start:local": "node server.mjs",
+    "start:demo": "node --env-file=.env.demo server.mjs",
+    "preview": "npm run preview:local",
+    "preview:local": "vite preview --host 0.0.0.0 --mode local-app",
+    "preview:demo": "vite preview --host 0.0.0.0 --mode demo",
     "test": "vitest run",
-    "check": "npm run test && npm run build"
+    "check": "npm run test && npm run build:local",
+    "check:demo": "npm run test && npm run build:demo"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.0.5",

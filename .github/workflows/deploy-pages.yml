@@ -34,7 +34,7 @@ jobs:
         run: npm ci
 
       - name: Test and build
-        run: npm run check
+        run: npm run check:demo
         env:
           APP_BASE: /bousai/
 
@@ -44,7 +44,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: dist-demo
 
       - name: Deploy Pages
         id: deployment

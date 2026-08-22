@@ -57,4 +57,19 @@ describe('production app server request validation', () => {
     expect(next.headers['content-security-policy']).toContain("img-src 'self' data: blob:");
     expect(next.body).toContain('<title>fixture</title>');
   });
+
+  it('does not expose local application APIs when they are disabled for demo', async () => {
+    await new Promise((resolve) => server.close(resolve));
+    server = createAppServer({ root, appApiEnabled: false });
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    port = server.address().port;
+
+    const response = await get(port, '/api/access-info', { Accept: 'application/json' });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toBe('Not found');
+  });
 });

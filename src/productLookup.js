@@ -5,6 +5,7 @@ import {
   OPEN_FOOD_FACTS_ORIGIN,
   PRODUCT_FIELDS,
 } from '../shared/productLookup.mjs';
+import { APP_ENVIRONMENT } from './appEnvironment.js';
 
 const isJsonResponse = (response) => (response.headers?.get?.('content-type') || '').toLowerCase().includes('json');
 
@@ -30,22 +31,24 @@ async function lookupDirectly(code, { fetchImpl, signal }) {
     : { found: false, code, message: '商品名を取得できませんでした。' };
 }
 
-export async function lookupProductFromBrowser(rawCode, { fetchImpl = fetch, signal } = {}) {
+export async function lookupProductFromBrowser(rawCode, { fetchImpl = fetch, signal, appApiEnabled = APP_ENVIRONMENT.appApiEnabled } = {}) {
   const code = normalizeBarcode(rawCode);
   if (!hasValidGtinCheckDigit(code)) throw new Error('JAN/EANコードの桁数またはチェックデジットが正しくありません。');
 
-  let response;
-  try {
-    response = await fetchImpl(`/api/products/${encodeURIComponent(code)}`, {
-      headers: { Accept: 'application/json' },
-      signal,
-    });
-  } catch (error) {
-    if (error?.name === 'AbortError') throw error;
-  }
-  if (response) {
-    const result = await readAppResponse(response);
-    if (result) return result;
+  if (appApiEnabled) {
+    let response;
+    try {
+      response = await fetchImpl(`/api/products/${encodeURIComponent(code)}`, {
+        headers: { Accept: 'application/json' },
+        signal,
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+    }
+    if (response) {
+      const result = await readAppResponse(response);
+      if (result) return result;
+    }
   }
 
   return lookupDirectly(code, { fetchImpl, signal });

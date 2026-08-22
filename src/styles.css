@@ -9,9 +9,13 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .topbar { height:76px; display:flex; align-items:center; justify-content:space-between; padding:0 max(32px, calc((100vw - 1116px)/2)); background:rgba(250,248,242,.9); border-bottom:1px solid rgba(24,55,51,.1); position:sticky; top:0; z-index:30; backdrop-filter:blur(16px); }
 .brand { display:flex; align-items:center; gap:11px; }
 .brand-mark { width:40px;height:40px;border-radius:50% 50% 48% 52% / 48% 45% 55% 52%;display:grid;place-items:center;background:var(--deep);color:#f7d69b;transform:rotate(-4deg); }
-.brand > span:last-child { display:flex; flex-direction:column; }
+.brand-copy { display:flex; flex-direction:column; }
+.brand-name { display:flex;align-items:center;gap:7px; }
 .brand b { font-family:'Kaisei Decol'; font-size:18px; letter-spacing:.04em; }
 .brand small { font-size:9px;color:#6d807b;letter-spacing:.08em; }
+.environment-badge { padding:3px 6px;border-radius:999px;font:800 8px/1 system-ui,sans-serif;font-style:normal;letter-spacing:.08em;white-space:nowrap; }
+.environment-badge.environment-local { background:#e5ece8;color:#47685f; }
+.environment-badge.environment-demo { background:#fff0d2;color:#8b5d18;border:1px solid #efd49c; }
 .desktop-nav { display:flex; align-items:center; gap:6px; }
 .desktop-nav button { border:0;background:transparent;padding:10px 15px;border-radius:22px;display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:#71807c;cursor:pointer; }
 .desktop-nav button:hover,.desktop-nav button.active { color:var(--deep);background:#e9eee8; }

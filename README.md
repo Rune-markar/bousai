@@ -9,6 +9,10 @@ npm install
 npm run dev
 ```
 
+`npm run dev` はローカル環境（`http://localhost:5173`）です。公開デモと同じ設定を確認するときは、別ターミナルで `npm run dev:demo`（`http://localhost:5174`）を起動できます。
+
+ローカルとデモは、保存キー、ビルド出力、ポート、PWAキャッシュ、Node APIの接続可否を分離しています。従来の `sonae-note-state-v1` はローカル環境だけが引き継ぎ、デモは `sonae-note-demo-state-v1` を使います。詳しい境界は [環境分離の設計](docs/environment-separation.md) を参照してください。
+
 ## 検証
 
 ```powershell
@@ -64,6 +68,6 @@ npm run check
 
 電力エコシステムは `台数 × 消費W × 使用時間` を基礎に、インバーター効率88%、蓄電池の使用可能率90%、予備20%、太陽光システム効率75%で概算します。メーカー公式価格は画面に記載した確認日時点の参考値であり、医療機器、モーターの起動電力、実際の日照、端子互換性、安全要件は実機仕様と専門家の確認を優先してください。
 
-プロダクション相当の起動は `npm run build` 後に `npm start` を使います。公開先がある場合は `PUBLIC_URL=https://example.com` を設定すると、そのURLがQRコードの優先候補になります。外部APIへの識別情報として、必要に応じて `APP_CONTACT_URL` 環境変数へプロジェクトURLまたは連絡先を設定してください。
+ローカルのプロダクション相当起動は `npm run build:local` 後に `npm run start:local` を使います。デモ相当は `npm run build:demo` 後に `npm run start:demo` を使います。公開先がある場合は `PUBLIC_URL=https://example.com` を設定すると、そのURLがQRコードの優先候補になります。外部APIへの識別情報として、必要に応じて `APP_CONTACT_URL` 環境変数へプロジェクトURLまたは連絡先を設定してください。
 
-サブパスへ静的配信する場合だけ、ビルド時に `APP_BASE=/bousai/` のような末尾スラッシュ付きの公開パスを指定します。ローカルの `npm start` は既定でルート配信されます。
+サブパスへ静的配信する場合だけ、ビルド時に `APP_BASE=/bousai/` のような末尾スラッシュ付きの公開パスを指定します。GitHub Pagesの配信ジョブはデモモードで `dist-demo/` を生成します。ローカルの `npm start` は既定で `dist/` をルート配信します。

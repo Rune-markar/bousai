@@ -1,9 +1,10 @@
 import { CATEGORY_META, createInitialInventory, daysFromNow, isValidLocalDate, localDateKey, MAX_STOCKPILE_TARGET_DAYS, normalizeStockpileTargetDays, uid } from './domain.js';
 import { createDefaultPowerPlan, normalizePowerPlan } from './power.js';
 import { parseWeightGrams } from '../shared/productLookup.mjs';
+import { APP_ENVIRONMENT } from './appEnvironment.js';
 
-export const STORAGE_KEY = 'sonae-note-state-v1';
-export const RECOVERY_KEY_PREFIX = `${STORAGE_KEY}-recovery`;
+export const STORAGE_KEY = APP_ENVIRONMENT.storageKey;
+export const RECOVERY_KEY_PREFIX = APP_ENVIRONMENT.recoveryKeyPrefix;
 export const SCHEMA_VERSION = 16;
 
 const PRODUCT_LOT_SCHEMA_VERSION = 15;

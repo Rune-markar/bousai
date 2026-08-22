@@ -4,6 +4,10 @@ import App from './App.jsx';
 import './styles.css';
 import './footer.css';
 import { registerSW } from 'virtual:pwa-register';
+import { APP_ENVIRONMENT } from './appEnvironment.js';
+
+document.documentElement.dataset.appEnvironment = APP_ENVIRONMENT.id;
+if (APP_ENVIRONMENT.isDemo) document.title = `デモ | ${document.title}`;
 
 registerSW({
   immediate: true,

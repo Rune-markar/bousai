@@ -20,6 +20,7 @@ import { buildCharacterAdvice, CHARACTERS, CONVERSATION_CHOICES, getCharacter, r
 import { DISASTER_SCENARIOS, generateEmergencyPlan, simulateDisaster } from './emergency.js';
 import { STOCKPILE_GUIDELINE_SOURCES } from './stockpileGuideline.js';
 import { buildStockpileSkillTree, claimStockpileSkill } from './stockpileSkills.js';
+import { APP_ENVIRONMENT } from './appEnvironment.js';
 
 const nav = [
   { id: 'home', label: 'ホーム', icon: Home },
@@ -92,7 +93,7 @@ const resolveInventoryReviewAfterEdit = (item) => {
 };
 
 function Brand() {
-  return <div className="brand"><span className="brand-mark"><ShieldCheck size={22} /></span><span><b>そなえメモ</b><small>暮らしに、ちいさな安心を。</small></span></div>;
+  return <div className="brand"><span className="brand-mark"><ShieldCheck size={22} /></span><span className="brand-copy"><span className="brand-name"><b>そなえメモ</b><em className={`environment-badge environment-${APP_ENVIRONMENT.id}`} title={`${APP_ENVIRONMENT.description}です。ほかの環境の保存データとは分離されています。`}>{APP_ENVIRONMENT.label}</em></span><small>暮らしに、ちいさな安心を。</small></span></div>;
 }
 
 function App() {
@@ -314,7 +315,7 @@ function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `sonae-note-protected-${localDateKey()}.json`;
+    link.download = `${APP_ENVIRONMENT.backupFilenamePrefix}-protected-${localDateKey()}.json`;
     link.click();
     URL.revokeObjectURL(url);
     setRecoveryDownloaded(true);
@@ -325,7 +326,7 @@ function App() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `sonae-note-unsaved-${localDateKey()}.json`;
+      link.download = `${APP_ENVIRONMENT.backupFilenamePrefix}-unsaved-${localDateKey()}.json`;
       link.click();
       URL.revokeObjectURL(url);
       if (forConflict) setConflictDownloaded(true);
@@ -428,7 +429,7 @@ function App() {
   </section> : null);
 
   return (
-    <div className={`app-shell${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
+    <div className={`app-shell environment-${APP_ENVIRONMENT.id}${page === 'home' ? ' home-active' : ''}${page === 'power' ? ' power-active' : ''}`}>
       {state.storageRecovery?.blocked && <section ref={recoveryAlertRef} className="storage-recovery-alert" role="alert">
         <AlertTriangle />
         <span><b>保存データを安全に読み込めませんでした</b><small>{state.storageRecovery.reason === 'read-error' ? '端末の保存領域を読み取れません。元データへ書き込まず停止しています。再読み込みしても続く場合は、ブラウザの保存設定を確認してください。' : <>{state.storageRecovery.reason === 'future-schema' ? 'このアプリより新しい形式です。' : 'データ形式が壊れている可能性があります。'}元データは上書きしていません。{state.storageRecovery.backupStored ? '別の保存キーにも複製しましたが、この画面を離れる前に保護データをファイル保存してください。' : '別キーへの複製はできなかったため、空の状態で続ける前に保護データをファイル保存してください。'}</>}</small></span>
@@ -458,7 +459,7 @@ function App() {
       </main>
 
       <footer className="app-footer" {...chromeA11y}>
-        <small>© {new Date().getFullYear()} そなえメモ</small>
+        <small>© {new Date().getFullYear()} そなえメモ · {APP_ENVIRONMENT.label}環境</small>
       </footer>
 
       <nav className="mobile-nav" aria-label="モバイルナビゲーション" {...chromeA11y}>
@@ -1242,7 +1243,7 @@ function Inventory({ categoryKey = null, state, summary, transactions, setModal,
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `sonae-note-backup-${localDateKey()}.json`;
+      link.download = `${APP_ENVIRONMENT.backupFilenamePrefix}-backup-${localDateKey()}.json`;
       link.click();
       URL.revokeObjectURL(url);
       importSnapshotRef.current = currentSnapshot;
@@ -1783,6 +1784,7 @@ function ShareQrPanel({ onClose, setToast }) {
 
   useEffect(() => {
     let active = true;
+    if (!APP_ENVIRONMENT.appApiEnabled) return undefined;
     fetch('/api/access-info', { headers: { Accept: 'application/json' } })
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((info) => {
