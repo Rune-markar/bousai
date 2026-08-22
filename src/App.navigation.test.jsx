@@ -44,20 +44,24 @@ describe('電力設計ページの導線', () => {
 
   it('初回は3ステップで家族人数、備蓄目標、連絡先を設定する', async () => {
     localStorage.clear();
-    render(<App />);
+    const { container } = render(<App />);
 
     expect(screen.getByRole('dialog', { name: '何人分の備えをしますか？' })).toBeInTheDocument();
+    expect(container.querySelectorAll('main')).toHaveLength(1);
     expect(screen.getByLabelText('初期設定 3ステップ中1ステップ目')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '家族人数を1人増やす' }));
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
 
     expect(screen.getByRole('heading', { name: '何日分の備蓄を目指しますか？' })).toBeInTheDocument();
+    expect(container.querySelectorAll('main')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: '14日分' }));
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
 
     expect(screen.getByRole('heading', { name: '集合場所と連絡先' })).toBeInTheDocument();
+    expect(container.querySelectorAll('main')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'あとで設定' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(container.querySelectorAll('main')).toHaveLength(1);
     expect(screen.getByLabelText('家族3人')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /14日/ })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'わが家の防災状況' })).toHaveFocus());

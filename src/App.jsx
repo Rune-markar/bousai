@@ -444,7 +444,7 @@ function App() {
         <div className="header-actions">{!online && <span className="offline-badge"><WifiOff />オフライン</span>}<button className="notification-button" aria-label="オプションを開く" onClick={() => setOptionsOpen(true)}><Settings size={20} /></button><button className="notification-button share-button" aria-label="アクセス用QRコードを開く" onClick={() => setShareOpen(true)}><QrCode size={20} /></button><button className="notification-button" aria-label={`通知一覧を開く（${summary.notificationCount}件）`} onClick={() => setNotificationsOpen(true)}><Bell size={20} /><span>{summary.notificationCount}</span></button></div>
       </header>
 
-      <main key={stateViewRevision} ref={mainRef} {...backgroundA11y}>
+      <main key={`main-${stateViewRevision}`} ref={mainRef} {...backgroundA11y}>
         {page === 'home' && <Dashboard state={state} summary={summary} setState={setState} setPage={setPage} powerEntryRef={powerEntryRef} />}
         {page === 'inventory' && <Inventory state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} today={currentDay} onStateReplaced={discardLocalDrafts} latestStateRef={latestStateRef} />}
         {page === 'inventory-category' && <Inventory categoryKey={pageTarget} state={state} summary={summary} transactions={state.transactions} setModal={setModal} updateInventory={updateInventory} setState={setState} setToast={setToast} setPage={setPage} skillEntryRef={stockpileSkillEntryRef} today={currentDay} onStateReplaced={discardLocalDrafts} latestStateRef={latestStateRef} />}
@@ -524,7 +524,7 @@ function App() {
       {notificationsOpen && <NotificationPanel state={state} summary={summary} setToast={setToast} onClose={() => setNotificationsOpen(false)} onOpenInventory={() => { setNotificationsOpen(false); setPage('inventory'); }} onOpenItem={(item) => { setNotificationsOpen(false); setModal(item); }} onOpenRolling={() => { setNotificationsOpen(false); setPage('rolling'); }} onReplenish={replenishShortage} />}
       {shareOpen && <ShareQrPanel onClose={() => setShareOpen(false)} setToast={setToast} />}
       {optionsOpen && <OptionsPanel state={state} setState={setState} onClose={() => setOptionsOpen(false)} setToast={setToast} />}
-      {!state.onboarding?.completed && <SetupWizard key={stateViewRevision} state={state} setState={setState} />}
+      {!state.onboarding?.completed && <SetupWizard key={`setup-${stateViewRevision}`} state={state} setState={setState} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={18} />{toast}</div>}
     </div>
   );
